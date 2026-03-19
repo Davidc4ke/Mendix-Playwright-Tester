@@ -45,7 +45,7 @@ function getPlaywrightEnv(extra = {}) {
 // If not, fall back to the system browser (Edge on Windows, Chrome on others).
 function detectBrowserChannel() {
   try {
-    const pw = require("playwright");
+    const pw = require("playwright-core");
     const execPath = pw.chromium.executablePath();
     if (execPath && fs.existsSync(execPath)) {
       return null; // bundled Chromium is available

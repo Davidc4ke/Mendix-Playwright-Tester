@@ -11,7 +11,7 @@
     "install-browsers": "npx playwright install chromium",
     "install-browsers:local": "cross-env PLAYWRIGHT_BROWSERS_PATH=./browsers npx playwright install chromium",
     "install-browsers:china": "cross-env PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright PLAYWRIGHT_BROWSERS_PATH=./browsers npx playwright install chromium",
-    "postinstall": "npx playwright install chromium"
+    "postinstall": "echo Run 'npm run install-browsers' to install Playwright Chromium (optional — the app will use system Edge/Chrome if not installed)"
   },
   "build": {
     "appId": "com.zoniq.testrunner",
@@ -56,7 +56,6 @@
     "@playwright/test": "^1.49.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
-    "playwright": "^1.58.2",
     "uuid": "^10.0.0"
   },
   "devDependencies": {
