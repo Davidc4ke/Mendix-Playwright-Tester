@@ -29,13 +29,44 @@ const PLAYWRIGHT_CLI = path.resolve(
   process.platform === "win32" ? "playwright.cmd" : "playwright"
 );
 
-// Support bundled browsers: if a "browsers" directory exists next to the app,
-// tell Playwright to look there. This lets users pre-install browsers once
-// (or copy them from another machine) without needing network access.
+// Support bundled browsers: if a "browsers" directory exists next to the app
+// AND contains a working Chromium executable, tell Playwright to look there.
+// This lets users pre-install browsers once (or copy them from another machine)
+// without needing network access.
 const LOCAL_BROWSERS_DIR = path.join(__dirname, "browsers");
+let _localBrowsersValid = null; // cached result of validation
+
+function isLocalBrowsersDirValid() {
+  if (_localBrowsersValid !== null) return _localBrowsersValid;
+  if (!fs.existsSync(LOCAL_BROWSERS_DIR)) {
+    _localBrowsersValid = false;
+    return false;
+  }
+  // Verify that bundled Chromium actually exists inside the local dir
+  try {
+    const origEnv = process.env.PLAYWRIGHT_BROWSERS_PATH;
+    process.env.PLAYWRIGHT_BROWSERS_PATH = LOCAL_BROWSERS_DIR;
+    const pw = require("playwright-core");
+    const execPath = pw.chromium.executablePath();
+    // Restore original env
+    if (origEnv !== undefined) {
+      process.env.PLAYWRIGHT_BROWSERS_PATH = origEnv;
+    } else {
+      delete process.env.PLAYWRIGHT_BROWSERS_PATH;
+    }
+    _localBrowsersValid = !!(execPath && fs.existsSync(execPath));
+  } catch {
+    _localBrowsersValid = false;
+  }
+  if (!_localBrowsersValid) {
+    console.log("[browser] Local browsers directory exists but is incomplete, ignoring it");
+  }
+  return _localBrowsersValid;
+}
+
 function getPlaywrightEnv(extra = {}) {
   const env = { ...process.env, ...extra };
-  if (fs.existsSync(LOCAL_BROWSERS_DIR)) {
+  if (isLocalBrowsersDirValid()) {
     env.PLAYWRIGHT_BROWSERS_PATH = LOCAL_BROWSERS_DIR;
   }
   return env;
@@ -44,6 +75,10 @@ function getPlaywrightEnv(extra = {}) {
 // Detect whether Playwright's bundled Chromium is installed.
 // If not, fall back to the system browser (Edge on Windows, Chrome on others).
 function detectBrowserChannel() {
+  // If we have a valid local browsers dir, check there first
+  if (isLocalBrowsersDirValid()) {
+    return null; // validated local Chromium is available
+  }
   try {
     const pw = require("playwright-core");
     const execPath = pw.chromium.executablePath();
