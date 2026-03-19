@@ -41,6 +41,43 @@ function getPlaywrightEnv(extra = {}) {
   return env;
 }
 
+// Detect whether Playwright's bundled Chromium is installed.
+// If not, fall back to the system browser (Edge on Windows, Chrome on others).
+function detectBrowserChannel() {
+  try {
+    const pw = require("playwright");
+    const execPath = pw.chromium.executablePath();
+    if (execPath && fs.existsSync(execPath)) {
+      return null; // bundled Chromium is available
+    }
+    return getFallbackChannel();
+  } catch {
+    return getFallbackChannel();
+  }
+}
+
+function getFallbackChannel() {
+  if (process.platform === "win32") return "msedge";
+  if (process.platform === "darwin") return "chrome";
+  return "chrome";
+}
+
+// Cache the channel detection at startup
+let _browserChannel = null;
+let _browserChannelDetected = false;
+function getBrowserChannel() {
+  if (!_browserChannelDetected) {
+    _browserChannel = detectBrowserChannel();
+    _browserChannelDetected = true;
+    if (_browserChannel) {
+      console.log(`[browser] Playwright Chromium not found, using system browser: ${_browserChannel}`);
+    } else {
+      console.log("[browser] Using Playwright bundled Chromium");
+    }
+  }
+  return _browserChannel;
+}
+
 [SCRIPTS_DIR, RESULTS_DIR, TEMP_DIR].forEach((d) => {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 });
@@ -257,8 +294,10 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
   } catch {}
 
   return new Promise((resolve) => {
+    const channel = getBrowserChannel();
     const env = getPlaywrightEnv({
       PLAYWRIGHT_JSON_OUTPUT_FILE: reportPath,
+      ...(channel ? { ZONIQ_BROWSER_CHANNEL: channel } : {}),
     });
     const runIdPrefix = path.basename(scriptPath, ".spec.js");
     // Default to headed on desktop; set ZONIQ_HEADED=false to run headless (e.g. on CI)
@@ -592,17 +631,23 @@ ipcMain.handle("launch-recorder", async (event, targetUrl) => {
     const outputFile = `recording-${Date.now()}.js`;
     const outputPath = path.join(SCRIPTS_DIR, outputFile);
 
-    console.log(`[recorder] CMD: ${PLAYWRIGHT_CLI} codegen ${targetUrl}`);
+    const codegenArgs = [
+      "codegen",
+      targetUrl,
+      "--output",
+      outputPath,
+      "--viewport-size=1920,1080",
+    ];
+    const channel = getBrowserChannel();
+    if (channel) {
+      codegenArgs.push(`--channel=${channel}`);
+    }
+
+    console.log(`[recorder] CMD: ${PLAYWRIGHT_CLI} ${codegenArgs.join(" ")}`);
 
     const proc = spawn(
       PLAYWRIGHT_CLI,
-      [
-        "codegen",
-        targetUrl,
-        "--output",
-        outputPath,
-        "--viewport-size=1920,1080",
-      ],
+      codegenArgs,
       { env: getPlaywrightEnv(), shell: true }
     );
 
