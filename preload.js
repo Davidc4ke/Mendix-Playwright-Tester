@@ -11,6 +11,16 @@ contextBridge.exposeInMainWorld("zoniq", {
   executeScenario: (s) => ipcRenderer.invoke("execute-scenario", s),
   openResultsFolder: (runId) => ipcRenderer.invoke("open-results-folder", runId),
 
+  // Settings
+  getSettings: () => ipcRenderer.invoke("get-settings"),
+  saveSettings: (s) => ipcRenderer.invoke("save-settings", s),
+  testLLMConnection: (s) => ipcRenderer.invoke("test-llm-connection", s),
+
+  // Agent operations
+  agentHeal: (opts) => ipcRenderer.invoke("agent-heal", opts),
+  agentHealApply: (opts) => ipcRenderer.invoke("agent-heal-apply", opts),
+  agentCancel: () => ipcRenderer.invoke("agent-cancel"),
+
   // Event listeners — each returns an unsubscribe function to prevent memory leaks
   onRunStarted: (cb) => {
     const handler = (_, data) => cb(data);
@@ -36,5 +46,10 @@ contextBridge.exposeInMainWorld("zoniq", {
     const handler = (_, data) => cb(data);
     ipcRenderer.on("step-progress", handler);
     return () => ipcRenderer.removeListener("step-progress", handler);
+  },
+  onAgentProgress: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("agent-progress", handler);
+    return () => ipcRenderer.removeListener("agent-progress", handler);
   },
 });
