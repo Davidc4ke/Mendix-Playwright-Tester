@@ -162,7 +162,10 @@ function wrapScript(script, targetUrl, credentials) {
   // Strip Codegen's own imports (both ESM and CommonJS)
   scriptBody = scriptBody
     .replace(/^import\s+\{[^}]*\}\s+from\s+['"][^'"]*['"];\s*$/gm, '')
+    .replace(/^import\s+\*\s+as\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, '')
+    .replace(/^import\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, '')
     .replace(/^const\s+\{[^}]*\}\s*=\s*require\s*\([^)]*\);\s*$/gm, '')
+    .replace(/^const\s+\w+\s*=\s*require\s*\([^)]*\);\s*$/gm, '')
     .trim();
 
   // Strip test.use() blocks (viewport config etc.)
