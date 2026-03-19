@@ -9,8 +9,8 @@
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
     "install-browsers": "npx playwright install chromium",
-    "install-browsers:local": "PLAYWRIGHT_BROWSERS_PATH=./browsers npx playwright install chromium",
-    "install-browsers:china": "PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright PLAYWRIGHT_BROWSERS_PATH=./browsers npx playwright install chromium",
+    "install-browsers:local": "cross-env PLAYWRIGHT_BROWSERS_PATH=./browsers npx playwright install chromium",
+    "install-browsers:china": "cross-env PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright PLAYWRIGHT_BROWSERS_PATH=./browsers npx playwright install chromium",
     "postinstall": "npx playwright install chromium"
   },
   "build": {
@@ -60,6 +60,7 @@
     "uuid": "^10.0.0"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "electron": "^33.4.11",
     "electron-builder": "^25.1.0"
   }
