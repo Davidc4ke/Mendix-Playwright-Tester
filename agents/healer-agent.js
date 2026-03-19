@@ -194,6 +194,11 @@ class HealerAgent {
       message: `Replaying ${failIndex} of ${statements.length} commands to reach failure point...`,
     });
 
+    // Make script-level constants available for replay
+    const { expect } = require("@playwright/test");
+    const TARGET_URL = targetUrl;
+    const CREDENTIALS = credentials || {};
+
     // 4. Execute statements one by one, stopping before the failure
     for (let i = 0; i < failIndex; i++) {
       if (this._cancelled) throw new Error("Cancelled");
@@ -205,8 +210,8 @@ class HealerAgent {
 
       try {
         // Execute the actual Playwright code with the live page object
-        const fn = new AsyncFunction("page", "mx", stmt);
-        await fn(page, mx);
+        const fn = new AsyncFunction("page", "mx", "expect", "TARGET_URL", "CREDENTIALS", stmt);
+        await fn(page, mx, expect, TARGET_URL, CREDENTIALS);
         replayLog.push({ step: i, action: desc, status: "ok" });
       } catch (err) {
         replayLog.push({ step: i, action: desc, status: "replay_failed", error: err.message });
@@ -227,10 +232,16 @@ class HealerAgent {
    * Strips imports, test.use(), and the test() wrapper.
    */
   _extractTestBody(script) {
-    // Remove import/require lines
+    // Remove import/require lines (all patterns that wrapScript strips)
     let cleaned = script
       .replace(/^import\s+\{[^}]*\}\s+from\s+['"][^'"]*['"];\s*$/gm, "")
+      .replace(/^import\s+\*\s+as\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, "")
+      .replace(/^import\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, "")
       .replace(/^const\s+\{[^}]*\}\s*=\s*require\s*\([^)]*\);\s*$/gm, "")
+      .replace(/^const\s+\w+\s*=\s*require\s*\([^)]*\);\s*$/gm, "")
+      // Strip script-level constants added by wrapScript
+      .replace(/^const\s+TARGET_URL\s*=\s*.*;\s*$/gm, "")
+      .replace(/^const\s+CREDENTIALS\s*=\s*\{[\s\S]*?\}\s*;\s*$/gm, "")
       .trim();
 
     // Remove test.use() blocks
@@ -502,7 +513,8 @@ class HealerAgent {
   }
 
   _parseHealerResponse(response) {
-    const jsonMatch = response.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+    // 1. Try to find a ```json code block specifically
+    const jsonMatch = response.match(/```json\s*\n?([\s\S]*?)```/);
     if (jsonMatch) {
       try {
         const parsed = JSON.parse(jsonMatch[1].trim());
@@ -515,10 +527,32 @@ class HealerAgent {
       } catch {}
     }
 
-    const scriptMatch = response.match(/```(?:javascript|js)?\s*\n?([\s\S]*?)```/);
+    // 2. Fallback: look for a ```javascript or ```js code block (but NOT ```json)
+    const scriptMatch = response.match(/```(?:javascript|js(?!on))\s*\n?([\s\S]*?)```/);
     if (scriptMatch) {
       return {
         healedScript: scriptMatch[1].trim(),
+        changes: [],
+        analysis: response.split("```")[0].trim(),
+        confidence: "low",
+      };
+    }
+
+    // 3. Last resort: bare ``` code block (no language tag)
+    const bareMatch = response.match(/```\s*\n([\s\S]*?)```/);
+    if (bareMatch) {
+      const content = bareMatch[1].trim();
+      try {
+        const parsed = JSON.parse(content);
+        return {
+          healedScript: parsed.healed_script || parsed.healedScript || null,
+          changes: parsed.changes || [],
+          analysis: parsed.analysis || "",
+          confidence: parsed.confidence || "medium",
+        };
+      } catch {}
+      return {
+        healedScript: content,
         changes: [],
         analysis: response.split("```")[0].trim(),
         confidence: "low",

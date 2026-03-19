@@ -166,6 +166,9 @@ function wrapScript(script, targetUrl, credentials) {
     .replace(/^import\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, '')
     .replace(/^const\s+\{[^}]*\}\s*=\s*require\s*\([^)]*\);\s*$/gm, '')
     .replace(/^const\s+\w+\s*=\s*require\s*\([^)]*\);\s*$/gm, '')
+    // Strip existing TARGET_URL and CREDENTIALS declarations to avoid duplicates
+    .replace(/^const\s+TARGET_URL\s*=\s*.*;\s*$/gm, '')
+    .replace(/^const\s+CREDENTIALS\s*=\s*\{[\s\S]*?\}\s*;\s*$/gm, '')
     .trim();
 
   // Strip test.use() blocks (viewport config etc.)
@@ -616,7 +619,7 @@ function startAPIServer() {
     const { scenarioId, runId, script, errors, targetUrl, credentials } = req.body;
 
     // Support both by-ID and inline mode
-    let healScript, healErrors, healUrl, healCreds;
+    let healScript, healErrors, healUrl, healCreds, healSteps;
 
     if (scenarioId && runId) {
       const db = loadDB();
@@ -628,11 +631,13 @@ function startAPIServer() {
       healErrors = run.results?.errors || [];
       healUrl = scenario.targetUrl;
       healCreds = scenario.credentials;
+      healSteps = scenario.steps || null;
     } else if (script && targetUrl) {
       healScript = script;
       healErrors = errors || [];
       healUrl = targetUrl;
       healCreds = credentials;
+      healSteps = req.body.steps || null;
     } else {
       return res.status(400).json({ error: "Provide (scenarioId + runId) or (script + targetUrl + errors)" });
     }
@@ -659,6 +664,7 @@ function startAPIServer() {
     try {
       const result = await healer.heal({
         script: healScript,
+        steps: healSteps,
         errors: healErrors,
         targetUrl: healUrl,
         credentials: healCreds,
