@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Zoniq Test Runner</title>
+<style>
+  /* ── Reset & Foundations ────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-base: #0a0e17;
+    --bg-surface: #111827;
+    --bg-elevated: #1a2236;
+    --bg-input: #0d1220;
+    --border: #1e2d45;
+    --border-focus: #3b82f6;
+    --text-primary: #e2e8f0;
+    --text-secondary: #7a8ba8;
+    --text-muted: #4a5a73;
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --green: #10b981;
+    --green-dim: rgba(16,185,129,0.12);
+    --red: #ef4444;
+    --red-dim: rgba(239,68,68,0.12);
+    --amber: #f59e0b;
+    --amber-dim: rgba(245,158,11,0.12);
+    --radius: 6px;
+    --radius-lg: 10px;
+    --font: "JetBrains Mono", "Cascadia Code", "Fira Code", "SF Mono", "Consolas", monospace;
+    --font-ui: "Segoe UI", system-ui, -apple-system, sans-serif;
+    --transition: 150ms ease;
+  }
+
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: local('JetBrains Mono');
+  }
+
+  body {
+    font-family: var(--font-ui);
+    background: var(--bg-base);
+    color: var(--text-primary);
+    line-height: 1.5;
+    overflow: hidden;
+    height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Layout ─────────────────────────────────────────── */
+  .app {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+
+  .titlebar-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .titlebar-logo {
+    width: 22px; height: 22px;
+    background: var(--accent);
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 12px; color: white;
+    font-family: var(--font);
+  }
+
+  .titlebar h1 {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-primary);
+  }
+
+  .titlebar h1 span {
+    color: var(--text-muted);
+    font-weight: 400;
+  }
+
+  .health-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-family: var(--font);
+    color: var(--text-secondary);
+    -webkit-app-region: no-drag;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: var(--radius);
+    transition: background var(--transition);
+  }
+
+  .health-indicator:hover { background: var(--bg-elevated); }
+
+  .health-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: background var(--transition);
+  }
+
+  .health-dot.ok { background: var(--green); box-shadow: 0 0 6px rgba(16,185,129,0.4); }
+  .health-dot.error { background: var(--red); }
+
+  .main-content {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ────────────────────────────────────────── */
+  .sidebar {
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-tab {
+    flex: 1;
+    padding: 10px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all var(--transition);
+    background: none; border-top: none; border-left: none; border-right: none;
+  }
+
+  .sidebar-tab:hover { color: var(--text-secondary); }
+  .sidebar-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .sidebar-panel {
+    flex: 1;
+    overflow-y: auto;
+    display: none;
+  }
+
+  .sidebar-panel.active { display: flex; flex-direction: column; }
+
+  .sidebar-actions {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px;
+  }
+
+  .sidebar-list::-webkit-scrollbar { width: 5px; }
+  .sidebar-list::-webkit-scrollbar-track { background: transparent; }
+  .sidebar-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── Cards ──────────────────────────────────────────── */
+  .scenario-card, .run-card {
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all var(--transition);
+    border: 1px solid transparent;
+    margin-bottom: 2px;
+  }
+
+  .scenario-card:hover, .run-card:hover {
+    background: var(--bg-elevated);
+    border-color: var(--border);
+  }
+
+  .scenario-card.selected, .run-card.selected {
+    background: var(--bg-elevated);
+    border-color: var(--accent);
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .card-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font);
+  }
+
+  .card-url {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: var(--font);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+  }
+
+  /* ── Status Badges ──────────────────────────────────── */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-family: var(--font);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 3px;
+  }
+
+  .badge-passed { background: var(--green-dim); color: var(--green); }
+  .badge-failed { background: var(--red-dim); color: var(--red); }
+  .badge-running { background: var(--amber-dim); color: var(--amber); }
+  .badge-error { background: var(--red-dim); color: var(--red); }
+
+  /* ── Detail Panel ───────────────────────────────────── */
+  .detail-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .detail-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .detail-title {
+    font-size: 17px;
+    font-weight: 700;
+  }
+
+  .detail-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+  }
+
+  .detail-body::-webkit-scrollbar { width: 6px; }
+  .detail-body::-webkit-scrollbar-track { background: transparent; }
+  .detail-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── Empty State ────────────────────────────────────── */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    gap: 12px;
+    padding: 40px;
+    text-align: center;
+  }
+
+  .empty-state-icon {
+    font-size: 48px;
+    opacity: 0.3;
+  }
+
+  .empty-state p {
+    font-size: 13px;
+    max-width: 280px;
+    line-height: 1.7;
+  }
+
+  /* ── Buttons ────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all var(--transition);
+    white-space: nowrap;
+    font-family: var(--font-ui);
+  }
+
+  .btn:hover {
+    background: var(--bg-input);
+    border-color: var(--text-muted);
+  }
+
+  .btn:active { transform: scale(0.97); }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+
+  .btn-danger {
+    color: var(--red);
+  }
+
+  .btn-danger:hover {
+    background: var(--red-dim);
+    border-color: var(--red);
+  }
+
+  .btn-record {
+    background: var(--red);
+    border-color: var(--red);
+    color: white;
+    position: relative;
+  }
+
+  .btn-record::before {
+    content: '';
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: white;
+    animation: pulse-record 1.5s ease infinite;
+  }
+
+  @keyframes pulse-record {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .btn-sm {
+    padding: 4px 10px;
+    font-size: 11px;
+  }
+
+  .btn-group {
+    display: flex;
+    gap: 6px;
+  }
+
+  /* ── Forms ──────────────────────────────────────────── */
+  .form-group {
+    margin-bottom: 14px;
+  }
+
+  .form-group label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    margin-bottom: 5px;
+  }
+
+  .form-input {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: var(--font);
+    transition: border-color var(--transition);
+  }
+
+  .form-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .form-input::placeholder { color: var(--text-muted); }
+
+  textarea.form-input {
+    min-height: 150px;
+    resize: vertical;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  select.form-input {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%237a8ba8' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 30px;
+  }
+
+  /* ── Script Editor ──────────────────────────────────── */
+  .script-area {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    font-family: var(--font);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text-primary);
+    min-height: 200px;
+    resize: vertical;
+    width: 100%;
+    tab-size: 2;
+  }
+
+  .script-area:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* ── Results Panel ──────────────────────────────────── */
+  .results-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .stat-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    text-align: center;
+  }
+
+  .stat-value {
+    font-size: 28px;
+    font-weight: 800;
+    font-family: var(--font);
+  }
+
+  .stat-value.green { color: var(--green); }
+  .stat-value.red { color: var(--red); }
+  .stat-value.amber { color: var(--amber); }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 4px;
+  }
+
+  .error-block {
+    background: var(--red-dim);
+    border: 1px solid rgba(239,68,68,0.25);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+
+  .error-block-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--red);
+    margin-bottom: 4px;
+  }
+
+  .error-block pre {
+    font-family: var(--font);
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .artifact-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .artifact-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-family: var(--font);
+    padding: 4px 10px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--accent);
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+
+  .artifact-chip:hover {
+    background: var(--bg-elevated);
+    border-color: var(--accent);
+  }
+
+  /* ── Section Headers ────────────────────────────────── */
+  .section-header {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    margin-top: 20px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-header:first-child { margin-top: 0; }
+
+  /* ── Health Panel ───────────────────────────────────── */
+  .health-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .health-item {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+
+  .health-item-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  .health-item-value {
+    font-size: 13px;
+    font-family: var(--font);
+    color: var(--text-primary);
+    word-break: break-all;
+  }
+
+  /* ── Modal Overlay ──────────────────────────────────── */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-overlay.active { display: flex; }
+
+  .modal {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    width: 560px;
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 24px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+
+  .modal-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 20px;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Toast ──────────────────────────────────────────── */
+  .toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .toast {
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 500;
+    animation: toast-in 300ms ease;
+    border: 1px solid;
+  }
+
+  .toast-success { background: var(--green-dim); border-color: rgba(16,185,129,0.3); color: var(--green); }
+  .toast-error { background: var(--red-dim); border-color: rgba(239,68,68,0.3); color: var(--red); }
+  .toast-info { background: rgba(59,130,246,0.1); border-color: rgba(59,130,246,0.3); color: var(--accent); }
+
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Spinner ────────────────────────────────────────── */
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Responsive ─────────────────────────────────────── */
+  .detail-body .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ── Title Bar ──────────────────────────────────── -->
+  <div class="titlebar">
+    <div class="titlebar-left">
+      <div class="titlebar-logo">Z</div>
+      <h1>Zoniq Test Runner <span>v1.0</span></h1>
+    </div>
+    <div class="health-indicator" id="healthIndicator" onclick="runHealthCheck()">
+      <div class="health-dot" id="healthDot"></div>
+      <span id="healthText">Checking...</span>
+    </div>
+  </div>
+
+  <div class="main-content">
+    <!-- ── Sidebar ────────────────────────────────── -->
+    <div class="sidebar">
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" data-panel="scenarios">Scenarios</button>
+        <button class="sidebar-tab" data-panel="runs">Test Runs</button>
+      </div>
+
+      <!-- Scenarios Panel -->
+      <div class="sidebar-panel active" id="panel-scenarios">
+        <div class="sidebar-actions">
+          <button class="btn btn-primary" onclick="openNewScenarioModal()">+ New Scenario</button>
+          <button class="btn btn-record" onclick="launchRecorderPrompt()">Record from Browser</button>
+        </div>
+        <div class="sidebar-list" id="scenarioList">
+          <div class="empty-state">
+            <div class="empty-state-icon">&#9881;</div>
+            <p>No test scenarios yet. Create one or record a browser session.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Runs Panel -->
+      <div class="sidebar-panel" id="panel-runs">
+        <div class="sidebar-actions">
+          <button class="btn btn-sm" onclick="loadRuns()">&#8635; Refresh</button>
+        </div>
+        <div class="sidebar-list" id="runList">
+          <div class="empty-state">
+            <div class="empty-state-icon">&#9654;</div>
+            <p>No test runs yet. Execute a scenario to see results here.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Detail Panel ───────────────────────────── -->
+    <div class="detail-panel" id="detailPanel">
+      <div class="empty-state" id="detailEmpty">
+        <div class="empty-state-icon">&#10024;</div>
+        <p>Select a scenario or test run from the sidebar, or create a new one to get started.</p>
+        <button class="btn btn-primary" onclick="openNewScenarioModal()" style="margin-top: 8px;">+ New Scenario</button>
+      </div>
+      <div id="detailContent" style="display:none; flex-direction:column; flex:1; overflow:hidden;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── New Scenario Modal ─────────────────────────── -->
+<div class="modal-overlay" id="scenarioModal">
+  <div class="modal">
+    <div class="modal-title" id="scenarioModalTitle">New Test Scenario</div>
+    <div class="form-group">
+      <label>Scenario Name</label>
+      <input class="form-input" id="scName" placeholder="e.g. Login Flow — Happy Path" />
+    </div>
+    <div class="form-group">
+      <label>Target App URL</label>
+      <input class="form-input" id="scUrl" placeholder="https://client-app.mendixcloud.com" />
+    </div>
+    <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div class="form-group">
+        <label>Username (optional)</label>
+        <input class="form-input" id="scUser" placeholder="testuser" />
+      </div>
+      <div class="form-group">
+        <label>Password (optional)</label>
+        <input class="form-input" id="scPass" type="password" placeholder="••••••" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Playwright Script</label>
+      <textarea class="script-area" id="scScript" placeholder="test('my test', async ({ page }) => {
+  await mx.login(page, TARGET_URL, CREDENTIALS.username, CREDENTIALS.password);
+  await mx.clickWidget(page, 'btnSubmit');
+  // ...
+});"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <button class="btn btn-sm" onclick="importScriptToModal()">&#128193; Import .js File</button>
+      <button class="btn btn-sm btn-record" onclick="recordIntoModal()">Record into Here</button>
+    </div>
+    <input type="hidden" id="scId" />
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('scenarioModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveScenarioFromModal()">Save Scenario</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Record Prompt Modal ────────────────────────── -->
+<div class="modal-overlay" id="recordModal">
+  <div class="modal" style="width:440px;">
+    <div class="modal-title">Record Test</div>
+    <div class="form-group">
+      <label>Target App URL</label>
+      <input class="form-input" id="recordUrl" placeholder="https://client-app.mendixcloud.com" />
+    </div>
+    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
+      A browser will open. Click through your test scenario. When you close the browser, the recorded script will be saved as a new scenario.
+    </p>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('recordModal')">Cancel</button>
+      <button class="btn btn-record" onclick="startRecording()">Start Recording</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Health Modal ───────────────────────────────── -->
+<div class="modal-overlay" id="healthModal">
+  <div class="modal" style="width:480px;">
+    <div class="modal-title">System Health</div>
+    <div id="healthDetails"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('healthModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast Container ────────────────────────────── -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ════════════════════════════════════════════════════
+//  State
+// ════════════════════════════════════════════════════
+let scenarios = [];
+let runs = [];
+let selectedScenario = null;
+let selectedRun = null;
+let currentView = null; // 'scenario' | 'run' | 'health'
+
+// ════════════════════════════════════════════════════
+//  Init
+// ════════════════════════════════════════════════════
+document.addEventListener("DOMContentLoaded", async () => {
+  // Tab switching
+  document.querySelectorAll(".sidebar-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".sidebar-tab").forEach((t) => t.classList.remove("active"));
+      document.querySelectorAll(".sidebar-panel").forEach((p) => p.classList.remove("active"));
+      tab.classList.add("active");
+      document.getElementById(`panel-${tab.dataset.panel}`).classList.add("active");
+    });
+  });
+
+  await runHealthCheck();
+  await loadScenarios();
+  await loadRuns();
+
+  // Listen for run events
+  window.zoniq.onRunStarted((run) => {
+    toast(`Test started: ${run.testName}`, "info");
+    loadRuns();
+  });
+
+  window.zoniq.onRunCompleted((run) => {
+    const type = run.status === "passed" ? "success" : "error";
+    const label = run.status === "passed" ? "PASSED" : "FAILED";
+    toast(`${run.testName} — ${label}`, type);
+    loadRuns();
+    if (selectedRun?.runId === run.runId) showRunDetail(run);
+  });
+
+  window.zoniq.onRunsUpdated(() => loadRuns());
+});
+
+// ════════════════════════════════════════════════════
+//  Health Check
+// ════════════════════════════════════════════════════
+async function runHealthCheck() {
+  const dot = document.getElementById("healthDot");
+  const text = document.getElementById("healthText");
+  try {
+    const h = await window.zoniq.healthCheck();
+    dot.className = "health-dot ok";
+    text.textContent = `Playwright ${h.playwright}`;
+    return h;
+  } catch {
+    dot.className = "health-dot error";
+    text.textContent = "Error";
+    return null;
+  }
+}
+
+async function showHealthPanel() {
+  const h = await runHealthCheck();
+  const det = document.getElementById("healthDetails");
+  if (h) {
+    det.innerHTML = `
+      <div class="health-grid">
+        <div class="health-item">
+          <div class="health-item-label">Playwright</div>
+          <div class="health-item-value">${h.playwright}</div>
+        </div>
+        <div class="health-item">
+          <div class="health-item-label">API Port</div>
+          <div class="health-item-value">${h.apiPort}</div>
+        </div>
+        <div class="health-item">
+          <div class="health-item-label">Platform</div>
+          <div class="health-item-value">${h.platform}</div>
+        </div>
+        <div class="health-item">
+          <div class="health-item-label">Data Directory</div>
+          <div class="health-item-value" style="font-size:10px;">${h.dataDir}</div>
+        </div>
+        <div class="health-item">
+          <div class="health-item-label">Scenarios</div>
+          <div class="health-item-value">${h.scenarioCount}</div>
+        </div>
+        <div class="health-item">
+          <div class="health-item-label">Total Runs</div>
+          <div class="health-item-value">${h.runCount}</div>
+        </div>
+      </div>
+      <div style="margin-top:16px;">
+        <div class="section-header">Zoniq API Endpoint</div>
+        <p style="font-size:12px;font-family:var(--font);color:var(--text-secondary);">
+          Point your Mendix app to:<br/>
+          <span style="color:var(--accent);">http://localhost:${h.apiPort}/api/execute</span>
+        </p>
+      </div>
+    `;
+  } else {
+    det.innerHTML = `<p style="color:var(--red);">Could not reach Playwright. Make sure browsers are installed.</p>`;
+  }
+  openModal("healthModal");
+}
+
+// Override the health indicator click
+document.getElementById("healthIndicator").onclick = showHealthPanel;
+
+// ════════════════════════════════════════════════════
+//  Scenarios
+// ════════════════════════════════════════════════════
+async function loadScenarios() {
+  scenarios = await window.zoniq.getScenarios();
+  renderScenarioList();
+}
+
+function renderScenarioList() {
+  const container = document.getElementById("scenarioList");
+  if (!scenarios.length) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">&#9881;</div><p>No test scenarios yet. Create one or record a browser session.</p></div>`;
+    return;
+  }
+  container.innerHTML = scenarios.map((s) => `
+    <div class="scenario-card ${selectedScenario?.id === s.id ? 'selected' : ''}" onclick="selectScenario('${s.id}')">
+      <div class="card-title">${esc(s.name)}</div>
+      <div class="card-url">${esc(s.targetUrl || 'No URL set')}</div>
+      <div class="card-meta">${timeAgo(s.updatedAt || s.createdAt)}</div>
+    </div>
+  `).join("");
+}
+
+function selectScenario(id) {
+  selectedScenario = scenarios.find((s) => s.id === id);
+  selectedRun = null;
+  renderScenarioList();
+  showScenarioDetail(selectedScenario);
+}
+
+function showScenarioDetail(sc) {
+  currentView = "scenario";
+  const el = document.getElementById("detailContent");
+  const empty = document.getElementById("detailEmpty");
+  empty.style.display = "none";
+  el.style.display = "flex";
+
+  const lastRuns = runs.filter((r) => r.scenarioId === sc.id).slice(0, 5);
+
+  el.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">${esc(sc.name)}</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">${esc(sc.targetUrl || '')}</div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="executeSelected()">&#9654; Run Test</button>
+        <button class="btn" onclick="editScenario('${sc.id}')">&#9998; Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteScenario('${sc.id}')">&#128465;</button>
+      </div>
+    </div>
+    <div class="detail-body">
+      ${sc.credentials?.username ? `
+        <div class="section-header">Credentials</div>
+        <p style="font-size:12px;font-family:var(--font);color:var(--text-secondary);">User: ${esc(sc.credentials.username)}</p>
+      ` : ''}
+
+      <div class="section-header">Script</div>
+      <pre class="script-area" style="min-height:100px;max-height:300px;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(sc.script || '// No script defined')}</pre>
+
+      ${lastRuns.length ? `
+        <div class="section-header">Recent Runs</div>
+        ${lastRuns.map((r) => `
+          <div class="run-card" onclick="selectRunById('${r.runId}')" style="display:flex;align-items:center;justify-content:space-between;">
+            <div>
+              <span class="badge badge-${r.status}">${r.status}</span>
+              <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">${timeAgo(r.completedAt || r.startedAt)}</span>
+            </div>
+            ${r.results?.summary ? `<span style="font-size:11px;font-family:var(--font);color:var(--text-secondary);">${r.results.summary.passed}/${r.results.summary.total} passed</span>` : ''}
+          </div>
+        `).join("")}
+      ` : ''}
+    </div>
+  `;
+}
+
+async function executeSelected() {
+  if (!selectedScenario) return;
+  toast("Starting test execution...", "info");
+  await window.zoniq.executeScenario(selectedScenario);
+  await loadRuns();
+}
+
+function editScenario(id) {
+  const sc = scenarios.find((s) => s.id === id);
+  if (!sc) return;
+  document.getElementById("scenarioModalTitle").textContent = "Edit Scenario";
+  document.getElementById("scId").value = sc.id;
+  document.getElementById("scName").value = sc.name;
+  document.getElementById("scUrl").value = sc.targetUrl || "";
+  document.getElementById("scUser").value = sc.credentials?.username || "";
+  document.getElementById("scPass").value = sc.credentials?.password || "";
+  document.getElementById("scScript").value = sc.script || "";
+  openModal("scenarioModal");
+}
+
+async function deleteScenario(id) {
+  if (!confirm("Delete this scenario?")) return;
+  await window.zoniq.deleteScenario(id);
+  selectedScenario = null;
+  await loadScenarios();
+  document.getElementById("detailContent").style.display = "none";
+  document.getElementById("detailEmpty").style.display = "flex";
+  toast("Scenario deleted", "info");
+}
+
+// ════════════════════════════════════════════════════
+//  Runs
+// ════════════════════════════════════════════════════
+async function loadRuns() {
+  runs = await window.zoniq.getRuns();
+  renderRunList();
+}
+
+function renderRunList() {
+  const container = document.getElementById("runList");
+  if (!runs.length) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">&#9654;</div><p>No test runs yet.</p></div>`;
+    return;
+  }
+  container.innerHTML = runs.map((r) => `
+    <div class="run-card ${selectedRun?.runId === r.runId ? 'selected' : ''}" onclick="selectRunById('${r.runId}')">
+      <div class="card-title">
+        <span class="badge badge-${r.status}">${r.status}</span>
+        ${esc(r.testName || 'Unnamed')}
+      </div>
+      <div class="card-url">${esc(r.targetUrl || '')}</div>
+      <div class="card-meta">${timeAgo(r.completedAt || r.startedAt)}</div>
+    </div>
+  `).join("");
+}
+
+function selectRunById(runId) {
+  selectedRun = runs.find((r) => r.runId === runId);
+  if (!selectedRun) return;
+  // Switch to runs tab
+  document.querySelectorAll(".sidebar-tab").forEach((t) => t.classList.remove("active"));
+  document.querySelectorAll(".sidebar-panel").forEach((p) => p.classList.remove("active"));
+  document.querySelector('[data-panel="runs"]').classList.add("active");
+  document.getElementById("panel-runs").classList.add("active");
+  renderRunList();
+  showRunDetail(selectedRun);
+}
+
+function showRunDetail(run) {
+  currentView = "run";
+  const el = document.getElementById("detailContent");
+  const empty = document.getElementById("detailEmpty");
+  empty.style.display = "none";
+  el.style.display = "flex";
+
+  const r = run.results || {};
+  const s = r.summary || { total: 0, passed: 0, failed: 0 };
+
+  el.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">${esc(run.testName || 'Test Run')}</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
+          ${esc(run.runId)} &middot; ${esc(run.targetUrl || '')}
+        </div>
+      </div>
+      <div class="btn-group">
+        <span class="badge badge-${run.status}" style="font-size:12px;padding:4px 12px;">${run.status.toUpperCase()}</span>
+        <button class="btn btn-sm" onclick="window.zoniq.openResultsFolder('${run.runId}')">&#128193; Open Folder</button>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="results-grid">
+        <div class="stat-card">
+          <div class="stat-value">${s.total}</div>
+          <div class="stat-label">Total Tests</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value green">${s.passed}</div>
+          <div class="stat-label">Passed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value red">${s.failed}</div>
+          <div class="stat-label">Failed</div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:20px;font-size:12px;color:var(--text-secondary);font-family:var(--font);margin-bottom:20px;">
+        <div>Started: ${run.startedAt ? new Date(run.startedAt).toLocaleString() : '—'}</div>
+        <div>Completed: ${run.completedAt ? new Date(run.completedAt).toLocaleString() : '—'}</div>
+      </div>
+
+      ${r.errors?.length ? `
+        <div class="section-header">Errors</div>
+        ${r.errors.map((e) => `
+          <div class="error-block">
+            <div class="error-block-title">${esc(e.test || 'Test')}</div>
+            <pre>${esc(e.message || '')}</pre>
+          </div>
+        `).join("")}
+      ` : ''}
+
+      ${r.artifacts?.length ? `
+        <div class="section-header">Artifacts</div>
+        <div class="artifact-list">
+          ${r.artifacts.map((a) => `
+            <div class="artifact-chip" onclick="window.zoniq.openResultsFolder('${run.runId}')">&#128247; ${esc(a)}</div>
+          `).join("")}
+        </div>
+      ` : ''}
+
+      ${r.stderr ? `
+        <div class="section-header">Output</div>
+        <pre class="script-area" style="min-height:60px;max-height:150px;overflow-y:auto;font-size:11px;color:var(--text-muted);resize:none;" readonly>${esc(r.stderr)}</pre>
+      ` : ''}
+    </div>
+  `;
+}
+
+// ════════════════════════════════════════════════════
+//  Modals & Recording
+// ════════════════════════════════════════════════════
+function openNewScenarioModal() {
+  document.getElementById("scenarioModalTitle").textContent = "New Test Scenario";
+  document.getElementById("scId").value = "";
+  document.getElementById("scName").value = "";
+  document.getElementById("scUrl").value = "";
+  document.getElementById("scUser").value = "";
+  document.getElementById("scPass").value = "";
+  document.getElementById("scScript").value = "";
+  openModal("scenarioModal");
+}
+
+async function saveScenarioFromModal() {
+  const name = document.getElementById("scName").value.trim();
+  const targetUrl = document.getElementById("scUrl").value.trim();
+  const script = document.getElementById("scScript").value.trim();
+  const username = document.getElementById("scUser").value.trim();
+  const password = document.getElementById("scPass").value.trim();
+  const id = document.getElementById("scId").value;
+
+  if (!name) { toast("Name is required", "error"); return; }
+  if (!targetUrl) { toast("Target URL is required", "error"); return; }
+
+  const scenario = {
+    id: id || undefined,
+    name,
+    targetUrl,
+    script,
+    credentials: username ? { username, password } : null,
+  };
+
+  const saved = await window.zoniq.saveScenario(scenario);
+  closeModal("scenarioModal");
+  await loadScenarios();
+  selectScenario(saved.id);
+  toast("Scenario saved", "success");
+}
+
+async function importScriptToModal() {
+  const result = await window.zoniq.importScript();
+  if (result) {
+    document.getElementById("scScript").value = result.script;
+    toast(`Imported ${result.filename}`, "success");
+  }
+}
+
+async function recordIntoModal() {
+  const url = document.getElementById("scUrl").value.trim();
+  if (!url) { toast("Enter a target URL first", "error"); return; }
+  toast("Recording... close the browser when done.", "info");
+  const result = await window.zoniq.launchRecorder(url);
+  if (result?.script) {
+    document.getElementById("scScript").value = result.script;
+    toast("Recording captured!", "success");
+  }
+}
+
+function launchRecorderPrompt() {
+  document.getElementById("recordUrl").value = "";
+  openModal("recordModal");
+}
+
+async function startRecording() {
+  const url = document.getElementById("recordUrl").value.trim();
+  if (!url) { toast("Enter a target URL", "error"); return; }
+  closeModal("recordModal");
+  toast("Recording... close the browser when done.", "info");
+
+  const result = await window.zoniq.launchRecorder(url);
+  if (result?.script) {
+    // Auto-create a scenario
+    document.getElementById("scenarioModalTitle").textContent = "New Recorded Scenario";
+    document.getElementById("scId").value = "";
+    document.getElementById("scName").value = `Recording ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`;
+    document.getElementById("scUrl").value = url;
+    document.getElementById("scUser").value = "";
+    document.getElementById("scPass").value = "";
+    document.getElementById("scScript").value = result.script;
+    openModal("scenarioModal");
+    toast("Recording captured! Review and save.", "success");
+  }
+}
+
+// ════════════════════════════════════════════════════
+//  Utilities
+// ════════════════════════════════════════════════════
+function openModal(id) { document.getElementById(id).classList.add("active"); }
+function closeModal(id) { document.getElementById(id).classList.remove("active"); }
+
+// Close modals on overlay click
+document.querySelectorAll(".modal-overlay").forEach((overlay) => {
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.classList.remove("active");
+  });
+});
+
+// Close modals on Escape
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    document.querySelectorAll(".modal-overlay.active").forEach((m) => m.classList.remove("active"));
+  }
+});
+
+function toast(msg, type = "info") {
+  const container = document.getElementById("toastContainer");
+  const el = document.createElement("div");
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(() => { el.remove(); }, 4000);
+}
+
+function esc(str) {
+  const d = document.createElement("div");
+  d.textContent = str || "";
+  return d.innerHTML;
+}
+
+function timeAgo(dateStr) {
+  if (!dateStr) return "";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+</script>
+
+</body>
+</html>

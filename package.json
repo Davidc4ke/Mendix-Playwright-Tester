@@ -1,0 +1,56 @@
+{
+  "name": "zoniq-test-runner",
+  "version": "1.0.0",
+  "description": "Zoniq UAT Test Runner — Desktop app for recording and running Playwright tests against Mendix apps",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win portable",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
+    "install-browsers": "npx playwright install chromium",
+    "postinstall": "npx playwright install chromium"
+  },
+  "build": {
+    "appId": "com.zoniq.testrunner",
+    "productName": "Zoniq Test Runner",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!dist/**"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "assets/icon.png"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "extraResources": [
+      {
+        "from": "scripts",
+        "to": "scripts"
+      },
+      {
+        "from": "helpers",
+        "to": "helpers"
+      }
+    ]
+  },
+  "dependencies": {
+    "@playwright/test": "^1.49.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "playwright": "^1.58.2",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.0"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(powershell:*)",
+      "Bash(ls:*)",
+      "Bash(npx playwright install:*)",
+      "Read(//c/Users/David/AppData/Roaming/zoniq-test-runner/**)",
+      "Bash(node:*)",
+      "Bash(npx playwright test:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
