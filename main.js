@@ -979,6 +979,7 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
   try {
     const result = await healer.heal({
       script: scenario.script || "",
+      steps: scenario.steps || null,
       errors: run.results.errors,
       targetUrl: scenario.targetUrl,
       credentials: scenario.credentials,
