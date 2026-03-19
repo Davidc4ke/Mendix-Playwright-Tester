@@ -21,6 +21,26 @@ const TEMP_DIR = path.join(__dirname, "temp");
 const HELPERS_DIR = path.join(__dirname, "helpers");
 const DB_PATH = path.join(USER_DATA, "scenarios.json");
 
+// ── Playwright paths ────────────────────────────────────
+const PLAYWRIGHT_CLI = path.resolve(
+  __dirname,
+  "node_modules",
+  ".bin",
+  process.platform === "win32" ? "playwright.cmd" : "playwright"
+);
+
+// Support bundled browsers: if a "browsers" directory exists next to the app,
+// tell Playwright to look there. This lets users pre-install browsers once
+// (or copy them from another machine) without needing network access.
+const LOCAL_BROWSERS_DIR = path.join(__dirname, "browsers");
+function getPlaywrightEnv(extra = {}) {
+  const env = { ...process.env, ...extra };
+  if (fs.existsSync(LOCAL_BROWSERS_DIR)) {
+    env.PLAYWRIGHT_BROWSERS_PATH = LOCAL_BROWSERS_DIR;
+  }
+  return env;
+}
+
 [SCRIPTS_DIR, RESULTS_DIR, TEMP_DIR].forEach((d) => {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 });
@@ -237,12 +257,9 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
   } catch {}
 
   return new Promise((resolve) => {
-    const env = {
-      ...process.env,
+    const env = getPlaywrightEnv({
       PLAYWRIGHT_JSON_OUTPUT_FILE: reportPath,
-    };
-
-    const playwrightCli = path.resolve(__dirname, "node_modules", ".bin", process.platform === "win32" ? "playwright.cmd" : "playwright");
+    });
     const runIdPrefix = path.basename(scriptPath, ".spec.js");
     // Default to headed on desktop; set ZONIQ_HEADED=false to run headless (e.g. on CI)
     const headedFlag = process.env.ZONIQ_HEADED !== "false" ? "--headed" : "";
@@ -255,12 +272,12 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
     ];
     if (headedFlag) args.push("--headed");
 
-    console.log(`[${runId}] CMD: ${playwrightCli} ${args.join(" ")}`);
+    console.log(`[${runId}] CMD: ${PLAYWRIGHT_CLI} ${args.join(" ")}`);
 
     let stdoutBuf = "";
     let stderrBuf = "";
 
-    const proc = spawn(playwrightCli, args, { env, shell: true, timeout: 300_000 });
+    const proc = spawn(PLAYWRIGHT_CLI, args, { env, shell: true, timeout: 300_000 });
 
     proc.stdout.on("data", (chunk) => {
       const text = chunk.toString();
@@ -572,24 +589,32 @@ ipcMain.handle("get-runs", () => {
 // Launch Codegen recorder
 ipcMain.handle("launch-recorder", async (event, targetUrl) => {
   return new Promise((resolve, reject) => {
-    const npx = process.platform === "win32" ? "npx.cmd" : "npx";
     const outputFile = `recording-${Date.now()}.js`;
     const outputPath = path.join(SCRIPTS_DIR, outputFile);
 
+    console.log(`[recorder] CMD: ${PLAYWRIGHT_CLI} codegen ${targetUrl}`);
+
     const proc = spawn(
-      npx,
+      PLAYWRIGHT_CLI,
       [
-        "playwright",
         "codegen",
         targetUrl,
         "--output",
         outputPath,
         "--viewport-size=1920,1080",
       ],
-      { shell: true }
+      { env: getPlaywrightEnv(), shell: true }
     );
 
-    proc.on("close", () => {
+    proc.stdout.on("data", (chunk) => {
+      console.log(`[recorder stdout] ${chunk}`);
+    });
+    proc.stderr.on("data", (chunk) => {
+      console.error(`[recorder stderr] ${chunk}`);
+    });
+
+    proc.on("close", (code) => {
+      console.log(`[recorder] exited with code ${code}`);
       try {
         if (fs.existsSync(outputPath)) {
           const script = fs.readFileSync(outputPath, "utf-8");
@@ -602,7 +627,10 @@ ipcMain.handle("launch-recorder", async (event, targetUrl) => {
       }
     });
 
-    proc.on("error", reject);
+    proc.on("error", (err) => {
+      console.error(`[recorder] spawn error:`, err);
+      reject(err);
+    });
   });
 });
 
