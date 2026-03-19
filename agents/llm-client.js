@@ -11,6 +11,7 @@ class LLMClient {
   constructor(settings) {
     this.provider = settings.llm.provider || "anthropic";
     this.apiKey = settings.llm.apiKey;
+    this.baseUrl = settings.llm.baseUrl || "";
     this.model = settings.llm.model || getDefaultModel(this.provider);
     this.maxTokens = settings.llm.maxTokens || 4096;
 
@@ -59,7 +60,9 @@ class LLMClient {
 
   async _chatOpenAI(messages, options) {
     const OpenAI = require("openai");
-    const client = new OpenAI({ apiKey: this.apiKey });
+    const clientOpts = { apiKey: this.apiKey };
+    if (this.baseUrl) clientOpts.baseURL = this.baseUrl;
+    const client = new OpenAI(clientOpts);
 
     const openAIMessages = [];
     if (options.system) {
