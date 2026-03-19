@@ -760,9 +760,12 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
   // Notify UI that run started
   mainWindow.webContents.send("run-started", run);
 
-  // Send step info to renderer so it can show the step list
+  // Build step list for tracking (used by both UI and persisted results)
+  let stepList = null;
+  const stepResults = {}; // { stepIndex: { status, error, startedAt, completedAt } }
+
   if (scenario.steps?.length) {
-    const stepList = [
+    stepList = [
       { index: -1, action: "Navigate", description: "Navigate to target URL" },
       ...scenario.steps.map((s, i) => ({
         index: i,
@@ -776,9 +779,24 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
   }
 
   // Step progress callback — streams real-time updates to the renderer
+  // and collects results for persistence
   const onStepProgress = (progress) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("step-progress", progress);
+    }
+    // Accumulate step results for saving with the run
+    const idx = progress.stepIndex;
+    if (!stepResults[idx]) stepResults[idx] = {};
+    if (progress.status === "running") {
+      stepResults[idx].status = "running";
+      stepResults[idx].startedAt = new Date().toISOString();
+    } else if (progress.status === "done") {
+      stepResults[idx].status = "done";
+      stepResults[idx].completedAt = new Date().toISOString();
+    } else if (progress.status === "failed") {
+      stepResults[idx].status = "failed";
+      stepResults[idx].error = progress.error;
+      stepResults[idx].completedAt = new Date().toISOString();
     }
   };
 
@@ -786,6 +804,11 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
     const results = await runPlaywright(scriptPath, runId, onStepProgress);
     run.status = results.status;
     run.completedAt = new Date().toISOString();
+    // Attach step data to results for persistence
+    if (stepList) {
+      results.stepList = stepList;
+      results.stepResults = stepResults;
+    }
     run.results = results;
 
     const db2 = loadDB();

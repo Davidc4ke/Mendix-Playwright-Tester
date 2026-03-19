@@ -749,6 +749,37 @@
     word-break: break-word;
   }
 
+  .step-artifact-list {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .step-artifact {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-family: var(--font);
+    padding: 6px 10px;
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.2);
+    border-radius: var(--radius);
+    color: var(--red);
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+
+  .step-artifact:hover {
+    background: rgba(239,68,68,0.15);
+    border-color: rgba(239,68,68,0.35);
+  }
+
+  .step-artifact-icon {
+    font-size: 14px;
+  }
+
   .step-copy-btn {
     opacity: 0;
     flex-shrink: 0;
@@ -981,7 +1012,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       setTimeout(() => {
         showRunDetail(run);
         activeStepRun = null;
-      }, 2000);
+      }, 1500);
     } else if (selectedRun?.runId === run.runId) {
       showRunDetail(run);
     }
@@ -1236,6 +1267,64 @@ function showRunDetail(run) {
   const r = run.results || {};
   const s = r.summary || { total: 0, passed: 0, failed: 0 };
 
+  // Build step timeline HTML if step data is available
+  const stepList = r.stepList || null;
+  const stepResultsMap = r.stepResults || {};
+  // Separate failure artifacts from other artifacts
+  const failureArtifacts = (r.artifacts || []).filter(a => /test-failed/i.test(a));
+  const otherArtifacts = (r.artifacts || []).filter(a => !/test-failed/i.test(a));
+
+  let stepsHtml = "";
+  if (stepList && stepList.length) {
+    stepsHtml = `
+      <div class="section-header" style="margin-top:0;">Steps</div>
+      <div class="step-tracker" style="margin-bottom:20px;">
+        ${stepList.map((step) => {
+          const sr = stepResultsMap[String(step.index)] || {};
+          let status = sr.status || "pending";
+          // If the run passed but step has no explicit result, mark as done
+          if (status === "pending" && run.status === "passed") status = "done";
+          // If step was still running when run ended, mark based on run status
+          if (status === "running") status = run.status === "passed" ? "done" : "failed";
+
+          const statusClass = `step-${status}`;
+          let indicator = "";
+          if (status === "pending") indicator = step.index < 0 ? "0" : String(step.index + 1);
+          else if (status === "done") indicator = "&#10003;";
+          else if (status === "failed") indicator = "&#10007;";
+          else indicator = step.index < 0 ? "0" : String(step.index + 1);
+
+          const isFailed = status === "failed";
+          // Attach failure artifacts to the failed step
+          const stepFailArtifacts = isFailed ? failureArtifacts : [];
+          // Find matching error for this step
+          const stepError = isFailed && sr.error ? sr.error : "";
+
+          return `
+            <div class="step-tracker-item ${statusClass}">
+              <div class="step-indicator">${indicator}</div>
+              <div class="step-content">
+                <div class="step-description">${esc(step.description || step.action)}</div>
+                ${stepError ? `<div class="step-error-msg">${esc(stepError)}</div>` : ""}
+                ${stepFailArtifacts.length ? `
+                  <div class="step-artifact-list">
+                    ${stepFailArtifacts.map(a => `
+                      <div class="step-artifact" onclick="window.zoniq.openResultsFolder('${run.runId}')">
+                        <div class="step-artifact-icon">&#128247;</div>
+                        <span>${esc(a)}</span>
+                      </div>
+                    `).join("")}
+                  </div>
+                ` : ""}
+              </div>
+              <button class="step-copy-btn" onclick="copyRunStepToClipboard('${run.runId}', ${step.index})" title="Copy step details for debugging">Copy</button>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
   el.innerHTML = `
     <div class="detail-header">
       <div>
@@ -1270,6 +1359,8 @@ function showRunDetail(run) {
         <div>Completed: ${run.completedAt ? new Date(run.completedAt).toLocaleString() : '—'}</div>
       </div>
 
+      ${stepsHtml}
+
       ${r.errors?.length ? `
         <div class="section-header">Errors</div>
         ${r.errors.map((e, i) => `
@@ -1284,10 +1375,10 @@ function showRunDetail(run) {
         `).join("")}
       ` : ''}
 
-      ${r.artifacts?.length ? `
+      ${otherArtifacts.length ? `
         <div class="section-header">Artifacts</div>
         <div class="artifact-list">
-          ${r.artifacts.map((a) => `
+          ${otherArtifacts.map((a) => `
             <div class="artifact-chip" onclick="window.zoniq.openResultsFolder('${run.runId}')">&#128247; ${esc(a)}</div>
           `).join("")}
         </div>
@@ -1299,6 +1390,32 @@ function showRunDetail(run) {
       ` : ''}
     </div>
   `;
+}
+
+function copyRunStepToClipboard(runId, stepIndex) {
+  const run = runs.find(r => r.runId === runId);
+  if (!run?.results?.stepList) return;
+  const step = run.results.stepList.find(s => s.index === stepIndex);
+  if (!step) return;
+  const sr = (run.results.stepResults || {})[String(stepIndex)] || {};
+  let text = `Step ${step.index < 0 ? 0 : step.index + 1}: ${step.description || step.action}`;
+  if (step.selector) text += `\nSelector: ${step.selector}`;
+  if (step.value) text += `\nValue: ${step.value}`;
+  text += `\nStatus: ${sr.status || "unknown"}`;
+  if (sr.error) text += `\nError: ${sr.error}`;
+  // Include relevant errors from the run
+  if (sr.status === "failed" && run.results.errors?.length) {
+    text += `\n\nFull error details:`;
+    run.results.errors.forEach(e => {
+      text += `\n${e.message || ""}`;
+      if (e.snippet) text += `\n${e.snippet}`;
+    });
+  }
+  navigator.clipboard.writeText(text).then(() => {
+    toast("Step details copied to clipboard", "info");
+  }).catch(() => {
+    toast("Could not copy to clipboard", "error");
+  });
 }
 
 // ════════════════════════════════════════════════════
