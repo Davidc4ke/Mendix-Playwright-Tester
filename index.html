@@ -656,6 +656,131 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* ── Step Tracker ───────────────────────────────────── */
+  .step-tracker {
+    margin-top: 12px;
+  }
+
+  .step-tracker-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-family: var(--font);
+    transition: background var(--transition);
+    position: relative;
+    border: 1px solid transparent;
+  }
+
+  .step-tracker-item:hover {
+    background: var(--bg-elevated);
+  }
+
+  .step-tracker-item.step-pending {
+    color: var(--text-muted);
+  }
+
+  .step-tracker-item.step-running {
+    color: var(--amber);
+    background: var(--amber-dim);
+    border-color: rgba(245,158,11,0.2);
+  }
+
+  .step-tracker-item.step-done {
+    color: var(--green);
+  }
+
+  .step-tracker-item.step-failed {
+    color: var(--red);
+    background: var(--red-dim);
+    border-color: rgba(239,68,68,0.2);
+  }
+
+  .step-indicator {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .step-pending .step-indicator {
+    border: 2px solid var(--text-muted);
+    color: var(--text-muted);
+  }
+
+  .step-running .step-indicator {
+    border: 2px solid var(--amber);
+    color: var(--amber);
+    animation: spin 0.8s linear infinite;
+    border-top-color: transparent;
+  }
+
+  .step-done .step-indicator {
+    background: var(--green);
+    color: white;
+  }
+
+  .step-failed .step-indicator {
+    background: var(--red);
+    color: white;
+  }
+
+  .step-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .step-description {
+    word-break: break-word;
+  }
+
+  .step-error-msg {
+    font-size: 11px;
+    color: var(--red);
+    margin-top: 4px;
+    word-break: break-word;
+  }
+
+  .step-copy-btn {
+    opacity: 0;
+    flex-shrink: 0;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-family: var(--font);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+
+  .step-tracker-item:hover .step-copy-btn {
+    opacity: 1;
+  }
+
+  .step-copy-btn:hover {
+    background: var(--bg-elevated);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .step-elapsed {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: auto;
+    flex-shrink: 0;
+    font-family: var(--font);
+  }
+
   /* ── Responsive ─────────────────────────────────────── */
   .detail-body .form-row {
     display: grid;
@@ -810,6 +935,7 @@ let runs = [];
 let selectedScenario = null;
 let selectedRun = null;
 let currentView = null; // 'scenario' | 'run' | 'health'
+let activeStepRun = null; // { runId, steps: [...] } — tracks live step execution
 
 // ════════════════════════════════════════════════════
 //  Init
@@ -840,10 +966,54 @@ document.addEventListener("DOMContentLoaded", async () => {
     const label = run.status === "passed" ? "PASSED" : "FAILED";
     toast(`${run.testName} — ${label}`, type);
     loadRuns();
-    if (selectedRun?.runId === run.runId) showRunDetail(run);
+
+    // If we were tracking steps for this run, update final statuses and show run detail
+    if (activeStepRun && activeStepRun.runId === run.runId) {
+      // Mark any remaining pending steps as done (or failed if run failed)
+      activeStepRun.steps.forEach(s => {
+        if (s.status === "running" || s.status === "pending") {
+          s.status = run.status === "passed" ? "done" : (s.status === "running" ? "failed" : "pending");
+        }
+      });
+      renderStepTracker();
+      // After a short delay, show the full run detail
+      selectedRun = run;
+      setTimeout(() => {
+        showRunDetail(run);
+        activeStepRun = null;
+      }, 2000);
+    } else if (selectedRun?.runId === run.runId) {
+      showRunDetail(run);
+    }
   });
 
   window.zoniq.onRunsUpdated(() => loadRuns());
+
+  // Step tracking events
+  window.zoniq.onStepList(({ runId, steps }) => {
+    activeStepRun = { runId, steps: steps.map(s => ({ ...s, status: "pending", startedAt: null, error: null })) };
+    showLiveStepTracker();
+  });
+
+  window.zoniq.onStepProgress(({ runId, stepIndex, status, description, error }) => {
+    if (!activeStepRun || activeStepRun.runId !== runId) return;
+    const step = activeStepRun.steps.find(s => s.index === stepIndex);
+    if (!step) return;
+
+    if (status === "running") {
+      step.status = "running";
+      step.startedAt = Date.now();
+      if (description) step.description = description;
+    } else if (status === "done") {
+      step.status = "done";
+      step.elapsed = step.startedAt ? Date.now() - step.startedAt : null;
+    } else if (status === "failed") {
+      step.status = "failed";
+      step.error = error || "Unknown error";
+      step.elapsed = step.startedAt ? Date.now() - step.startedAt : null;
+    }
+    renderStepTracker();
+  });
 });
 
 // ════════════════════════════════════════════════════
@@ -1102,10 +1272,14 @@ function showRunDetail(run) {
 
       ${r.errors?.length ? `
         <div class="section-header">Errors</div>
-        ${r.errors.map((e) => `
-          <div class="error-block">
-            <div class="error-block-title">${esc(e.test || 'Test')}</div>
+        ${r.errors.map((e, i) => `
+          <div class="error-block" style="position:relative;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <div class="error-block-title">${esc(e.test || 'Test')}</div>
+              <button class="step-copy-btn" style="opacity:1;" onclick="copyErrorToClipboard(${i})">Copy</button>
+            </div>
             <pre>${esc(e.message || '')}</pre>
+            ${e.snippet ? `<pre style="margin-top:6px;color:var(--text-muted);">${esc(e.snippet)}</pre>` : ''}
           </div>
         `).join("")}
       ` : ''}
@@ -1125,6 +1299,104 @@ function showRunDetail(run) {
       ` : ''}
     </div>
   `;
+}
+
+// ════════════════════════════════════════════════════
+//  Live Step Tracker
+// ════════════════════════════════════════════════════
+function showLiveStepTracker() {
+  currentView = "steps";
+  const el = document.getElementById("detailContent");
+  const empty = document.getElementById("detailEmpty");
+  empty.style.display = "none";
+  el.style.display = "flex";
+
+  el.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">Running Test...</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
+          Live step progress &middot; ${esc(activeStepRun.runId)}
+        </div>
+      </div>
+      <div class="btn-group">
+        <span class="badge badge-running" style="font-size:12px;padding:4px 12px;">RUNNING</span>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="section-header">Steps</div>
+      <div class="step-tracker" id="stepTrackerList"></div>
+    </div>
+  `;
+  renderStepTracker();
+}
+
+function renderStepTracker() {
+  const container = document.getElementById("stepTrackerList");
+  if (!container || !activeStepRun) return;
+
+  container.innerHTML = activeStepRun.steps.map((step) => {
+    const statusClass = `step-${step.status}`;
+    let indicator = "";
+    if (step.status === "pending") indicator = step.index < 0 ? "0" : String(step.index + 1);
+    else if (step.status === "running") indicator = "";
+    else if (step.status === "done") indicator = "&#10003;";
+    else if (step.status === "failed") indicator = "&#10007;";
+
+    const elapsedStr = step.elapsed != null ? `${(step.elapsed / 1000).toFixed(1)}s` : "";
+    const stepCode = buildStepCopyText(step);
+
+    return `
+      <div class="step-tracker-item ${statusClass}">
+        <div class="step-indicator">${indicator}</div>
+        <div class="step-content">
+          <div class="step-description">${esc(step.description || step.action)}</div>
+          ${step.error ? `<div class="step-error-msg">${esc(step.error)}</div>` : ""}
+        </div>
+        ${elapsedStr ? `<span class="step-elapsed">${elapsedStr}</span>` : ""}
+        <button class="step-copy-btn" onclick="copyStepToClipboard(${step.index})" title="Copy step details for debugging">Copy</button>
+      </div>
+    `;
+  }).join("");
+
+  // Auto-scroll to the current running step
+  const runningEl = container.querySelector(".step-running");
+  if (runningEl) runningEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function buildStepCopyText(step) {
+  let text = `Step ${step.index < 0 ? 0 : step.index + 1}: ${step.description || step.action}`;
+  if (step.selector) text += `\nSelector: ${step.selector}`;
+  if (step.value) text += `\nValue: ${step.value}`;
+  if (step.error) text += `\nError: ${step.error}`;
+  text += `\nStatus: ${step.status}`;
+  if (step.elapsed != null) text += `\nDuration: ${(step.elapsed / 1000).toFixed(1)}s`;
+  return text;
+}
+
+function copyStepToClipboard(stepIndex) {
+  if (!activeStepRun) return;
+  const step = activeStepRun.steps.find(s => s.index === stepIndex);
+  if (!step) return;
+  const text = buildStepCopyText(step);
+  navigator.clipboard.writeText(text).then(() => {
+    toast("Step details copied to clipboard", "info");
+  }).catch(() => {
+    // Fallback: select text
+    toast("Could not copy to clipboard", "error");
+  });
+}
+
+function copyErrorToClipboard(errorIndex) {
+  if (!selectedRun?.results?.errors?.[errorIndex]) return;
+  const e = selectedRun.results.errors[errorIndex];
+  let text = `Test: ${e.test || 'Test'}\nError: ${e.message || ''}`;
+  if (e.snippet) text += `\nCode:\n${e.snippet}`;
+  navigator.clipboard.writeText(text).then(() => {
+    toast("Error details copied to clipboard", "info");
+  }).catch(() => {
+    toast("Could not copy to clipboard", "error");
+  });
 }
 
 // ════════════════════════════════════════════════════

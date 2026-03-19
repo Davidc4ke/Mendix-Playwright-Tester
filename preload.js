@@ -27,4 +27,14 @@ contextBridge.exposeInMainWorld("zoniq", {
     ipcRenderer.on("runs-updated", handler);
     return () => ipcRenderer.removeListener("runs-updated", handler);
   },
+  onStepList: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("step-list", handler);
+    return () => ipcRenderer.removeListener("step-list", handler);
+  },
+  onStepProgress: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("step-progress", handler);
+    return () => ipcRenderer.removeListener("step-progress", handler);
+  },
 });
