@@ -647,6 +647,7 @@ function startAPIServer() {
     const healer = new HealerAgent(llmClient, {
       maxIterations: settings.agent.maxIterations,
       headless: true,
+      browserChannel: getBrowserChannel(),
     });
     activeAgent = { type: "healer", agent: healer };
 
@@ -961,6 +962,7 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
   const healer = new HealerAgent(llmClient, {
     maxIterations: settings.agent.maxIterations,
     headless: settings.agent.headless,
+    browserChannel: getBrowserChannel(),
   });
 
   activeAgent = { type: "healer", agent: healer };
