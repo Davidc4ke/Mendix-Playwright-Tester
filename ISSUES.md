@@ -14,7 +14,7 @@ This document tracks all identified issues and their resolution status.
 
 ## High Priority Issues
 
-### 1. [ ] Missing `fetch` polyfill for older Node.js versions
+### 1. [x] Missing `fetch` polyfill for older Node.js versions
 **Location:** `main.js:340, 378`
 **Severity:** High
 
@@ -33,7 +33,7 @@ The API uses `fetch()` for callback URLs, but native fetch requires Node.js v18+
 
 ---
 
-### 2. [ ] No API authentication
+### 2. [x] No API authentication
 **Location:** `main.js:296-412`
 **Severity:** High (Security)
 
@@ -57,7 +57,7 @@ api.use((req, res, next) => {
 
 ---
 
-### 3. [ ] Script injection vulnerability in `wrapScript`
+### 3. [x] Script injection vulnerability in `wrapScript`
 **Location:** `main.js:81`
 **Severity:** High (Security)
 
@@ -76,7 +76,7 @@ const TARGET_URL = ${JSON.stringify(targetUrl)};
 
 ---
 
-### 4. [ ] Step value injection in `generateScriptFromSteps`
+### 4. [x] Step value injection in `generateScriptFromSteps`
 **Location:** `main.js:134-164`
 **Severity:** High (Security)
 
@@ -97,7 +97,7 @@ Use template literals with JSON.stringify for values where possible.
 
 ---
 
-### 5. [ ] No validation of UUID format for runId
+### 5. [x] No validation of UUID format for runId
 **Location:** `main.js:274, 319, 356, 403`
 **Severity:** Medium (Security)
 
@@ -147,7 +147,7 @@ catch (err) {
 
 ---
 
-### 7. [ ] `--headed` flag forces headed mode
+### 7. [x] `--headed` flag forces headed mode
 **Location:** `main.js:210`
 **Severity:** Medium
 
@@ -168,7 +168,7 @@ const cmd = `"${playwrightCli}" test "${runIdPrefix}" --config="${configPath}" -
 
 ---
 
-### 8. [ ] Missing cleanup of temp files in IPC handler
+### 8. [x] Missing cleanup of temp files in IPC handler
 **Location:** `main.js:576`
 **Severity:** Low
 
@@ -231,7 +231,7 @@ const TIMEOUTS = {
 
 ---
 
-### 11. [ ] Event listener memory leak in preload.js
+### 11. [x] Event listener memory leak in preload.js
 **Location:** `preload.js:15-17`
 
 **Problem:**
@@ -252,7 +252,7 @@ onRunStarted: (cb) => {
 
 ---
 
-### 12. [ ] Race conditions in selectComboBox/selectAutoComplete
+### 12. [x] Race conditions in selectComboBox/selectAutoComplete
 **Location:** `mendix-helpers.js:183-211`
 
 **Problem:**

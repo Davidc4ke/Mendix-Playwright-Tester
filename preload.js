@@ -11,8 +11,20 @@ contextBridge.exposeInMainWorld("zoniq", {
   executeScenario: (s) => ipcRenderer.invoke("execute-scenario", s),
   openResultsFolder: (runId) => ipcRenderer.invoke("open-results-folder", runId),
 
-  // Event listeners
-  onRunStarted: (cb) => ipcRenderer.on("run-started", (_, data) => cb(data)),
-  onRunCompleted: (cb) => ipcRenderer.on("run-completed", (_, data) => cb(data)),
-  onRunsUpdated: (cb) => ipcRenderer.on("runs-updated", () => cb()),
+  // Event listeners — each returns an unsubscribe function to prevent memory leaks
+  onRunStarted: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("run-started", handler);
+    return () => ipcRenderer.removeListener("run-started", handler);
+  },
+  onRunCompleted: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("run-completed", handler);
+    return () => ipcRenderer.removeListener("run-completed", handler);
+  },
+  onRunsUpdated: (cb) => {
+    const handler = () => cb();
+    ipcRenderer.on("runs-updated", handler);
+    return () => ipcRenderer.removeListener("runs-updated", handler);
+  },
 });

@@ -1,238 +1,495 @@
 /**
  * mendix-helpers.js
- * 
+ *
  * Utility functions for testing Mendix applications with Playwright.
- * These handle Mendix-specific quirks like loading spinners, dynamic widgets,
- * and the mx-name-* selector convention.
- * 
+ * Supports Mendix 9 and Mendix 10 widget conventions.
+ *
+ * Widget naming convention:
+ *   All helpers accept a `widgetName` that maps to the Mendix Studio Pro
+ *   "Name" property of the widget (e.g. "btnSave" → `.mx-name-btnSave`).
+ *
  * Usage in test scripts:
  *   const mx = require('./helpers/mendix-helpers');
  *   await mx.waitForMendix(page);
  *   await mx.clickWidget(page, 'btnSubmit');
  */
 
+// ── Loading / Navigation ──────────────────────────────────────────────────────
+
 /**
- * Wait until Mendix has fully loaded the page.
- * Waits for the progress bar/spinner to disappear and network to settle.
+ * Wait until Mendix has fully loaded the current page/view.
+ * Handles the progress bar, loading overlay, and network idle state.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {{ timeout?: number }} [options]
  */
 async function waitForMendix(page, options = {}) {
   const { timeout = 30000 } = options;
 
-  // Wait for the Mendix progress indicator to disappear
-  try {
-    await page.waitForSelector(".mx-progress", {
-      state: "hidden",
-      timeout,
-    });
-  } catch {
-    // Progress bar might never appear on fast loads — that's fine
+  // Mendix 9/10 progress bar (.mx-progress) and loading cover (.mx-progress-bar)
+  for (const selector of [".mx-progress", ".mx-progress-bar"]) {
+    try {
+      await page.waitForSelector(selector, { state: "hidden", timeout });
+    } catch {
+      // May never appear on fast loads — that is fine
+    }
   }
 
-  // Also wait for the loading overlay if present
+  // Loading overlay (modal blocker shown during microflow execution)
   try {
-    await page.waitForSelector(".mx-overlay", {
-      state: "hidden",
-      timeout: 5000,
-    });
+    await page.waitForSelector(".mx-overlay", { state: "hidden", timeout: 5000 });
   } catch {
-    // May not exist
+    // May not be present
   }
 
-  // Wait for network to settle
-  await page.waitForLoadState("networkidle", { timeout });
+  // Wait for network to go idle (XHR/fetch requests finished)
+  try {
+    await page.waitForLoadState("networkidle", { timeout });
+  } catch {
+    // Tolerate timeout here — some apps have persistent polling
+  }
 }
 
 /**
- * Login to a Mendix application.
- * Works with the standard Mendix login page.
+ * Login to a Mendix application using the standard Mendix login page.
+ * Tries Mendix 9 selectors first, then falls back to Mendix 10 / custom themes.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} url       Base URL of the Mendix app
+ * @param {string} username
+ * @param {string} password
  */
 async function login(page, url, username, password) {
   await page.goto(url);
-  await waitForMendix(page);
-
-  // Standard Mendix login form selectors
-  await page.fill("#usernameInput", username);
-  await page.fill("#passwordInput", password);
-  await page.click("#loginButton");
-
-  // Wait for the app to load after login
   await waitForMendix(page, { timeout: 45000 });
+
+  // Mendix 9 uses #usernameInput / #passwordInput / #loginButton
+  // Mendix 10 switched to [data-testid] or role-based selectors
+  const usernameLocator = page
+    .locator("#usernameInput, [data-testid='username-input'], input[name='username'], input[placeholder*='user' i]")
+    .first();
+
+  const passwordLocator = page
+    .locator("#passwordInput, [data-testid='password-input'], input[name='password'], input[type='password']")
+    .first();
+
+  await usernameLocator.waitFor({ state: "visible", timeout: 30000 });
+  await usernameLocator.fill(username);
+  await passwordLocator.fill(password);
+
+  // Click the login button — try several common patterns
+  const loginButton = page
+    .locator("#loginButton, [data-testid='login-button'], button[type='submit'], .mx-name-loginButton")
+    .first();
+  await loginButton.click();
+
+  // Wait for the app shell to appear after login
+  await waitForMendix(page, { timeout: 60000 });
 }
 
+// ── Widget Interaction ────────────────────────────────────────────────────────
+
 /**
- * Click a Mendix widget by its widget name (mx-name-*).
- * In Studio Pro, this is the "Name" property of the widget.
- * 
- * Example: clickWidget(page, 'btnSave') clicks the element with class 'mx-name-btnSave'
+ * Click a Mendix widget by its Studio Pro "Name" property.
+ * Waits for the widget to be visible before clicking.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName  e.g. "btnSave"
+ * @param {{ timeout?: number }} [options]
  */
 async function clickWidget(page, widgetName, options = {}) {
-  const selector = `.mx-name-${widgetName}`;
-  await page.waitForSelector(selector, { state: "visible", ...options });
-  await page.click(selector);
+  const { timeout = 15000 } = options;
+  const locator = page.locator(`.mx-name-${widgetName}`).first();
+  await locator.waitFor({ state: "visible", timeout });
+  await locator.click();
 }
 
 /**
- * Fill a Mendix text input widget by its widget name.
- * Handles the fact that Mendix wraps inputs inside container divs.
+ * Fill a Mendix text input or textarea widget.
+ * Clears existing content before typing.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName
+ * @param {string} value
+ * @param {{ timeout?: number }} [options]
  */
-async function fillWidget(page, widgetName, value) {
-  const selector = `.mx-name-${widgetName} input, .mx-name-${widgetName} textarea`;
-  await page.waitForSelector(selector, { state: "visible" });
-  await page.fill(selector, value);
+async function fillWidget(page, widgetName, value, options = {}) {
+  const { timeout = 15000 } = options;
+  // Mendix wraps inputs: .mx-name-widget > .form-control / input / textarea
+  const locator = page
+    .locator(`.mx-name-${widgetName} input, .mx-name-${widgetName} textarea`)
+    .first();
+  await locator.waitFor({ state: "visible", timeout });
+  await locator.clear();
+  await locator.fill(value);
 }
 
 /**
- * Get the text content of a Mendix widget.
+ * Get the trimmed text content of a Mendix widget.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName
+ * @returns {Promise<string>}
  */
 async function getWidgetText(page, widgetName) {
-  const selector = `.mx-name-${widgetName}`;
-  await page.waitForSelector(selector, { state: "visible" });
-  return await page.textContent(selector);
+  const locator = page.locator(`.mx-name-${widgetName}`).first();
+  await locator.waitFor({ state: "visible" });
+  return (await locator.textContent() ?? "").trim();
 }
 
 /**
- * Select a value in a Mendix dropdown widget.
+ * Assert that a Mendix widget is visible on the page.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName
+ * @param {{ timeout?: number }} [options]
+ */
+async function assertWidgetVisible(page, widgetName, options = {}) {
+  const { timeout = 15000 } = options;
+  await page.locator(`.mx-name-${widgetName}`).first().waitFor({ state: "visible", timeout });
+}
+
+// ── Dropdowns & Selects ───────────────────────────────────────────────────────
+
+/**
+ * Select a value in a Mendix standard dropdown widget (<select>-based).
+ * For reference selectors and combo boxes use `selectReferenceSelector` or `selectComboBox`.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName
+ * @param {string} value       Visible label of the option to select
  */
 async function selectDropdown(page, widgetName, value) {
-  const selector = `.mx-name-${widgetName} select`;
-  await page.waitForSelector(selector, { state: "visible" });
-  await page.selectOption(selector, { label: value });
+  const select = page.locator(`.mx-name-${widgetName} select`).first();
+  await select.waitFor({ state: "visible" });
+  await select.selectOption({ label: value });
 }
 
 /**
- * Wait for a Mendix popup/dialog to appear.
+ * Select a value in a Mendix Reference Selector widget.
+ * These render as either a <select> (Mendix 9) or a searchable input (Mendix 10).
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName
+ * @param {string} value
+ */
+async function selectReferenceSelector(page, widgetName, value) {
+  const widget = page.locator(`.mx-name-${widgetName}`).first();
+  await widget.waitFor({ state: "visible" });
+
+  // Mendix 9: native <select>
+  const nativeSelect = widget.locator("select");
+  try {
+    await nativeSelect.waitFor({ state: "visible", timeout: 2000 });
+    await nativeSelect.selectOption({ label: value });
+    return;
+  } catch {
+    // Fall through to searchable input strategy
+  }
+
+  // Mendix 10: searchable combobox
+  const input = widget.locator("input").first();
+  await input.click();
+  await input.fill(value);
+  await page
+    .locator('[role="listbox"] [role="option"]')
+    .filter({ hasText: value })
+    .first()
+    .waitFor({ state: "visible", timeout: 5000 });
+  await page
+    .locator('[role="listbox"] [role="option"]')
+    .filter({ hasText: value })
+    .first()
+    .click();
+}
+
+/**
+ * Select a value in a Mendix ComboBox widget.
+ * Tries native select, then searchable input, then ARIA listbox.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName
+ * @param {string} value
+ */
+async function selectComboBox(page, widgetName, value) {
+  const widget = page.locator(`.mx-name-${widgetName}`).first();
+  await widget.waitFor({ state: "visible" });
+
+  // Strategy 1: native <select>
+  const nativeSelect = widget.locator("select");
+  try {
+    await nativeSelect.waitFor({ state: "visible", timeout: 1000 });
+    await nativeSelect.selectOption({ label: value });
+    return;
+  } catch {
+    // Not a native select
+  }
+
+  // Strategy 2: open the widget and type to filter
+  await widget.click();
+  const searchInput = widget.locator('input[role="combobox"], input[type="text"]').first();
+  try {
+    await searchInput.waitFor({ state: "visible", timeout: 2000 });
+    await searchInput.fill(value);
+  } catch {
+    // Widget opens a listbox without a text input
+  }
+
+  // Wait for and click the matching option
+  const option = page
+    .locator('[role="listbox"] [role="option"], [role="option"]')
+    .filter({ hasText: value })
+    .first();
+  await option.waitFor({ state: "visible", timeout: 5000 });
+  await option.click();
+}
+
+/**
+ * Select a value in a Mendix AutoComplete widget.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName
+ * @param {string} value
+ */
+async function selectAutoComplete(page, widgetName, value) {
+  const widget = page.locator(`.mx-name-${widgetName}`).first();
+  await widget.waitFor({ state: "visible" });
+
+  const input = widget.locator("input").first();
+  await input.click();
+  await input.fill(value);
+
+  const option = page
+    .locator('[role="option"]')
+    .filter({ hasText: value })
+    .first();
+  await option.waitFor({ state: "visible", timeout: 8000 });
+  await option.click();
+}
+
+/**
+ * Fill a Mendix DatePicker widget.
+ * Clears existing content, types the date string, then closes the picker.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName
+ * @param {string} dateValue  e.g. "12/31/2025" (locale format as shown in the app)
+ */
+async function fillDatePicker(page, widgetName, dateValue) {
+  const input = page.locator(`.mx-name-${widgetName} input`).first();
+  await input.waitFor({ state: "visible" });
+  await input.click();
+  await input.clear();
+  await input.type(dateValue, { delay: 50 });
+  // Press Escape to close the datepicker popup without changing focus issues
+  await page.keyboard.press("Escape");
+}
+
+// ── Dialogs / Popups ──────────────────────────────────────────────────────────
+
+/**
+ * Wait for a Mendix popup or modal dialog to appear.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {{ timeout?: number }} [options]
  */
 async function waitForPopup(page, options = {}) {
   const { timeout = 10000 } = options;
-  await page.waitForSelector(".modal-dialog, .mx-dialog", {
-    state: "visible",
-    timeout,
-  });
-  // Small delay for Mendix animation
-  await page.waitForTimeout(300);
+  await page
+    .locator(".modal-dialog, .mx-dialog, .mx-window-active")
+    .first()
+    .waitFor({ state: "visible", timeout });
+  // Brief pause for Mendix open animation to complete
+  await page.waitForTimeout(200);
 }
 
 /**
- * Close a Mendix popup/dialog by clicking the close button.
+ * Close the currently visible Mendix popup/dialog.
+ * Tries Bootstrap 5 (.btn-close), Bootstrap 4 (.close), and Mendix-specific close buttons.
+ *
+ * @param {import('@playwright/test').Page} page
  */
 async function closePopup(page) {
-  await page.click(".modal-dialog .close, .mx-dialog .close");
+  // Try close buttons in order of priority
+  const closeSelectors = [
+    ".modal-dialog .btn-close",   // Bootstrap 5 (Mendix 10)
+    ".modal-dialog .close",       // Bootstrap 4 (Mendix 9)
+    ".mx-dialog .btn-close",
+    ".mx-dialog .close",
+    ".mx-window-active .mx-close-button",
+    ".mx-window-active .close",
+  ];
+
+  for (const sel of closeSelectors) {
+    const btn = page.locator(sel).first();
+    try {
+      await btn.waitFor({ state: "visible", timeout: 1000 });
+      await btn.click();
+      break;
+    } catch {
+      // Try next selector
+    }
+  }
+
+  // Confirm the dialog has gone
   try {
-    await page.waitForSelector(".modal-dialog, .mx-dialog", {
-      state: "hidden",
-      timeout: 5000,
-    });
+    await page
+      .locator(".modal-dialog, .mx-dialog, .mx-window-active")
+      .first()
+      .waitFor({ state: "hidden", timeout: 5000 });
   } catch {
-    // Dialog might already be gone
+    // Dialog may have already been dismissed
   }
 }
 
+// ── Data Grid ─────────────────────────────────────────────────────────────────
+
 /**
- * Click a button in a Mendix datagrid row.
- * Finds the row containing `rowText` and clicks the button named `buttonName` in that row.
+ * Click a button inside a specific row of a Mendix Data Grid (classic).
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} gridName    Widget name of the datagrid
+ * @param {string} rowText     Text to identify the row (partial match)
+ * @param {string} buttonName  Widget name of the button inside the row
  */
 async function clickDataGridRowButton(page, gridName, rowText, buttonName) {
-  const grid = `.mx-name-${gridName}`;
-  const row = page.locator(`${grid} .mx-datagrid-row`).filter({ hasText: rowText });
+  const row = page
+    .locator(`.mx-name-${gridName} .mx-datagrid-row, .mx-name-${gridName} tr`)
+    .filter({ hasText: rowText })
+    .first();
+  await row.waitFor({ state: "visible" });
   await row.locator(`.mx-name-${buttonName}`).click();
 }
 
 /**
- * Get the row count of a Mendix datagrid.
+ * Return the number of visible rows in a Mendix Data Grid (classic).
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} gridName
+ * @returns {Promise<number>}
  */
 async function getDataGridRowCount(page, gridName) {
-  const selector = `.mx-name-${gridName} .mx-datagrid-row`;
-  await page.waitForSelector(selector, { timeout: 10000 }).catch(() => {});
-  return await page.locator(selector).count();
+  const rows = page.locator(
+    `.mx-name-${gridName} .mx-datagrid-row, .mx-name-${gridName} tbody tr`
+  );
+  try {
+    await rows.first().waitFor({ state: "visible", timeout: 10000 });
+  } catch {
+    // Empty grid
+    return 0;
+  }
+  return rows.count();
 }
 
 /**
+ * Return the number of visible rows in a Mendix Data Grid 2 widget (Mendix 9+).
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} gridName
+ * @returns {Promise<number>}
+ */
+async function getDataGrid2RowCount(page, gridName) {
+  const rows = page.locator(`.mx-name-${gridName} [role="row"]:not([role="columnheader"])`);
+  try {
+    await rows.first().waitFor({ state: "visible", timeout: 10000 });
+  } catch {
+    return 0;
+  }
+  return rows.count();
+}
+
+/**
+ * Click a button in a specific row of a Mendix Data Grid 2 widget.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} gridName
+ * @param {string} rowText
+ * @param {string} buttonName
+ */
+async function clickDataGrid2RowButton(page, gridName, rowText, buttonName) {
+  const row = page
+    .locator(`.mx-name-${gridName} [role="row"]`)
+    .filter({ hasText: rowText })
+    .first();
+  await row.waitFor({ state: "visible" });
+  await row.locator(`.mx-name-${buttonName}`).click();
+}
+
+// ── Microflows ────────────────────────────────────────────────────────────────
+
+/**
  * Wait for a Mendix microflow to complete.
- * Watches for the progress indicator to appear and then disappear.
+ * Watches the progress indicator appear (started) then disappear (completed).
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {{ timeout?: number }} [options]
  */
 async function waitForMicroflow(page, options = {}) {
   const { timeout = 30000 } = options;
 
-  // Wait for progress to appear (microflow started)
+  // Wait for the progress bar to appear (microflow triggered)
   try {
-    await page.waitForSelector(".mx-progress", {
+    await page.locator(".mx-progress, .mx-progress-bar").first().waitFor({
       state: "visible",
       timeout: 3000,
     });
   } catch {
-    // Fast microflow — may have already completed
+    // Fast microflow — may have already completed before we started watching
     return;
   }
 
-  // Wait for it to disappear (microflow completed)
-  await page.waitForSelector(".mx-progress", {
+  // Wait for it to go away (microflow completed)
+  await page.locator(".mx-progress, .mx-progress-bar").first().waitFor({
     state: "hidden",
     timeout,
   });
 }
 
+// ── Screenshots ───────────────────────────────────────────────────────────────
+
 /**
- * Take a named screenshot and save it to the results folder.
+ * Take a full-page screenshot and save it to the given directory.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} name        Filename without extension
+ * @param {string} resultsDir  Absolute or relative path to output directory
+ * @returns {Promise<string>}  Full path to the saved screenshot
  */
 async function takeScreenshot(page, name, resultsDir) {
-  const path = `${resultsDir}/${name}.png`;
-  await page.screenshot({ path, fullPage: true });
-  return path;
+  const filePath = `${resultsDir}/${name}.png`;
+  await page.screenshot({ path: filePath, fullPage: true });
+  return filePath;
 }
 
-async function selectComboBox(page, widgetName, value) {
-  const widget = `.mx-name-${widgetName}`;
-
-  await page.click(widget);
-  await page.waitForTimeout(300);
-
-  const nativeSelect = page.locator(`${widget} select`);
-  if (await nativeSelect.count() > 0) {
-    await nativeSelect.selectOption({ label: value });
-    return;
-  }
-
-  const searchInput = page.locator(`${widget} input[role="combobox"], ${widget} input[type="text"]`);
-  if (await searchInput.count() > 0) {
-    await searchInput.fill(value);
-    await page.waitForTimeout(500);
-    await page.getByRole("option", { name: value }).first().click();
-    return;
-  }
-
-  const menuItem = page
-    .locator('[role="listbox"] [role="option"]')
-    .filter({ hasText: value });
-  if (await menuItem.count() > 0) {
-    await menuItem.first().click();
-    return;
-  }
-
-  await page.getByText(value, { exact: true }).first().click();
-}
-
-async function selectAutoComplete(page, widgetName, value) {
-  const widget = `.mx-name-${widgetName}`;
-  const input = page.locator(`${widget} input`);
-  await input.click();
-  await input.fill(value);
-  await page.waitForTimeout(800);
-  await page.getByRole("option", { name: value }).first().click();
-}
+// ─────────────────────────────────────────────────────────────────────────────
 
 module.exports = {
+  // Loading
   waitForMendix,
+  // Auth
   login,
+  // Widget interaction
   clickWidget,
   fillWidget,
   getWidgetText,
+  assertWidgetVisible,
+  // Dropdowns & selects
   selectDropdown,
-  waitForPopup,
-  closePopup,
-  clickDataGridRowButton,
-  getDataGridRowCount,
-  waitForMicroflow,
-  takeScreenshot,
+  selectReferenceSelector,
   selectComboBox,
   selectAutoComplete,
+  fillDatePicker,
+  // Dialogs
+  waitForPopup,
+  closePopup,
+  // Data Grid (classic)
+  clickDataGridRowButton,
+  getDataGridRowCount,
+  // Data Grid 2 (Mendix 9+)
+  getDataGrid2RowCount,
+  clickDataGrid2RowButton,
+  // Microflows
+  waitForMicroflow,
+  // Screenshots
+  takeScreenshot,
 };
