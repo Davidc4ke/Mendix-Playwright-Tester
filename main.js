@@ -679,6 +679,108 @@ function startAPIServer() {
     }
   });
 
+  api.post("/api/agent/preheal", async (req, res) => {
+    if (activeAgent) return res.status(409).json({ error: "An agent is already running" });
+
+    const { scenarioId, script, targetUrl, credentials } = req.body;
+
+    let healScript, healUrl, healCreds, healSteps;
+
+    if (scenarioId) {
+      const db = loadDB();
+      const scenario = db.scenarios.find((s) => s.id === scenarioId);
+      if (!scenario) return res.status(404).json({ error: "Scenario not found" });
+      healScript = scenario.script;
+      healSteps = scenario.steps;
+      healUrl = scenario.targetUrl;
+      healCreds = scenario.credentials;
+    } else if (script && targetUrl) {
+      healScript = script;
+      healSteps = null;
+      healUrl = targetUrl;
+      healCreds = credentials;
+    } else {
+      return res.status(400).json({ error: "Provide scenarioId or (script + targetUrl)" });
+    }
+
+    const settings = loadSettings();
+    if (!settings.llm.apiKey) return res.status(400).json({ error: "No LLM API key configured" });
+
+    // Generate wrapped script for execution
+    let scriptContent;
+    if (healSteps && healSteps.length > 0) {
+      const body = generateScriptFromSteps(healSteps, "Preheal Test", healUrl);
+      scriptContent = wrapScript(body, healUrl, healCreds);
+    } else if (healScript) {
+      scriptContent = wrapScript(healScript, healUrl, healCreds);
+    } else {
+      return res.status(400).json({ error: "No script or steps defined" });
+    }
+
+    activeAgent = { type: "prehealer", agent: null };
+    res.json({ status: "running" });
+
+    try {
+      // Run the test first
+      const runId = uuidv4();
+      const scriptPath = path.join(TEMP_DIR, `preheal-${runId}.spec.js`);
+      fs.writeFileSync(scriptPath, scriptContent);
+      const results = await runPlaywright(scriptPath, runId);
+      try { fs.unlinkSync(scriptPath); } catch {}
+
+      if (results.status === "passed") {
+        activeAgent = null;
+        return; // Test passed, nothing to heal
+      }
+
+      if (!results.errors?.length) {
+        activeAgent = null;
+        return;
+      }
+
+      // Heal the failures
+      let llmClient;
+      try {
+        llmClient = new LLMClient(settings);
+      } catch {
+        activeAgent = null;
+        return;
+      }
+
+      const healer = new HealerAgent(llmClient, {
+        maxIterations: settings.agent.maxIterations,
+        headless: true,
+        browserChannel: getBrowserChannel(),
+      });
+      activeAgent = { type: "prehealer", agent: healer };
+
+      const result = await healer.heal({
+        script: healScript || "",
+        steps: healSteps || null,
+        errors: results.errors,
+        targetUrl: healUrl,
+        credentials: healCreds,
+      });
+      activeAgent = null;
+
+      // Auto-apply if scenarioId was provided
+      if (scenarioId && result.healedScript) {
+        const db = loadDB();
+        const idx = db.scenarios.findIndex((s) => s.id === scenarioId);
+        if (idx >= 0) {
+          db.scenarios[idx].script = result.healedScript;
+          if (db.scenarios[idx].steps?.length) {
+            db.scenarios[idx].steps = [];
+          }
+          db.scenarios[idx].updatedAt = new Date().toISOString();
+          saveDB(db);
+        }
+      }
+    } catch {
+      activeAgent = null;
+    }
+  });
+
   api.get("/api/agent/status", (req, res) => {
     res.json({
       running: !!activeAgent,
@@ -1013,6 +1115,112 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
     });
 
     activeAgent = null;
+    return {
+      healedScript: result.healedScript,
+      changes: result.changes,
+      analysis: result.analysis,
+      confidence: result.confidence,
+    };
+  } catch (err) {
+    activeAgent = null;
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle("agent-preheal", async (event, { scenarioId }) => {
+  if (activeAgent) {
+    return { error: "An agent is already running. Cancel it first." };
+  }
+
+  const db = loadDB();
+  const scenario = db.scenarios.find((s) => s.id === scenarioId);
+  if (!scenario) return { error: "Scenario not found" };
+
+  const settings = loadSettings();
+  if (!settings.llm.apiKey) {
+    return { error: "No API key configured. Go to Settings to add one." };
+  }
+
+  // Generate the script to test
+  let scriptContent;
+  if (scenario.steps && scenario.steps.length > 0) {
+    const body = generateScriptFromSteps(scenario.steps, scenario.name, scenario.targetUrl);
+    scriptContent = wrapScript(body, scenario.targetUrl, scenario.credentials);
+  } else if (scenario.script) {
+    scriptContent = wrapScript(scenario.script, scenario.targetUrl, scenario.credentials);
+  } else {
+    return { error: "No script or steps defined in this scenario" };
+  }
+
+  activeAgent = { type: "prehealer", agent: null };
+
+  const onProgress = (data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("agent-progress", {
+        agentType: "prehealer",
+        ...data,
+      });
+    }
+  };
+
+  try {
+    // Phase 1: Run the test to check if it already works
+    onProgress({ status: "running", message: "Running test to check for issues..." });
+
+    const runId = uuidv4();
+    const scriptPath = path.join(TEMP_DIR, `preheal-${runId}.spec.js`);
+    fs.writeFileSync(scriptPath, scriptContent);
+
+    const results = await runPlaywright(scriptPath, runId);
+
+    try { fs.unlinkSync(scriptPath); } catch {}
+
+    // If the test passed, no healing needed
+    if (results.status === "passed") {
+      activeAgent = null;
+      onProgress({ status: "done", message: "Test passed — no healing needed" });
+      return { status: "passed", message: "Script is working correctly, no healing needed." };
+    }
+
+    // Phase 2: Test failed — heal it
+    if (!results.errors?.length) {
+      activeAgent = null;
+      return { error: "Test failed but no error details were captured" };
+    }
+
+    onProgress({ status: "healing", message: "Test failed — starting AI healer..." });
+
+    let llmClient;
+    try {
+      llmClient = new LLMClient(settings);
+    } catch (err) {
+      activeAgent = null;
+      return { error: err.message };
+    }
+
+    const healer = new HealerAgent(llmClient, {
+      maxIterations: settings.agent.maxIterations,
+      headless: settings.agent.headless,
+      browserChannel: getBrowserChannel(),
+    });
+
+    activeAgent = { type: "prehealer", agent: healer };
+
+    const result = await healer.heal({
+      script: scenario.script || "",
+      steps: scenario.steps || null,
+      errors: results.errors,
+      targetUrl: scenario.targetUrl,
+      credentials: scenario.credentials,
+      onProgress,
+    });
+
+    activeAgent = null;
+
+    if (!result.healedScript) {
+      return { error: "Healer could not produce a fixed script. Analysis: " + (result.analysis || "No analysis") };
+    }
+
     return {
       healedScript: result.healedScript,
       changes: result.changes,

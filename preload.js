@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("zoniq", {
 
   // Agent operations
   agentHeal: (opts) => ipcRenderer.invoke("agent-heal", opts),
+  agentPreheal: (opts) => ipcRenderer.invoke("agent-preheal", opts),
   agentHealApply: (opts) => ipcRenderer.invoke("agent-heal-apply", opts),
   agentCancel: () => ipcRenderer.invoke("agent-cancel"),
 
