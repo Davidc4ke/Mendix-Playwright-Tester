@@ -44,6 +44,23 @@ const MENDIX_HELPERS_PATH = path
   .resolve(HELPERS_DIR, "mendix-helpers.js")
   .replace(/\\/g, "/");
 
+// ── Security helpers ─────────────────────────────────────
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validateRunId(id) {
+  if (!UUID_REGEX.test(id)) throw new Error(`Invalid runId format: ${id}`);
+  return id;
+}
+
+/** Escape a value for safe embedding inside a single-quoted JS string literal. */
+function escapeJsString(str) {
+  return String(str ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n");
+}
+
 function wrapScript(script, targetUrl, credentials) {
   let scriptBody = script.trim();
 
@@ -78,7 +95,7 @@ test('Recorded Test', async ({ page }) => {
   return `
 const { test, expect } = require('@playwright/test');
 const mx = require('${MENDIX_HELPERS_PATH}');
-const TARGET_URL = '${targetUrl}';
+const TARGET_URL = ${JSON.stringify(targetUrl)};
 const CREDENTIALS = ${JSON.stringify(credentials || {})};
 
 ${scriptBody}
@@ -129,29 +146,36 @@ function cleanMendixSelectors(script) {
 
 function generateScriptFromSteps(steps, testName, targetUrl) {
   const lines = steps.map((step) => {
+    // Widget names derived from "mx:" selectors are used as CSS class suffixes —
+    // they must be alphanumeric+dash only, so we strip any problematic chars.
+    const widgetName = (sel) =>
+      escapeJsString(String(sel || "").replace(/^mx:/, ""));
+    const val = escapeJsString(step.value);
+    const sel = escapeJsString(step.selector);
+
     switch (step.action) {
       case "Navigate":
-        return `  await page.goto('${step.value}');\n  await mx.waitForMendix(page);`;
+        return `  await page.goto('${val}');\n  await mx.waitForMendix(page);`;
       case "Login":
         return `  await mx.login(page, TARGET_URL, CREDENTIALS.username, CREDENTIALS.password);`;
       case "Click":
         if (step.selector?.startsWith("mx:"))
-          return `  await mx.clickWidget(page, '${step.selector.replace("mx:", "")}');`;
-        return `  await page.click('${step.selector}');`;
+          return `  await mx.clickWidget(page, '${widgetName(step.selector)}');`;
+        return `  await page.click('${sel}');`;
       case "Fill":
         if (step.selector?.startsWith("mx:"))
-          return `  await mx.fillWidget(page, '${step.selector.replace("mx:", "")}', '${step.value}');`;
-        return `  await page.fill('${step.selector}', '${step.value}');`;
+          return `  await mx.fillWidget(page, '${widgetName(step.selector)}', '${val}');`;
+        return `  await page.fill('${sel}', '${val}');`;
       case "SelectDropdown":
-        return `  await mx.selectDropdown(page, '${step.selector.replace("mx:", "")}', '${step.value}');`;
+        return `  await mx.selectDropdown(page, '${widgetName(step.selector)}', '${val}');`;
       case "AssertText":
         if (step.selector?.startsWith("mx:"))
-          return `  const text_${step.order} = await mx.getWidgetText(page, '${step.selector.replace("mx:", "")}');\n  expect(text_${step.order}).toContain('${step.value}');`;
-        return `  await expect(page.locator('${step.selector}')).toContainText('${step.value}');`;
+          return `  const text_${step.order} = await mx.getWidgetText(page, '${widgetName(step.selector)}');\n  expect(text_${step.order}).toContain('${val}');`;
+        return `  await expect(page.locator('${sel}')).toContainText('${val}');`;
       case "AssertVisible":
-        return `  await expect(page.locator('${step.selector}')).toBeVisible();`;
+        return `  await expect(page.locator('${sel}')).toBeVisible();`;
       case "Wait":
-        return `  await page.waitForTimeout(${step.value || 1000});`;
+        return `  await page.waitForTimeout(${parseInt(step.value, 10) || 1000});`;
       case "WaitForMendix":
         return `  await mx.waitForMendix(page);`;
       case "WaitForPopup":
@@ -161,14 +185,14 @@ function generateScriptFromSteps(steps, testName, targetUrl) {
       case "WaitForMicroflow":
         return `  await mx.waitForMicroflow(page);`;
       case "Screenshot":
-        return `  await page.screenshot({ path: 'results/${step.value || "screenshot"}.png', fullPage: true });`;
+        return `  await page.screenshot({ path: 'results/${val || "screenshot"}.png', fullPage: true });`;
       default:
-        return `  // Unknown action: ${step.action}`;
+        return `  // Unknown action: ${escapeJsString(step.action)}`;
     }
   });
 
   return `
-test('${testName}', async ({ page }) => {
+test('${escapeJsString(testName)}', async ({ page }) => {
   await page.goto(TARGET_URL);
   await mx.waitForMendix(page);
 
@@ -207,7 +231,9 @@ async function runPlaywright(scriptPath, runId) {
 
     const playwrightCli = path.resolve(__dirname, "node_modules", ".bin", process.platform === "win32" ? "playwright.cmd" : "playwright");
     const runIdPrefix = path.basename(scriptPath, ".spec.js");
-    const cmd = `"${playwrightCli}" test "${runIdPrefix}" --config="${configPath}" --reporter=json --output="${runResultsDir}" --headed`;
+    // Default to headed on desktop; set ZONIQ_HEADED=false to run headless (e.g. on CI)
+    const headedFlag = process.env.ZONIQ_HEADED !== "false" ? "--headed" : "";
+    const cmd = `"${playwrightCli}" test "${runIdPrefix}" --config="${configPath}" --reporter=json --output="${runResultsDir}" ${headedFlag}`;
 
 
     console.log(`[${runId}] CMD: ${cmd}`);
@@ -298,6 +324,17 @@ function startAPIServer() {
   api.use(cors());
   api.use(express.json({ limit: "10mb" }));
 
+  // Optional API key authentication (set ZONIQ_API_KEY env var to enable)
+  const API_KEY = process.env.ZONIQ_API_KEY || null;
+  if (API_KEY) {
+    api.use((req, res, next) => {
+      if (req.path === "/api/health") return next(); // Health checks are unauthenticated
+      const key = req.headers["x-api-key"];
+      if (key !== API_KEY) return res.status(401).json({ error: "Unauthorized" });
+      next();
+    });
+  }
+
   api.get("/api/health", (req, res) => {
     exec(
       `${process.platform === "win32" ? "npx.cmd" : "npx"} playwright --version`,
@@ -316,7 +353,12 @@ function startAPIServer() {
     const { testRunId, testName, targetUrl, script, credentials, callbackUrl } = req.body;
     if (!targetUrl || !script) return res.status(400).json({ error: "targetUrl and script required" });
 
-    const runId = testRunId || uuidv4();
+    let runId;
+    try {
+      runId = testRunId ? validateRunId(testRunId) : uuidv4();
+    } catch {
+      return res.status(400).json({ error: "Invalid testRunId — must be a UUID" });
+    }
     const scriptPath = path.join(TEMP_DIR, `run-${runId}.spec.js`);
     fs.writeFileSync(scriptPath, wrapScript(script, targetUrl, credentials));
 
@@ -353,7 +395,12 @@ function startAPIServer() {
     const { testRunId, testName, targetUrl, credentials, steps, callbackUrl } = req.body;
     if (!targetUrl || !steps?.length) return res.status(400).json({ error: "targetUrl and steps required" });
 
-    const runId = testRunId || uuidv4();
+    let runId;
+    try {
+      runId = testRunId ? validateRunId(testRunId) : uuidv4();
+    } catch {
+      return res.status(400).json({ error: "Invalid testRunId — must be a UUID" });
+    }
     const name = testName || "Step Test";
     const scriptBody = generateScriptFromSteps(steps, name, targetUrl);
     const scriptPath = path.join(TEMP_DIR, `run-${runId}.spec.js`);
@@ -401,7 +448,15 @@ function startAPIServer() {
   });
 
   api.get("/api/runs/:runId/artifacts/:filename", (req, res) => {
+    // Validate runId to prevent path traversal
+    if (!UUID_REGEX.test(req.params.runId)) return res.status(400).json({ error: "Invalid runId" });
+    // Reject filenames with path separators
+    if (/[/\\]/.test(req.params.filename)) return res.status(400).json({ error: "Invalid filename" });
     const filePath = path.join(RESULTS_DIR, req.params.runId, req.params.filename);
+    // Ensure resolved path stays within RESULTS_DIR
+    if (!filePath.startsWith(path.resolve(RESULTS_DIR) + path.sep)) {
+      return res.status(400).json({ error: "Invalid path" });
+    }
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Not found" });
     res.sendFile(filePath);
   });
@@ -573,7 +628,7 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
     mainWindow.webContents.send("run-completed", run);
     return run;
   } finally {
-    // try { fs.unlinkSync(scriptPath); } catch {}
+    try { fs.unlinkSync(scriptPath); } catch {}
   }
 });
 
