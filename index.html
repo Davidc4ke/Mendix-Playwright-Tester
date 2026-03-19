@@ -781,6 +781,125 @@
     font-family: var(--font);
   }
 
+  /* ── AI Agent ─────────────────────────────────────────── */
+  .btn-ai {
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    border-color: #7c3aed;
+    color: white;
+  }
+
+  .btn-ai:hover {
+    background: linear-gradient(135deg, #7c3aed, #4f46e5);
+    border-color: #6d28d9;
+  }
+
+  .agent-progress {
+    margin-top: 12px;
+  }
+
+  .agent-progress-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-family: var(--font);
+    color: var(--text-secondary);
+    border-left: 2px solid var(--border);
+    margin-left: 8px;
+  }
+
+  .agent-progress-item.current {
+    border-left-color: #8b5cf6;
+    color: var(--text-primary);
+  }
+
+  .agent-progress-item .agent-status {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .agent-status-thinking { background: rgba(139,92,246,0.15); color: #8b5cf6; }
+  .agent-status-acting { background: var(--amber-dim); color: var(--amber); }
+  .agent-status-done { background: var(--green-dim); color: var(--green); }
+  .agent-status-error { background: var(--red-dim); color: var(--red); }
+
+  .heal-diff {
+    margin-top: 12px;
+  }
+
+  .heal-change {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-family: var(--font);
+  }
+
+  .heal-change-reason {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: var(--font-ui);
+    margin-bottom: 6px;
+  }
+
+  .heal-change del {
+    background: var(--red-dim);
+    color: var(--red);
+    text-decoration: none;
+    padding: 1px 3px;
+    border-radius: 2px;
+  }
+
+  .heal-change ins {
+    background: var(--green-dim);
+    color: var(--green);
+    text-decoration: none;
+    padding: 1px 3px;
+    border-radius: 2px;
+  }
+
+  .settings-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-family: var(--font);
+    color: var(--text-secondary);
+    -webkit-app-region: no-drag;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: var(--radius);
+    transition: background var(--transition);
+    background: none;
+    border: none;
+  }
+
+  .settings-btn:hover { background: var(--bg-elevated); }
+
+  .confidence-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-family: var(--font);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 3px;
+  }
+
+  .confidence-high { background: var(--green-dim); color: var(--green); }
+  .confidence-medium { background: var(--amber-dim); color: var(--amber); }
+  .confidence-low { background: var(--red-dim); color: var(--red); }
+
   /* ── Responsive ─────────────────────────────────────── */
   .detail-body .form-row {
     display: grid;
@@ -798,9 +917,12 @@
       <div class="titlebar-logo">Z</div>
       <h1>Zoniq Test Runner <span>v1.0</span></h1>
     </div>
-    <div class="health-indicator" id="healthIndicator" onclick="runHealthCheck()">
-      <div class="health-dot" id="healthDot"></div>
-      <span id="healthText">Checking...</span>
+    <div style="display:flex;align-items:center;gap:4px;">
+      <button class="settings-btn" onclick="openSettingsModal()" title="Settings">&#9881; Settings</button>
+      <div class="health-indicator" id="healthIndicator" onclick="runHealthCheck()">
+        <div class="health-dot" id="healthDot"></div>
+        <span id="healthText">Checking...</span>
+      </div>
     </div>
   </div>
 
@@ -919,6 +1041,49 @@
     <div id="healthDetails"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('healthModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Settings Modal ─────────────────────────────── -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal" style="width:500px;">
+    <div class="modal-title">AI Agent Settings</div>
+    <div class="form-group">
+      <label>LLM Provider</label>
+      <select class="form-input" id="settingsProvider" onchange="onProviderChange()">
+        <option value="anthropic">Anthropic (Claude)</option>
+        <option value="openai">OpenAI (GPT)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>API Key</label>
+      <input class="form-input" id="settingsApiKey" type="password" placeholder="sk-..." />
+    </div>
+    <div class="form-group">
+      <label>Model (leave blank for default)</label>
+      <input class="form-input" id="settingsModel" placeholder="e.g. claude-sonnet-4-20250514" />
+    </div>
+    <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div class="form-group">
+        <label>Max Iterations</label>
+        <input class="form-input" id="settingsMaxIter" type="number" min="1" max="50" value="20" />
+      </div>
+      <div class="form-group">
+        <label>Browser Mode</label>
+        <select class="form-input" id="settingsHeadless">
+          <option value="false">Headed (visible)</option>
+          <option value="true">Headless</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-bottom:8px;">
+      <button class="btn btn-sm" id="testConnectionBtn" onclick="testLLMConnection()">Test Connection</button>
+      <span id="connectionResult" style="font-size:11px;margin-left:8px;font-family:var(--font);"></span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('settingsModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSettingsFromModal()">Save Settings</button>
     </div>
   </div>
 </div>
@@ -1246,6 +1411,7 @@ function showRunDetail(run) {
       </div>
       <div class="btn-group">
         <span class="badge badge-${run.status}" style="font-size:12px;padding:4px 12px;">${run.status.toUpperCase()}</span>
+        ${run.status === "failed" && run.scenarioId ? `<button class="btn btn-sm btn-ai" onclick="startHealing('${run.scenarioId}', '${run.runId}')">&#10024; AI Heal</button>` : ""}
         <button class="btn btn-sm" onclick="window.zoniq.openResultsFolder('${run.runId}')">&#128193; Open Folder</button>
       </div>
     </div>
@@ -1529,6 +1695,225 @@ function timeAgo(dateStr) {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   return `${days}d ago`;
+}
+
+// ════════════════════════════════════════════════════
+//  Settings
+// ════════════════════════════════════════════════════
+async function openSettingsModal() {
+  const settings = await window.zoniq.getSettings();
+  document.getElementById("settingsProvider").value = settings.llm.provider || "anthropic";
+  document.getElementById("settingsApiKey").value = settings.llm.apiKey || "";
+  document.getElementById("settingsModel").value = settings.llm.model || "";
+  document.getElementById("settingsMaxIter").value = settings.agent.maxIterations || 20;
+  document.getElementById("settingsHeadless").value = String(settings.agent.headless || false);
+  document.getElementById("connectionResult").textContent = "";
+  openModal("settingsModal");
+}
+
+function onProviderChange() {
+  const provider = document.getElementById("settingsProvider").value;
+  const modelInput = document.getElementById("settingsModel");
+  if (!modelInput.value) {
+    modelInput.placeholder = provider === "openai" ? "e.g. gpt-4o" : "e.g. claude-sonnet-4-20250514";
+  }
+}
+
+function getSettingsFromModal() {
+  return {
+    llm: {
+      provider: document.getElementById("settingsProvider").value,
+      apiKey: document.getElementById("settingsApiKey").value.trim(),
+      model: document.getElementById("settingsModel").value.trim(),
+      maxTokens: 4096,
+    },
+    agent: {
+      maxIterations: parseInt(document.getElementById("settingsMaxIter").value) || 20,
+      headless: document.getElementById("settingsHeadless").value === "true",
+    },
+  };
+}
+
+async function saveSettingsFromModal() {
+  const settings = getSettingsFromModal();
+  await window.zoniq.saveSettings(settings);
+  closeModal("settingsModal");
+  toast("Settings saved", "success");
+}
+
+async function testLLMConnection() {
+  const btn = document.getElementById("testConnectionBtn");
+  const result = document.getElementById("connectionResult");
+  btn.disabled = true;
+  result.textContent = "Testing...";
+  result.style.color = "var(--text-secondary)";
+
+  const settings = getSettingsFromModal();
+  const res = await window.zoniq.testLLMConnection(settings);
+
+  btn.disabled = false;
+  if (res.ok) {
+    result.textContent = "Connected!";
+    result.style.color = "var(--green)";
+  } else {
+    result.textContent = res.error || "Connection failed";
+    result.style.color = "var(--red)";
+  }
+}
+
+// ════════════════════════════════════════════════════
+//  AI Heal Agent
+// ════════════════════════════════════════════════════
+let healProgress = [];
+let unsubAgentProgress = null;
+
+async function startHealing(scenarioId, runId) {
+  healProgress = [];
+
+  // Subscribe to agent progress events
+  if (unsubAgentProgress) unsubAgentProgress();
+  unsubAgentProgress = window.zoniq.onAgentProgress((data) => {
+    if (data.agentType !== "healer") return;
+    healProgress.push(data);
+    renderAgentProgressPanel();
+  });
+
+  showAgentProgressPanel("healer", scenarioId, runId);
+
+  const result = await window.zoniq.agentHeal({ scenarioId, runId });
+
+  if (unsubAgentProgress) { unsubAgentProgress(); unsubAgentProgress = null; }
+
+  if (result.error) {
+    toast(`Healing failed: ${result.error}`, "error");
+    showRunDetail(selectedRun);
+    return;
+  }
+
+  showHealResult(result, scenarioId);
+}
+
+function showAgentProgressPanel(agentType, scenarioId, runId) {
+  currentView = "agent";
+  const el = document.getElementById("detailContent");
+  const empty = document.getElementById("detailEmpty");
+  empty.style.display = "none";
+  el.style.display = "flex";
+
+  el.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">AI Healer Running...</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
+          Analyzing failure and current app state
+        </div>
+      </div>
+      <div class="btn-group">
+        <span class="badge badge-running" style="font-size:12px;padding:4px 12px;">HEALING</span>
+        <button class="btn btn-sm btn-danger" onclick="cancelAgent()">Cancel</button>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="section-header">Agent Progress</div>
+      <div class="agent-progress" id="agentProgressList">
+        <div class="agent-progress-item current">
+          <div class="spinner"></div>
+          <span>Initializing...</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderAgentProgressPanel() {
+  const container = document.getElementById("agentProgressList");
+  if (!container) return;
+
+  container.innerHTML = healProgress.map((p, i) => {
+    const isCurrent = i === healProgress.length - 1;
+    const statusClass = `agent-status-${p.status || "thinking"}`;
+    return `
+      <div class="agent-progress-item ${isCurrent ? 'current' : ''}">
+        ${isCurrent && p.status !== "done" && p.status !== "error" ? '<div class="spinner"></div>' : ''}
+        <span class="agent-status ${statusClass}">${esc(p.status || "")}</span>
+        <span>${esc(p.message || "")}</span>
+        ${p.iteration != null ? `<span style="font-size:10px;color:var(--text-muted);margin-left:auto;">step ${p.iteration + 1}</span>` : ""}
+      </div>
+    `;
+  }).join("");
+
+  // Auto-scroll
+  const last = container.lastElementChild;
+  if (last) last.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function showHealResult(result, scenarioId) {
+  currentView = "heal-result";
+  const el = document.getElementById("detailContent");
+  const empty = document.getElementById("detailEmpty");
+  empty.style.display = "none";
+  el.style.display = "flex";
+
+  const confClass = `confidence-${result.confidence || "medium"}`;
+
+  el.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">Healing Complete</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
+          <span class="confidence-badge ${confClass}">${esc(result.confidence || "medium")} confidence</span>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-ai" onclick="applyHealedScript('${scenarioId}')">Apply Fix</button>
+        <button class="btn" onclick="showRunDetail(selectedRun)">Discard</button>
+      </div>
+    </div>
+    <div class="detail-body">
+      ${result.analysis ? `
+        <div class="section-header">Analysis</div>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:16px;">${esc(result.analysis)}</p>
+      ` : ""}
+
+      ${result.changes?.length ? `
+        <div class="section-header">Changes</div>
+        <div class="heal-diff">
+          ${result.changes.map((c) => `
+            <div class="heal-change">
+              <div class="heal-change-reason">${esc(c.reason || "")}</div>
+              ${c.original ? `<div><del>${esc(c.original)}</del></div>` : ""}
+              ${c.replacement ? `<div><ins>${esc(c.replacement)}</ins></div>` : ""}
+            </div>
+          `).join("")}
+        </div>
+      ` : ""}
+
+      <div class="section-header">Patched Script</div>
+      <pre class="script-area" style="min-height:100px;max-height:400px;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(result.healedScript || "No script generated")}</pre>
+    </div>
+  `;
+
+  // Store healed script for apply
+  window._healedScript = result.healedScript;
+}
+
+async function applyHealedScript(scenarioId) {
+  if (!window._healedScript) { toast("No healed script to apply", "error"); return; }
+  const res = await window.zoniq.agentHealApply({ scenarioId, healedScript: window._healedScript });
+  if (res.error) { toast(res.error, "error"); return; }
+  window._healedScript = null;
+  toast("Healed script applied to scenario", "success");
+  await loadScenarios();
+  if (selectedScenario) {
+    selectedScenario = scenarios.find((s) => s.id === scenarioId) || selectedScenario;
+    showScenarioDetail(selectedScenario);
+  }
+}
+
+async function cancelAgent() {
+  await window.zoniq.agentCancel();
+  toast("Agent cancelled", "info");
+  if (selectedRun) showRunDetail(selectedRun);
 }
 </script>
 

@@ -12,6 +12,9 @@ const { exec, spawn } = require("child_process");
 const { v4: uuidv4 } = require("uuid");
 const express = require("express");
 const cors = require("cors");
+const { loadSettings, saveSettings, getDefaultModel } = require("./settings");
+const { LLMClient } = require("./agents/llm-client");
+const { HealerAgent } = require("./agents/healer-agent");
 
 // ── Paths ────────────────────────────────────────────────
 const USER_DATA = app.getPath("userData");
@@ -602,6 +605,93 @@ function startAPIServer() {
     res.sendFile(filePath);
   });
 
+  // ── Agent API Endpoints ──────────────────────────────────
+
+  api.post("/api/agent/heal", async (req, res) => {
+    if (activeAgent) return res.status(409).json({ error: "An agent is already running" });
+
+    const { scenarioId, runId, script, errors, targetUrl, credentials } = req.body;
+
+    // Support both by-ID and inline mode
+    let healScript, healErrors, healUrl, healCreds;
+
+    if (scenarioId && runId) {
+      const db = loadDB();
+      const scenario = db.scenarios.find((s) => s.id === scenarioId);
+      const run = db.runs.find((r) => r.runId === runId);
+      if (!scenario) return res.status(404).json({ error: "Scenario not found" });
+      if (!run) return res.status(404).json({ error: "Run not found" });
+      healScript = scenario.script;
+      healErrors = run.results?.errors || [];
+      healUrl = scenario.targetUrl;
+      healCreds = scenario.credentials;
+    } else if (script && targetUrl) {
+      healScript = script;
+      healErrors = errors || [];
+      healUrl = targetUrl;
+      healCreds = credentials;
+    } else {
+      return res.status(400).json({ error: "Provide (scenarioId + runId) or (script + targetUrl + errors)" });
+    }
+
+    const settings = loadSettings();
+    if (!settings.llm.apiKey) return res.status(400).json({ error: "No LLM API key configured" });
+
+    let llmClient;
+    try {
+      llmClient = new LLMClient(settings);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+
+    const healer = new HealerAgent(llmClient, {
+      maxIterations: settings.agent.maxIterations,
+      headless: true,
+    });
+    activeAgent = { type: "healer", agent: healer };
+
+    res.json({ status: "running" });
+
+    try {
+      const result = await healer.heal({
+        script: healScript,
+        errors: healErrors,
+        targetUrl: healUrl,
+        credentials: healCreds,
+      });
+      activeAgent = null;
+      // If a scenarioId was provided, save the healed script
+      if (scenarioId && result.healedScript) {
+        const db = loadDB();
+        const idx = db.scenarios.findIndex((s) => s.id === scenarioId);
+        if (idx >= 0) {
+          db.scenarios[idx].script = result.healedScript;
+          db.scenarios[idx].updatedAt = new Date().toISOString();
+          saveDB(db);
+        }
+      }
+    } catch {
+      activeAgent = null;
+    }
+  });
+
+  api.get("/api/agent/status", (req, res) => {
+    res.json({
+      running: !!activeAgent,
+      type: activeAgent?.type || null,
+    });
+  });
+
+  api.post("/api/agent/cancel", (req, res) => {
+    if (activeAgent) {
+      activeAgent.agent.cancel();
+      activeAgent = null;
+      res.json({ ok: true });
+    } else {
+      res.json({ ok: false, error: "No agent running" });
+    }
+  });
+
   apiServer = api.listen(API_PORT, () => {
     console.log(`API server on http://localhost:${API_PORT}`);
   });
@@ -819,6 +909,113 @@ ipcMain.handle("open-results-folder", (event, runId) => {
   else shell.openPath(RESULTS_DIR);
 });
 
+// ── Agent State ──────────────────────────────────────────
+let activeAgent = null; // { type, agent, runId }
+
+// ── Settings IPC Handlers ────────────────────────────────
+
+ipcMain.handle("get-settings", () => {
+  return loadSettings();
+});
+
+ipcMain.handle("save-settings", (event, settings) => {
+  return saveSettings(settings);
+});
+
+ipcMain.handle("test-llm-connection", async (event, settings) => {
+  try {
+    const client = new LLMClient(settings);
+    return await client.testConnection();
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// ── Agent IPC Handlers ───────────────────────────────────
+
+ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
+  if (activeAgent) {
+    return { error: "An agent is already running. Cancel it first." };
+  }
+
+  const db = loadDB();
+  const scenario = db.scenarios.find((s) => s.id === scenarioId);
+  const run = db.runs.find((r) => r.runId === runId);
+
+  if (!scenario) return { error: "Scenario not found" };
+  if (!run) return { error: "Run not found" };
+  if (!run.results?.errors?.length) return { error: "No errors to heal" };
+
+  const settings = loadSettings();
+  if (!settings.llm.apiKey) {
+    return { error: "No API key configured. Go to Settings to add one." };
+  }
+
+  let llmClient;
+  try {
+    llmClient = new LLMClient(settings);
+  } catch (err) {
+    return { error: err.message };
+  }
+
+  const healer = new HealerAgent(llmClient, {
+    maxIterations: settings.agent.maxIterations,
+    headless: settings.agent.headless,
+  });
+
+  activeAgent = { type: "healer", agent: healer };
+
+  const onProgress = (data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("agent-progress", {
+        agentType: "healer",
+        ...data,
+      });
+    }
+  };
+
+  try {
+    const result = await healer.heal({
+      script: scenario.script || "",
+      errors: run.results.errors,
+      targetUrl: scenario.targetUrl,
+      credentials: scenario.credentials,
+      onProgress,
+    });
+
+    activeAgent = null;
+    return {
+      healedScript: result.healedScript,
+      changes: result.changes,
+      analysis: result.analysis,
+      confidence: result.confidence,
+    };
+  } catch (err) {
+    activeAgent = null;
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle("agent-heal-apply", async (event, { scenarioId, healedScript }) => {
+  const db = loadDB();
+  const idx = db.scenarios.findIndex((s) => s.id === scenarioId);
+  if (idx < 0) return { error: "Scenario not found" };
+
+  db.scenarios[idx].script = healedScript;
+  db.scenarios[idx].updatedAt = new Date().toISOString();
+  saveDB(db);
+  return { ok: true };
+});
+
+ipcMain.handle("agent-cancel", () => {
+  if (activeAgent) {
+    activeAgent.agent.cancel();
+    activeAgent = null;
+    return { ok: true };
+  }
+  return { ok: false, error: "No agent running" };
+});
+
 // ── Window ───────────────────────────────────────────────
 let mainWindow;
 
@@ -854,6 +1051,11 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  // Clean up any running agents
+  if (activeAgent) {
+    activeAgent.agent.cancel();
+    activeAgent = null;
+  }
   if (apiServer) apiServer.close();
   app.quit();
 });
