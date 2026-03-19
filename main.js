@@ -325,6 +325,39 @@ function extractSpecs(suites) {
   return specs;
 }
 
+/** Extract step-level data from the Playwright JSON report.
+ *  Returns { stepList, stepResults } or null if no steps found. */
+function extractStepsFromReport(report) {
+  if (!report?.suites) return null;
+  const specs = extractSpecs(report.suites);
+  const stepList = [];
+  const stepResults = {};
+  let index = 0;
+
+  for (const spec of specs) {
+    for (const test of spec.tests || []) {
+      for (const result of test.results || []) {
+        for (const step of result.steps || []) {
+          stepList.push({
+            index,
+            action: step.title,
+            description: step.title,
+          });
+          const failed = step.error != null;
+          stepResults[String(index)] = {
+            status: failed ? "failed" : "done",
+            error: failed ? (step.error.message || step.error.snippet || "") : undefined,
+            durationMs: step.duration || 0,
+          };
+          index++;
+        }
+      }
+    }
+  }
+
+  return stepList.length > 0 ? { stepList, stepResults } : null;
+}
+
 async function runPlaywright(scriptPath, runId, onStepProgress) {
   const runResultsDir = path.join(RESULTS_DIR, runId);
   fs.mkdirSync(runResultsDir, { recursive: true });
@@ -460,7 +493,19 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
         }
       }
 
-      resolve({ status, summary, errors, artifacts, stderr: stderrBuf?.substring(0, 2000) });
+      const resultObj = { status, summary, errors, artifacts, stderr: stderrBuf?.substring(0, 2000) };
+
+      // Extract step data from Playwright JSON report as a fallback for
+      // tests that don't use real-time ZONIQ_STEP marker tracking.
+      if (report) {
+        const reportSteps = extractStepsFromReport(report);
+        if (reportSteps) {
+          resultObj.reportStepList = reportSteps.stepList;
+          resultObj.reportStepResults = reportSteps.stepResults;
+        }
+      }
+
+      resolve(resultObj);
     });
   });
 }
@@ -515,6 +560,13 @@ function startAPIServer() {
     res.json({ runId, status: "running" });
 
     const results = await runPlaywright(scriptPath, runId);
+    // Promote report-extracted steps for script-based API tests
+    if (results.reportStepList) {
+      results.stepList = results.reportStepList;
+      results.stepResults = results.reportStepResults;
+      delete results.reportStepList;
+      delete results.reportStepResults;
+    }
     const db = loadDB();
     db.runs.push({
       runId,
@@ -559,6 +611,13 @@ function startAPIServer() {
     res.json({ runId, status: "running" });
 
     const results = await runPlaywright(scriptPath, runId);
+    // Promote report-extracted steps for API step tests
+    if (results.reportStepList) {
+      results.stepList = results.reportStepList;
+      results.stepResults = results.reportStepResults;
+      delete results.reportStepList;
+      delete results.reportStepResults;
+    }
     const db = loadDB();
     db.runs.push({
       runId,
@@ -908,7 +967,13 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
     if (stepList) {
       results.stepList = stepList;
       results.stepResults = stepResults;
+    } else if (results.reportStepList) {
+      // Fallback for script-based scenarios: use report-extracted steps
+      results.stepList = results.reportStepList;
+      results.stepResults = results.reportStepResults;
     }
+    delete results.reportStepList;
+    delete results.reportStepResults;
     run.results = results;
 
     const db2 = loadDB();
