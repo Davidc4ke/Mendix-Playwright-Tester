@@ -144,57 +144,70 @@ function cleanMendixSelectors(script) {
   return cleaned;
 }
 
-function generateScriptFromSteps(steps, testName, targetUrl) {
-  const lines = steps.map((step) => {
-    // Widget names derived from "mx:" selectors are used as CSS class suffixes —
-    // they must be alphanumeric+dash only, so we strip any problematic chars.
-    const widgetName = (sel) =>
-      escapeJsString(String(sel || "").replace(/^mx:/, ""));
-    const val = escapeJsString(step.value);
-    const sel = escapeJsString(step.selector);
+function generateStepCode(step) {
+  const widgetName = (sel) =>
+    escapeJsString(String(sel || "").replace(/^mx:/, ""));
+  const val = escapeJsString(step.value);
+  const sel = escapeJsString(step.selector);
 
-    switch (step.action) {
-      case "Navigate":
-        return `  await page.goto('${val}');\n  await mx.waitForMendix(page);`;
-      case "Login":
-        return `  await mx.login(page, TARGET_URL, CREDENTIALS.username, CREDENTIALS.password);`;
-      case "Click":
-        if (step.selector?.startsWith("mx:"))
-          return `  await mx.clickWidget(page, '${widgetName(step.selector)}');`;
-        return `  await page.click('${sel}');`;
-      case "Fill":
-        if (step.selector?.startsWith("mx:"))
-          return `  await mx.fillWidget(page, '${widgetName(step.selector)}', '${val}');`;
-        return `  await page.fill('${sel}', '${val}');`;
-      case "SelectDropdown":
-        return `  await mx.selectDropdown(page, '${widgetName(step.selector)}', '${val}');`;
-      case "AssertText":
-        if (step.selector?.startsWith("mx:"))
-          return `  const text_${step.order} = await mx.getWidgetText(page, '${widgetName(step.selector)}');\n  expect(text_${step.order}).toContain('${val}');`;
-        return `  await expect(page.locator('${sel}')).toContainText('${val}');`;
-      case "AssertVisible":
-        return `  await expect(page.locator('${sel}')).toBeVisible();`;
-      case "Wait":
-        return `  await page.waitForTimeout(${parseInt(step.value, 10) || 1000});`;
-      case "WaitForMendix":
-        return `  await mx.waitForMendix(page);`;
-      case "WaitForPopup":
-        return `  await mx.waitForPopup(page);`;
-      case "ClosePopup":
-        return `  await mx.closePopup(page);`;
-      case "WaitForMicroflow":
-        return `  await mx.waitForMicroflow(page);`;
-      case "Screenshot":
-        return `  await page.screenshot({ path: 'results/${val || "screenshot"}.png', fullPage: true });`;
-      default:
-        return `  // Unknown action: ${escapeJsString(step.action)}`;
-    }
+  switch (step.action) {
+    case "Navigate":
+      return `  await page.goto('${val}');\n  await mx.waitForMendix(page);`;
+    case "Login":
+      return `  await mx.login(page, TARGET_URL, CREDENTIALS.username, CREDENTIALS.password);`;
+    case "Click":
+      if (step.selector?.startsWith("mx:"))
+        return `  await mx.clickWidget(page, '${widgetName(step.selector)}');`;
+      return `  await page.click('${sel}');`;
+    case "Fill":
+      if (step.selector?.startsWith("mx:"))
+        return `  await mx.fillWidget(page, '${widgetName(step.selector)}', '${val}');`;
+      return `  await page.fill('${sel}', '${val}');`;
+    case "SelectDropdown":
+      return `  await mx.selectDropdown(page, '${widgetName(step.selector)}', '${val}');`;
+    case "AssertText":
+      if (step.selector?.startsWith("mx:"))
+        return `  const text_${step.order} = await mx.getWidgetText(page, '${widgetName(step.selector)}');\n  expect(text_${step.order}).toContain('${val}');`;
+      return `  await expect(page.locator('${sel}')).toContainText('${val}');`;
+    case "AssertVisible":
+      return `  await expect(page.locator('${sel}')).toBeVisible();`;
+    case "Wait":
+      return `  await page.waitForTimeout(${parseInt(step.value, 10) || 1000});`;
+    case "WaitForMendix":
+      return `  await mx.waitForMendix(page);`;
+    case "WaitForPopup":
+      return `  await mx.waitForPopup(page);`;
+    case "ClosePopup":
+      return `  await mx.closePopup(page);`;
+    case "WaitForMicroflow":
+      return `  await mx.waitForMicroflow(page);`;
+    case "Screenshot":
+      return `  await page.screenshot({ path: 'results/${val || "screenshot"}.png', fullPage: true });`;
+    default:
+      return `  // Unknown action: ${escapeJsString(step.action)}`;
+  }
+}
+
+function generateScriptFromSteps(steps, testName, targetUrl) {
+  const lines = steps.map((step, idx) => {
+    const code = generateStepCode(step);
+    const desc = escapeJsString(`${step.action}${step.selector ? ' ' + step.selector : ''}${step.value ? ' = ' + step.value : ''}`);
+    // Wrap each step with progress markers so the runner can track execution
+    return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
+      `  try {\n  ${code}\n` +
+      `  console.log('[ZONIQ_STEP:DONE:${idx}]');\n` +
+      `  } catch (_stepErr_${idx}) {\n` +
+      `    console.log('[ZONIQ_STEP:FAIL:${idx}:' + _stepErr_${idx}.message.replace(/\\n/g, ' ') + ']');\n` +
+      `    throw _stepErr_${idx};\n` +
+      `  }`;
   });
 
   return `
 test('${escapeJsString(testName)}', async ({ page }) => {
+  console.log('[ZONIQ_STEP:START:-1:Navigate to target URL]');
   await page.goto(TARGET_URL);
   await mx.waitForMendix(page);
+  console.log('[ZONIQ_STEP:DONE:-1]');
 
 ${lines.join("\n\n")}
 });
@@ -211,7 +224,7 @@ function extractSpecs(suites) {
   return specs;
 }
 
-async function runPlaywright(scriptPath, runId) {
+async function runPlaywright(scriptPath, runId, onStepProgress) {
   const runResultsDir = path.join(RESULTS_DIR, runId);
   fs.mkdirSync(runResultsDir, { recursive: true });
 
@@ -233,16 +246,53 @@ async function runPlaywright(scriptPath, runId) {
     const runIdPrefix = path.basename(scriptPath, ".spec.js");
     // Default to headed on desktop; set ZONIQ_HEADED=false to run headless (e.g. on CI)
     const headedFlag = process.env.ZONIQ_HEADED !== "false" ? "--headed" : "";
-    const cmd = `"${playwrightCli}" test "${runIdPrefix}" --config="${configPath}" --reporter=json --output="${runResultsDir}" ${headedFlag}`;
 
+    const args = [
+      "test", runIdPrefix,
+      `--config=${configPath}`,
+      "--reporter=json",
+      `--output=${runResultsDir}`,
+    ];
+    if (headedFlag) args.push("--headed");
 
-    console.log(`[${runId}] CMD: ${cmd}`);
+    console.log(`[${runId}] CMD: ${playwrightCli} ${args.join(" ")}`);
 
-    exec(cmd, { env, timeout: 300_000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+    let stdoutBuf = "";
+    let stderrBuf = "";
+
+    const proc = spawn(playwrightCli, args, { env, shell: true, timeout: 300_000 });
+
+    proc.stdout.on("data", (chunk) => {
+      const text = chunk.toString();
+      stdoutBuf += text;
+
+      // Parse step progress markers from stdout
+      if (onStepProgress) {
+        const lines = text.split("\n");
+        for (const line of lines) {
+          const startMatch = line.match(/\[ZONIQ_STEP:START:(-?\d+):(.*?)\]/);
+          const doneMatch = line.match(/\[ZONIQ_STEP:DONE:(-?\d+)\]/);
+          const failMatch = line.match(/\[ZONIQ_STEP:FAIL:(-?\d+):(.*?)\]/);
+          if (startMatch) {
+            onStepProgress({ runId, stepIndex: parseInt(startMatch[1]), status: "running", description: startMatch[2] });
+          } else if (doneMatch) {
+            onStepProgress({ runId, stepIndex: parseInt(doneMatch[1]), status: "done" });
+          } else if (failMatch) {
+            onStepProgress({ runId, stepIndex: parseInt(failMatch[1]), status: "failed", error: failMatch[2] });
+          }
+        }
+      }
+    });
+
+    proc.stderr.on("data", (chunk) => {
+      stderrBuf += chunk.toString();
+    });
+
+    proc.on("close", () => {
       // Debug: save stdout/stderr
       try {
-        fs.writeFileSync(path.join(runResultsDir, "debug-stdout.txt"), stdout || "");
-        fs.writeFileSync(path.join(runResultsDir, "debug-stderr.txt"), stderr || "");
+        fs.writeFileSync(path.join(runResultsDir, "debug-stdout.txt"), stdoutBuf);
+        fs.writeFileSync(path.join(runResultsDir, "debug-stderr.txt"), stderrBuf);
       } catch {}
 
       let report = null;
@@ -252,10 +302,10 @@ async function runPlaywright(scriptPath, runId) {
         }
       } catch {}
 
-      if (!report && stdout) {
+      if (!report && stdoutBuf) {
         try {
-          report = JSON.parse(stdout);
-          fs.writeFileSync(reportPath, stdout);
+          report = JSON.parse(stdoutBuf);
+          fs.writeFileSync(reportPath, stdoutBuf);
         } catch {}
       }
 
@@ -310,7 +360,7 @@ async function runPlaywright(scriptPath, runId) {
         }
       }
 
-      resolve({ status, summary, errors, artifacts, stderr: stderr?.substring(0, 2000) });
+      resolve({ status, summary, errors, artifacts, stderr: stderrBuf?.substring(0, 2000) });
     });
   });
 }
@@ -602,8 +652,30 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
   // Notify UI that run started
   mainWindow.webContents.send("run-started", run);
 
+  // Send step info to renderer so it can show the step list
+  if (scenario.steps?.length) {
+    const stepList = [
+      { index: -1, action: "Navigate", description: "Navigate to target URL" },
+      ...scenario.steps.map((s, i) => ({
+        index: i,
+        action: s.action,
+        selector: s.selector || "",
+        value: s.value || "",
+        description: `${s.action}${s.selector ? ' ' + s.selector : ''}${s.value ? ' = ' + s.value : ''}`,
+      })),
+    ];
+    mainWindow.webContents.send("step-list", { runId, steps: stepList });
+  }
+
+  // Step progress callback — streams real-time updates to the renderer
+  const onStepProgress = (progress) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("step-progress", progress);
+    }
+  };
+
   try {
-    const results = await runPlaywright(scriptPath, runId);
+    const results = await runPlaywright(scriptPath, runId, onStepProgress);
     run.status = results.status;
     run.completedAt = new Date().toISOString();
     run.results = results;
