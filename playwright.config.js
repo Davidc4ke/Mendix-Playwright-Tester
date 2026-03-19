@@ -1,5 +1,6 @@
 // @ts-check
 const { defineConfig } = require("@playwright/test");
+const fs = require("fs");
 
 /**
  * Playwright config optimized for Mendix applications.
@@ -10,6 +11,35 @@ const { defineConfig } = require("@playwright/test");
  * Playwright's bundled Chromium (e.g. "msedge", "chrome").
  */
 
+// Check whether ffmpeg is available (required for video & trace recording).
+// If not installed, gracefully disable those features instead of crashing.
+function isFfmpegAvailable() {
+  try {
+    const pw = require("playwright-core");
+    // playwright-core exposes the registry; ffmpeg path is derived from it
+    if (typeof pw._ffmpegPath === "function") {
+      return fs.existsSync(pw._ffmpegPath());
+    }
+    // Fallback: try to resolve via registry directly
+    const { Registry } = require("playwright-core/lib/server");
+    if (Registry) {
+      const registry = new Registry(require("playwright-core/package.json").version);
+      const ffmpegExe = registry.findExecutable("ffmpeg");
+      if (ffmpegExe && ffmpegExe.executablePath) {
+        return fs.existsSync(ffmpegExe.executablePath());
+      }
+    }
+  } catch {
+    // If we can't determine ffmpeg status, assume unavailable
+  }
+  return false;
+}
+
+const ffmpegInstalled = isFfmpegAvailable();
+if (!ffmpegInstalled) {
+  console.log("[config] ffmpeg not found — video and trace recording disabled");
+}
+
 const useOptions = {
   // Navigation & action timeouts
   navigationTimeout: 45_000,
@@ -17,8 +47,8 @@ const useOptions = {
 
   // Capture evidence on failure
   screenshot: "only-on-failure",
-  video: "retain-on-failure",
-  trace: "retain-on-failure",
+  video: ffmpegInstalled ? "retain-on-failure" : "off",
+  trace: ffmpegInstalled ? "retain-on-failure" : "off",
 
   // Standard business app viewport
   viewport: { width: 1920, height: 1080 },
