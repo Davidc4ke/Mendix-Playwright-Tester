@@ -1005,6 +1005,11 @@ ipcMain.handle("agent-heal-apply", async (event, { scenarioId, healedScript }) =
   if (idx < 0) return { error: "Scenario not found" };
 
   db.scenarios[idx].script = healedScript;
+  // Clear steps so the healed script takes priority on next execution
+  // (execute-scenario uses steps over script when both exist)
+  if (db.scenarios[idx].steps?.length) {
+    db.scenarios[idx].steps = [];
+  }
   db.scenarios[idx].updatedAt = new Date().toISOString();
   saveDB(db);
   return { ok: true };
