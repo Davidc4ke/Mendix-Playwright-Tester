@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS = {
   llm: {
     provider: "anthropic",    // "anthropic" | "openai"
     apiKey: "",
+    baseUrl: "",              // empty = use provider default; set for OpenAI-compatible APIs (e.g. DeepSeek, Qwen)
     model: "",                // empty = use provider default
     maxTokens: 4096,
   },

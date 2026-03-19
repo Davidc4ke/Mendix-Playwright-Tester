@@ -1060,6 +1060,11 @@
       <label>API Key</label>
       <input class="form-input" id="settingsApiKey" type="password" placeholder="sk-..." />
     </div>
+    <div class="form-group" id="baseUrlGroup" style="display:none;">
+      <label>API Base URL (optional)</label>
+      <input class="form-input" id="settingsBaseUrl" placeholder="https://api.deepseek.com/v1" />
+      <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">For OpenAI-compatible providers (DeepSeek, Qwen, etc.). Leave blank for standard OpenAI.</div>
+    </div>
     <div class="form-group">
       <label>Model (leave blank for default)</label>
       <input class="form-input" id="settingsModel" placeholder="e.g. claude-sonnet-4-20250514" />
@@ -1704,19 +1709,23 @@ async function openSettingsModal() {
   const settings = await window.zoniq.getSettings();
   document.getElementById("settingsProvider").value = settings.llm.provider || "anthropic";
   document.getElementById("settingsApiKey").value = settings.llm.apiKey || "";
+  document.getElementById("settingsBaseUrl").value = settings.llm.baseUrl || "";
   document.getElementById("settingsModel").value = settings.llm.model || "";
   document.getElementById("settingsMaxIter").value = settings.agent.maxIterations || 20;
   document.getElementById("settingsHeadless").value = String(settings.agent.headless || false);
   document.getElementById("connectionResult").textContent = "";
+  onProviderChange();
   openModal("settingsModal");
 }
 
 function onProviderChange() {
   const provider = document.getElementById("settingsProvider").value;
   const modelInput = document.getElementById("settingsModel");
+  const baseUrlGroup = document.getElementById("baseUrlGroup");
   if (!modelInput.value) {
     modelInput.placeholder = provider === "openai" ? "e.g. gpt-4o" : "e.g. claude-sonnet-4-20250514";
   }
+  baseUrlGroup.style.display = provider === "openai" ? "block" : "none";
 }
 
 function getSettingsFromModal() {
@@ -1724,6 +1733,7 @@ function getSettingsFromModal() {
     llm: {
       provider: document.getElementById("settingsProvider").value,
       apiKey: document.getElementById("settingsApiKey").value.trim(),
+      baseUrl: document.getElementById("settingsBaseUrl").value.trim(),
       model: document.getElementById("settingsModel").value.trim(),
       maxTokens: 4096,
     },
