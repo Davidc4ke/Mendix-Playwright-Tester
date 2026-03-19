@@ -20,6 +20,7 @@ class HealerAgent {
     this.llm = llmClient;
     this.maxIterations = options.maxIterations || 10;
     this.headless = options.headless ?? false;
+    this.browserChannel = options.browserChannel || null; // e.g. "msedge", "chrome", or null for bundled Chromium
     this._cancelled = false;
     this._orchestrator = null;
     this._browser = null;
@@ -50,7 +51,9 @@ class HealerAgent {
       if (onProgress) onProgress({ status: "launching", message: "Launching browser..." });
 
       const pw = require("playwright");
-      browser = await pw.chromium.launch({ headless: this.headless });
+      const launchOpts = { headless: this.headless };
+      if (this.browserChannel) launchOpts.channel = this.browserChannel;
+      browser = await pw.chromium.launch(launchOpts);
       this._browser = browser;
       const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
       page = await context.newPage();
