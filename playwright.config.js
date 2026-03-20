@@ -53,6 +53,10 @@ const useOptions = {
   // Standard business app viewport
   viewport: { width: 1920, height: 1080 },
 
+  // Mendix 10 uses data-testid attributes — this is the Playwright default,
+  // but we set it explicitly so it's easy to change if Mendix conventions evolve
+  testIdAttribute: "data-testid",
+
   // Slow down actions slightly — Mendix re-renders can lag
   // Increase this if tests are flaky
   // launchOptions: { slowMo: 100 },

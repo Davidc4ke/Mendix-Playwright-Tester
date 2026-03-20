@@ -272,10 +272,20 @@ function generateStepCode(step) {
       return `  await mx.selectDropdown(page, '${widgetName(step.selector)}', '${val}');`;
     case "AssertText":
       if (step.selector?.startsWith("mx:"))
-        return `  await mx.assertWidgetText(page, '${widgetName(step.selector)}', '${val}');`;
-      return `  await expect(page.locator('${sel}')).toContainText('${val}');`;
+        return `  await mx.assertWidgetText(page, '${widgetName(step.selector)}', '${val}', { soft: true });`;
+      return `  await expect.soft(page.locator('${sel}'), 'Step ${step.order}: "${sel}" should contain "${val}"').toContainText('${val}');`;
     case "AssertVisible":
-      return `  await expect(page.locator('${sel}')).toBeVisible();`;
+      if (step.selector?.startsWith("mx:"))
+        return `  await expect.soft(page.locator('.mx-name-${widgetName(step.selector)}').first(), 'Step ${step.order}: "${widgetName(step.selector)}" should be visible').toBeVisible();`;
+      return `  await expect.soft(page.locator('${sel}'), 'Step ${step.order}: "${sel}" should be visible').toBeVisible();`;
+    case "AssertEnabled":
+      if (step.selector?.startsWith("mx:"))
+        return `  await mx.assertWidgetEnabled(page, '${widgetName(step.selector)}');`;
+      return `  await expect.soft(page.locator('${sel}'), 'Step ${step.order}: "${sel}" should be enabled').toBeEnabled();`;
+    case "AssertDisabled":
+      if (step.selector?.startsWith("mx:"))
+        return `  await mx.assertWidgetDisabled(page, '${widgetName(step.selector)}');`;
+      return `  await expect.soft(page.locator('${sel}'), 'Step ${step.order}: "${sel}" should be disabled').toBeDisabled();`;
     case "Wait":
       return `  await page.waitForTimeout(${parseInt(step.value, 10) || 1000}); // WARNING: Hard wait — prefer mx.waitForMendix() or a specific condition`;
     case "WaitForMendix":

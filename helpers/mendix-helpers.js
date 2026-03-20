@@ -87,6 +87,22 @@ async function login(page, url, username, password) {
   await waitForMendix(page, { timeout: 60000 });
 }
 
+/**
+ * Login and save browser storage state for reuse in later tests.
+ * Playwright recommends logging in once and reusing the auth state via
+ * `storageState` to avoid repeating the login flow before every test.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} url        Base URL of the Mendix app
+ * @param {string} username
+ * @param {string} password
+ * @param {string} savePath   File path to save the storage state JSON (e.g. "playwright/.auth/user.json")
+ */
+async function saveAuthState(page, url, username, password, savePath) {
+  await login(page, url, username, password);
+  await page.context().storageState({ path: savePath });
+}
+
 // ── Widget Interaction ────────────────────────────────────────────────────────
 
 /**
@@ -482,13 +498,61 @@ async function takeScreenshot(page, name, resultsDir) {
  * @param {{ timeout?: number, exact?: boolean }} [options]
  */
 async function assertWidgetText(page, widgetName, expectedText, options = {}) {
-  const { timeout = 15000, exact = false } = options;
+  const { timeout = 15000, exact = false, soft = false } = options;
   const locator = page.locator(`.mx-name-${widgetName}`).first();
+  const assertion = soft ? expect.soft(locator) : expect(locator);
   if (exact) {
-    await expect(locator).toHaveText(expectedText, { timeout });
+    await assertion.toHaveText(expectedText, { timeout });
   } else {
-    await expect(locator).toContainText(expectedText, { timeout });
+    await assertion.toContainText(expectedText, { timeout });
   }
+}
+
+/**
+ * Assert the number of elements matching a Mendix widget name.
+ * Uses Playwright's web-first `toHaveCount` which auto-retries.
+ * Useful for verifying Data Grid row counts, list sizes, etc.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName
+ * @param {number} expectedCount
+ * @param {{ timeout?: number }} [options]
+ */
+async function assertWidgetCount(page, widgetName, expectedCount, options = {}) {
+  const { timeout = 15000 } = options;
+  await expect(page.locator(`.mx-name-${widgetName}`)).toHaveCount(expectedCount, { timeout });
+}
+
+/**
+ * Assert that a Mendix widget's input/button/select is enabled.
+ * Uses Playwright's web-first `toBeEnabled` which auto-retries.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName
+ * @param {{ timeout?: number }} [options]
+ */
+async function assertWidgetEnabled(page, widgetName, options = {}) {
+  const { timeout = 15000 } = options;
+  const locator = page
+    .locator(`.mx-name-${widgetName} input, .mx-name-${widgetName} button, .mx-name-${widgetName} select`)
+    .first();
+  await expect(locator).toBeEnabled({ timeout });
+}
+
+/**
+ * Assert that a Mendix widget's input/button/select is disabled.
+ * Uses Playwright's web-first `toBeDisabled` which auto-retries.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName
+ * @param {{ timeout?: number }} [options]
+ */
+async function assertWidgetDisabled(page, widgetName, options = {}) {
+  const { timeout = 15000 } = options;
+  const locator = page
+    .locator(`.mx-name-${widgetName} input, .mx-name-${widgetName} button, .mx-name-${widgetName} select`)
+    .first();
+  await expect(locator).toBeDisabled({ timeout });
 }
 
 // ── Mendix 10 data-testid Helpers ─────────────────────────────────────────────
@@ -530,12 +594,16 @@ module.exports = {
   waitForMendix,
   // Auth
   login,
+  saveAuthState,
   // Widget interaction
   clickWidget,
   fillWidget,
   getWidgetText,
   assertWidgetVisible,
   assertWidgetText,
+  assertWidgetCount,
+  assertWidgetEnabled,
+  assertWidgetDisabled,
   // Mendix 10 data-testid
   clickByTestId,
   fillByTestId,
