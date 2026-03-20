@@ -69,6 +69,9 @@ module.exports = defineConfig({
   // Global timeout per test (Mendix pages can be slow)
   timeout: 120_000,
 
+  // Run test files in parallel (each test is already isolated with its own browser context)
+  fullyParallel: true,
+
   // Expect assertions timeout
   expect: {
     timeout: 15_000,

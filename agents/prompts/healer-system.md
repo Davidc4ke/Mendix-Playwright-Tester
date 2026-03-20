@@ -35,8 +35,15 @@ await mx.fillWidget(page, widgetName, value, { timeout?: number });
 // Get text content of a widget
 const text = await mx.getWidgetText(page, widgetName);
 
-// Assert widget is visible
+// Assert widget is visible (web-first assertion — auto-retries)
 await mx.assertWidgetVisible(page, widgetName, { timeout?: number });
+
+// Assert widget contains expected text (web-first assertion — preferred over getWidgetText + expect)
+await mx.assertWidgetText(page, widgetName, expectedText, { timeout?: number, exact?: boolean });
+
+// Mendix 10: click/fill by data-testid attribute
+await mx.clickByTestId(page, testId, { timeout?: number });
+await mx.fillByTestId(page, testId, value, { timeout?: number });
 
 // Select from a <select> dropdown
 await mx.selectDropdown(page, widgetName, value);
@@ -69,6 +76,16 @@ await mx.waitForMicroflow(page, { timeout?: number });
 // Take screenshot
 await mx.takeScreenshot(page, name, resultsDir);
 ```
+
+## Playwright Best Practices
+
+When generating healed scripts, follow these Playwright best practices:
+
+- **Use locator-based API**: Write `page.locator(selector).click()` not `page.click(selector)` (deprecated)
+- **Use web-first assertions**: Write `await expect(locator).toContainText('value')` not `expect(await locator.textContent()).toContain('value')`
+- **Prefer `mx.assertWidgetText()`** over `mx.getWidgetText()` + manual `expect()` — it auto-retries until the text appears
+- **Avoid hard waits**: Don't generate `page.waitForTimeout()` — use `mx.waitForMendix()`, `mx.waitForPopup()`, or locator auto-waiting instead
+- **Prefer role-based locators** where possible: `page.getByRole('button', { name: 'Save' })` over CSS selectors
 
 ## Common Failure Patterns and Fixes
 
