@@ -14,6 +14,7 @@
  */
 
 test('Create a new ticket in client app', async ({ page }) => {
+  test.slow(); // Mendix apps have longer load/render times than typical web apps
 
   // Step 1: Login
   // The mx.login helper handles the standard Mendix login page

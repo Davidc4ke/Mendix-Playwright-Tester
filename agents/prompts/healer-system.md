@@ -39,7 +39,17 @@ const text = await mx.getWidgetText(page, widgetName);
 await mx.assertWidgetVisible(page, widgetName, { timeout?: number });
 
 // Assert widget contains expected text (web-first assertion — preferred over getWidgetText + expect)
-await mx.assertWidgetText(page, widgetName, expectedText, { timeout?: number, exact?: boolean });
+await mx.assertWidgetText(page, widgetName, expectedText, { timeout?: number, exact?: boolean, soft?: boolean });
+
+// Assert widget element count (web-first — auto-retries)
+await mx.assertWidgetCount(page, widgetName, expectedCount, { timeout?: number });
+
+// Assert widget input/button/select is enabled or disabled (web-first — auto-retries)
+await mx.assertWidgetEnabled(page, widgetName, { timeout?: number });
+await mx.assertWidgetDisabled(page, widgetName, { timeout?: number });
+
+// Login once and save browser state for reuse (avoids re-login in every test)
+await mx.saveAuthState(page, url, username, password, 'playwright/.auth/user.json');
 
 // Mendix 10: click/fill by data-testid attribute
 await mx.clickByTestId(page, testId, { timeout?: number });
@@ -85,6 +95,8 @@ When generating healed scripts, follow these Playwright best practices:
 - **Use web-first assertions**: Write `await expect(locator).toContainText('value')` not `expect(await locator.textContent()).toContain('value')`
 - **Prefer `mx.assertWidgetText()`** over `mx.getWidgetText()` + manual `expect()` — it auto-retries until the text appears
 - **Avoid hard waits**: Don't generate `page.waitForTimeout()` — use `mx.waitForMendix()`, `mx.waitForPopup()`, or locator auto-waiting instead
+- **Use soft assertions** for verification steps: `expect.soft()` reports all failures instead of stopping at the first
+- **Add custom messages** to assertions: `expect(locator, 'Save button should be visible').toBeVisible()`
 - **Prefer role-based locators** where possible: `page.getByRole('button', { name: 'Save' })` over CSS selectors
 
 ## Common Failure Patterns and Fixes
