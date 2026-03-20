@@ -41,8 +41,7 @@ test('Create a new ticket in client app', async ({ page }) => {
   // Step 6: Verify — check we're back on the list and the ticket appears
   await mx.waitForMendix(page);
   
-  const statusText = await mx.getWidgetText(page, 'lblTicketStatus');
-  expect(statusText).toContain('Open');
+  await mx.assertWidgetText(page, 'lblTicketStatus', 'Open');
 
   // Step 7: Screenshot for evidence
   await page.screenshot({ 

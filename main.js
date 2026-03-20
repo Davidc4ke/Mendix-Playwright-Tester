@@ -213,22 +213,26 @@ function cleanMendixSelectors(script) {
   );
 
   // 2. Replace #mxui_widget_*_N selectors with class-based fallbacks
+  //    and suggest role-based alternatives where applicable
   cleaned = cleaned.replace(
     /(['"])#mxui_widget_(\w+?)_\d+\1/g,
     (match, quote, widgetType) => {
       const classMap = {
-        'TextBox': '.mx-textbox',
-        'TextArea': '.mx-textarea',
-        'Button': '.mx-button',
-        'DataGrid': '.mx-datagrid',
-        'DropDown': '.mx-dropdown',
-        'CheckBox': '.mx-checkbox',
-        'RadioButton': '.mx-radiobutton',
-        'DatePicker': '.mx-datepicker',
-        'ReferenceSelector': '.mx-referenceselector',
+        'TextBox': { css: '.mx-textbox', alt: 'page.getByRole("textbox")' },
+        'TextArea': { css: '.mx-textarea', alt: 'page.getByRole("textbox")' },
+        'Button': { css: '.mx-button', alt: 'page.getByRole("button", { name: "..." })' },
+        'DataGrid': { css: '.mx-datagrid', alt: null },
+        'DropDown': { css: '.mx-dropdown', alt: null },
+        'CheckBox': { css: '.mx-checkbox', alt: 'page.getByRole("checkbox")' },
+        'RadioButton': { css: '.mx-radiobutton', alt: 'page.getByRole("radio")' },
+        'DatePicker': { css: '.mx-datepicker', alt: null },
+        'ReferenceSelector': { css: '.mx-referenceselector', alt: null },
       };
       if (classMap[widgetType]) {
-        return `${quote}${classMap[widgetType]}${quote}`;
+        const comment = classMap[widgetType].alt
+          ? ` /* Consider: ${classMap[widgetType].alt} */`
+          : '';
+        return `${quote}${classMap[widgetType].css}${quote}${comment}`;
       }
       return match;
     }
@@ -259,21 +263,21 @@ function generateStepCode(step) {
     case "Click":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.clickWidget(page, '${widgetName(step.selector)}');`;
-      return `  await page.click('${sel}');`;
+      return `  await page.locator('${sel}').click();`;
     case "Fill":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.fillWidget(page, '${widgetName(step.selector)}', '${val}');`;
-      return `  await page.fill('${sel}', '${val}');`;
+      return `  await page.locator('${sel}').fill('${val}');`;
     case "SelectDropdown":
       return `  await mx.selectDropdown(page, '${widgetName(step.selector)}', '${val}');`;
     case "AssertText":
       if (step.selector?.startsWith("mx:"))
-        return `  const text_${step.order} = await mx.getWidgetText(page, '${widgetName(step.selector)}');\n  expect(text_${step.order}).toContain('${val}');`;
+        return `  await mx.assertWidgetText(page, '${widgetName(step.selector)}', '${val}');`;
       return `  await expect(page.locator('${sel}')).toContainText('${val}');`;
     case "AssertVisible":
       return `  await expect(page.locator('${sel}')).toBeVisible();`;
     case "Wait":
-      return `  await page.waitForTimeout(${parseInt(step.value, 10) || 1000});`;
+      return `  await page.waitForTimeout(${parseInt(step.value, 10) || 1000}); // WARNING: Hard wait — prefer mx.waitForMendix() or a specific condition`;
     case "WaitForMendix":
       return `  await mx.waitForMendix(page);`;
     case "WaitForPopup":

@@ -14,6 +14,8 @@
  *   await mx.clickWidget(page, 'btnSubmit');
  */
 
+const { expect } = require("@playwright/test");
+
 // ── Loading / Navigation ──────────────────────────────────────────────────────
 
 /**
@@ -29,7 +31,7 @@ async function waitForMendix(page, options = {}) {
   // Mendix 9/10 progress bar (.mx-progress) and loading cover (.mx-progress-bar)
   for (const selector of [".mx-progress", ".mx-progress-bar"]) {
     try {
-      await page.waitForSelector(selector, { state: "hidden", timeout });
+      await page.locator(selector).waitFor({ state: "hidden", timeout });
     } catch {
       // May never appear on fast loads — that is fine
     }
@@ -37,17 +39,15 @@ async function waitForMendix(page, options = {}) {
 
   // Loading overlay (modal blocker shown during microflow execution)
   try {
-    await page.waitForSelector(".mx-overlay", { state: "hidden", timeout: 5000 });
+    await page.locator(".mx-overlay").waitFor({ state: "hidden", timeout: 5000 });
   } catch {
     // May not be present
   }
 
-  // Wait for network to go idle (XHR/fetch requests finished)
-  try {
-    await page.waitForLoadState("networkidle", { timeout });
-  } catch {
-    // Tolerate timeout here — some apps have persistent polling
-  }
+  // Ensure the DOM is fully parsed before proceeding.
+  // Note: we intentionally avoid 'networkidle' here — Mendix apps use WebSockets
+  // and background polling that prevent the network from ever truly going idle.
+  await page.waitForLoadState("domcontentloaded");
 }
 
 /**
@@ -146,7 +146,7 @@ async function getWidgetText(page, widgetName) {
  */
 async function assertWidgetVisible(page, widgetName, options = {}) {
   const { timeout = 15000 } = options;
-  await page.locator(`.mx-name-${widgetName}`).first().waitFor({ state: "visible", timeout });
+  await expect(page.locator(`.mx-name-${widgetName}`).first()).toBeVisible({ timeout });
 }
 
 // ── Dropdowns & Selects ───────────────────────────────────────────────────────
@@ -295,12 +295,20 @@ async function fillDatePicker(page, widgetName, dateValue) {
  */
 async function waitForPopup(page, options = {}) {
   const { timeout = 10000 } = options;
-  await page
+  const dialog = page
     .locator(".modal-dialog, .mx-dialog, .mx-window-active")
-    .first()
-    .waitFor({ state: "visible", timeout });
-  // Brief pause for Mendix open animation to complete
-  await page.waitForTimeout(200);
+    .first();
+  await dialog.waitFor({ state: "visible", timeout });
+  // Wait for an interactive element inside the dialog to be ready,
+  // ensuring open-animations have settled (replaces hard waitForTimeout)
+  try {
+    await dialog
+      .locator("input, button, textarea, select, [tabindex]")
+      .first()
+      .waitFor({ state: "visible", timeout: 2000 });
+  } catch {
+    // Dialog may not contain interactive elements — that is fine
+  }
 }
 
 /**
@@ -461,6 +469,60 @@ async function takeScreenshot(page, name, resultsDir) {
   return filePath;
 }
 
+// ── Web-First Assertions ──────────────────────────────────────────────────────
+
+/**
+ * Assert that a Mendix widget contains (or exactly matches) the expected text.
+ * Uses Playwright's web-first `toContainText` / `toHaveText` assertions which
+ * auto-retry until the timeout — preferred over getWidgetText() + manual expect().
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} widgetName
+ * @param {string} expectedText
+ * @param {{ timeout?: number, exact?: boolean }} [options]
+ */
+async function assertWidgetText(page, widgetName, expectedText, options = {}) {
+  const { timeout = 15000, exact = false } = options;
+  const locator = page.locator(`.mx-name-${widgetName}`).first();
+  if (exact) {
+    await expect(locator).toHaveText(expectedText, { timeout });
+  } else {
+    await expect(locator).toContainText(expectedText, { timeout });
+  }
+}
+
+// ── Mendix 10 data-testid Helpers ─────────────────────────────────────────────
+
+/**
+ * Click an element by its data-testid attribute.
+ * Useful for Mendix 10 widgets that expose data-testid attributes.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} testId
+ * @param {{ timeout?: number }} [options]
+ */
+async function clickByTestId(page, testId, options = {}) {
+  const { timeout = 15000 } = options;
+  await page.getByTestId(testId).click({ timeout });
+}
+
+/**
+ * Fill an input element identified by its data-testid attribute.
+ * Useful for Mendix 10 widgets that expose data-testid attributes.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} testId
+ * @param {string} value
+ * @param {{ timeout?: number }} [options]
+ */
+async function fillByTestId(page, testId, value, options = {}) {
+  const { timeout = 15000 } = options;
+  const locator = page.getByTestId(testId);
+  await locator.waitFor({ state: "visible", timeout });
+  await locator.clear();
+  await locator.fill(value);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -473,6 +535,10 @@ module.exports = {
   fillWidget,
   getWidgetText,
   assertWidgetVisible,
+  assertWidgetText,
+  // Mendix 10 data-testid
+  clickByTestId,
+  fillByTestId,
   // Dropdowns & selects
   selectDropdown,
   selectReferenceSelector,
