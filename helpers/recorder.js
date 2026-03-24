@@ -197,6 +197,11 @@ function looksLikeGuid(value) {
       console.log(`[recorder] Replaced ${replaced} GUID(s) with labels in recorded script`);
     }
   }
+
+  // Explicitly exit — exposeFunction bindings and context listeners can keep
+  // the Node process alive after the browser disconnects, which prevents
+  // main.js from receiving the "close" event and showing the save dialog.
+  process.exit(0);
 })().catch((err) => {
   console.error("[recorder] Fatal error:", err);
   process.exit(1);
