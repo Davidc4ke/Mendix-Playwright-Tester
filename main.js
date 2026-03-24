@@ -382,6 +382,82 @@ function transformSelectOptionCalls(script) {
   );
 }
 
+/**
+ * Post-process a recorded script to replace Mendix GUID option values with
+ * their human-readable label text.  Launches a quick headless browser using
+ * the saved storage state from the recording session, navigates to the target
+ * URL, scrapes all <option> value→text mappings, and replaces GUIDs in-place.
+ *
+ * Non-fatal: if resolution fails for any reason, returns the original script.
+ * The runtime smartSelect + auto-heal fallback will still handle it.
+ */
+async function resolveGuidsInScript(script, targetUrl, storagePath) {
+  // 1. Find all GUID values in selectOption calls
+  const guidRegex = /\.selectOption\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  const guids = new Set();
+  let m;
+  while ((m = guidRegex.exec(script)) !== null) {
+    if (ScriptUtils.looksLikeGuid(m[1])) guids.add(m[1]);
+  }
+  if (!guids.size) return script; // No GUIDs — nothing to resolve
+
+  console.log(`[guid-resolve] Found ${guids.size} GUID(s) in recorded script, resolving to labels...`);
+
+  let browser;
+  try {
+    const { chromium } = require('playwright');
+    const launchOpts = { headless: true };
+    const channel = getBrowserChannel();
+    if (channel) launchOpts.channel = channel;
+    browser = await chromium.launch(launchOpts);
+
+    const contextOpts = {};
+    if (fs.existsSync(storagePath)) {
+      contextOpts.storageState = storagePath;
+    }
+    const context = await browser.newContext(contextOpts);
+    const page = await context.newPage();
+
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Wait for Mendix loading indicators to clear
+    try { await page.locator('.mx-progress').waitFor({ state: 'hidden', timeout: 10000 }); } catch {}
+    try { await page.locator('.mx-progress-bar').waitFor({ state: 'hidden', timeout: 5000 }); } catch {}
+    // Extra settle time for async option loading
+    await page.waitForTimeout(2000);
+
+    // 2. Build value→label map from ALL <option> elements on the page
+    const valueToLabel = await page.evaluate(() => {
+      const map = {};
+      document.querySelectorAll('select option').forEach(opt => {
+        if (opt.value && opt.textContent.trim()) {
+          map[opt.value] = opt.textContent.trim();
+        }
+      });
+      return map;
+    });
+
+    // 3. Replace GUIDs with labels in the script
+    let resolved = script;
+    let resolvedCount = 0;
+    for (const guid of guids) {
+      if (valueToLabel[guid]) {
+        const escaped = valueToLabel[guid].replace(/'/g, "\\'");
+        resolved = resolved.split(`'${guid}'`).join(`'${escaped}'`);
+        resolved = resolved.split(`"${guid}"`).join(`"${escaped}"`);
+        resolvedCount++;
+        console.log(`[guid-resolve] ${guid} → ${valueToLabel[guid]}`);
+      }
+    }
+    console.log(`[guid-resolve] Resolved ${resolvedCount}/${guids.size} GUID(s)`);
+    return resolved;
+  } catch (err) {
+    console.warn(`[guid-resolve] Failed (non-fatal): ${err.message}`);
+    return script; // Return original — runtime fallback will handle it
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+}
+
 // ── Playwright execution ─────────────────────────────────
 function extractSpecs(suites) {
   const specs = [];
@@ -462,6 +538,7 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
 
     let stdoutBuf = "";
     let stderrBuf = "";
+    const guidResolutions = new Map(); // GUID → label resolved by smartSelect
 
     const proc = spawn(PLAYWRIGHT_CLI, args, { env, shell: true, timeout: 300_000 });
 
@@ -469,11 +546,19 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
       const text = chunk.toString();
       stdoutBuf += text;
 
-      // Parse step progress markers from stdout
-      if (onStepProgress) {
-        const lines = text.split("\n");
-        for (const line of lines) {
-          const cl = line.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+      // Parse step progress markers and GUID resolution markers from stdout
+      const lines = text.split("\n");
+      for (const line of lines) {
+        const cl = line.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+
+        // Capture GUID → label resolutions emitted by smartSelect
+        const guidMatch = cl.match(/^\[ZONIQ_GUID_RESOLVED:([^:]+):(.*)\]$/);
+        if (guidMatch) {
+          guidResolutions.set(guidMatch[1], guidMatch[2]);
+          continue;
+        }
+
+        if (onStepProgress) {
           const startMatch = cl.match(/^\[ZONIQ_STEP:START:(-?\d+):(.*)\]/);
           const doneMatch = cl.match(/^\[ZONIQ_STEP:DONE:(-?\d+)\]/);
           const failMatch = cl.match(/^\[ZONIQ_STEP:FAIL:(-?\d+):(.*)\]$/);
@@ -564,7 +649,7 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
         }
       }
 
-      const resultObj = { status, summary, errors, artifacts, stderr: stderrBuf?.substring(0, 2000) };
+      const resultObj = { status, summary, errors, artifacts, stderr: stderrBuf?.substring(0, 2000), guidResolutions };
 
       // Extract step data from Playwright JSON report as a fallback for
       // tests that don't use real-time ZONIQ_STEP marker tracking.
@@ -1018,11 +1103,16 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
     const outputFile = `recording-${Date.now()}.js`;
     const outputPath = path.join(SCRIPTS_DIR, outputFile);
 
+    // Save browser storage state so we can resolve GUID option values
+    // to human-readable labels after recording finishes
+    const storagePath = path.join(TEMP_DIR, `recording-storage-${Date.now()}.json`);
+
     const codegenArgs = [
       "codegen",
       "--target=javascript",
       `--output=${outputPath}`,
       `--viewport-size=1920,1080`,
+      `--save-storage=${storagePath}`,
     ];
     const channel = getBrowserChannel();
     if (channel) {
@@ -1056,21 +1146,34 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
       console.error(`[recorder stderr] ${chunk}`);
     });
 
-    proc.on("close", (code) => {
+    proc.on("close", async (code) => {
       console.log(`[recorder] exited with code ${code}`);
       try {
         if (fs.existsSync(outputPath)) {
-          const script = fs.readFileSync(outputPath, "utf-8");
+          let script = fs.readFileSync(outputPath, "utf-8");
+          // Resolve Mendix GUID option values → human-readable labels
+          if (normalizedUrl) {
+            try {
+              script = await resolveGuidsInScript(script, normalizedUrl, storagePath);
+            } catch (err) {
+              console.warn('[recorder] GUID resolution failed (non-fatal):', err.message);
+            }
+          }
+          // Clean up storage file
+          try { fs.unlinkSync(storagePath); } catch {}
           resolve({ outputFile, script });
         } else {
+          try { fs.unlinkSync(storagePath); } catch {}
           resolve({ outputFile: null, script: null });
         }
       } catch (err) {
+        try { fs.unlinkSync(storagePath); } catch {}
         reject(err);
       }
     });
 
     proc.on("error", (err) => {
+      try { fs.unlinkSync(storagePath); } catch {}
       console.error(`[recorder] spawn error:`, err);
       reject(err);
     });
@@ -1175,6 +1278,34 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
     delete results.reportStepList;
     delete results.reportStepResults;
     run.results = results;
+
+    // ── Auto-heal script: replace GUIDs with resolved label text ──
+    // smartSelect emits [ZONIQ_GUID_RESOLVED:guid:label] markers when it
+    // resolves a GUID to a human-readable label. Apply those replacements
+    // to the stored scenario script so GUIDs are permanently eliminated.
+    if (results.guidResolutions && results.guidResolutions.size > 0 && scenario.id) {
+      const db2pre = loadDB();
+      const sc = db2pre.scenarios.find(s => s.id === scenario.id);
+      if (sc && sc.script) {
+        let updated = sc.script;
+        for (const [guid, label] of results.guidResolutions) {
+          // Replace the GUID value in selectOption / smartSelect calls
+          // e.g. .selectOption('7149464409836204') → .selectOption('Dennis Blok')
+          //      mx.smartSelect(page, locator, '7149464409836204') → mx.smartSelect(page, locator, 'Dennis Blok')
+          const escaped = label.replace(/'/g, "\\'");
+          updated = updated.split(`'${guid}'`).join(`'${escaped}'`);
+          updated = updated.split(`"${guid}"`).join(`"${escaped}"`);
+        }
+        if (updated !== sc.script) {
+          sc.script = updated;
+          sc.updatedAt = new Date().toISOString();
+          saveDB(db2pre);
+          console.log(`[guid-heal] Replaced ${results.guidResolutions.size} GUID(s) with labels in scenario "${sc.name}"`);
+        }
+      }
+    }
+    // Remove guidResolutions from persisted results (internal only)
+    delete results.guidResolutions;
 
     const db2 = loadDB();
     const idx = db2.runs.findIndex((r) => r.runId === runId);

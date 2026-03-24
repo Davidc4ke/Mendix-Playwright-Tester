@@ -156,16 +156,32 @@ Other supported selector formats:
 
 **Users must NEVER be asked to manually edit steps, selectors, or values to fix targeting issues.** All Mendix quirks (dynamic GUIDs, disabled-while-loading elements, async option loading, fragile widget IDs) must be handled automatically at runtime by `wrapScript()` transformations and `mendix-helpers.js`. If a recorded script doesn't work out of the box, that is a bug in the runtime layer — fix it there, not by telling the user to edit their script. This applies to:
 
-- Reference selectors / dropdowns that use internal Mendix GUIDs as `<option>` values — `smartSelect` always matches by label text (never by GUID). If a recorded value is a GUID, it resolves it to the option's visible label at runtime before selecting
+- Reference selectors / dropdowns that use internal Mendix GUIDs as `<option>` values — see GUID elimination below
 - Elements that start disabled while Mendix loads data — `smartSelect` waits for enabled state
 - Fragile `#mxui_widget_*` selectors — `wrapScript()` strips these automatically
 - Any other Mendix-specific selector or timing issue
 
 When implementing new fixes: always solve at the `wrapScript()` / helper layer so recorded scripts just work.
 
+## GUIDs Are Never the Source of Truth
+
+**Mendix GUIDs are internal, ephemeral, environment-specific IDs. They MUST NEVER appear in stored scripts or the step editor.** This is a UAT (User Acceptance Testing) tool — users select by human-readable labels, not internal IDs. GUIDs change between environments, deploys, and even page loads. They are meaningless for test targeting.
+
+**Primary mechanism — resolve at recording time:**
+- The recorder uses `--save-storage` to capture the browser's auth state when codegen closes
+- `resolveGuidsInScript()` immediately launches a headless browser with that saved state, navigates to the target URL, scrapes all `<select> <option>` value→text mappings, and replaces GUID values in the script with their label text
+- By the time the script is returned to the UI, GUIDs are already gone
+- This is non-fatal: if resolution fails (selects behind deep navigation, network issue), the fallbacks below handle it
+
+**Fallback layers (defense in depth):**
+1. **Step editor UI** — `parseScriptToSteps()` strips any remaining GUID values so the user never sees them
+2. **Runtime** — `smartSelect()` is label-first. If a value still looks like a GUID, it resolves to the visible `<option>` label before selecting
+3. **Auto-heal after run** — `runPlaywright()` captures GUID resolution markers and permanently replaces any remaining GUIDs in the stored script
+
 ## Key Implementation Details
 
-- `wrapScript()` auto-transforms `.selectOption()` calls into `mx.smartSelect()` calls. `smartSelect` is label-first: it never matches by GUID value. If the recorded value is a GUID, it resolves to the option's visible label at runtime before selecting. This is a UAT tool — users match on what they see, not internal IDs
+- `wrapScript()` auto-transforms `.selectOption()` calls into `mx.smartSelect()` calls. `smartSelect` is label-first: it never matches by GUID value
+- `looksLikeGuid()` in `lib/script-utils.js` is the shared GUID detector used by `parseScriptToSteps()`, `smartSelect`, and the auto-heal logic. Detects: numeric IDs 10+ digits, UUIDs, and long hex strings
 - `activeAgent.agent` can be `null` during prehealer phase (before the healer is created) — always guard with `if (activeAgent.agent)` before calling `.cancel()`
 - `replaceInScript()` takes an `occurrence` parameter (0-indexed) to handle duplicate statements — the caller must count prior steps with matching `sourceText`
 - `splitIntoStatements()` peeks ahead for `.` continuation lines to handle multi-line method chaining
