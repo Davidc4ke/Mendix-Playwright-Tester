@@ -43,8 +43,8 @@ Record/Import → Script (stored, always executed)
 - Runs embedded Express server on port 3100
 - Handles IPC communication with renderer (UI)
 - Manages Playwright test execution via `spawn` (not `exec`)
-- `wrapScript()` — strips imports, cleans fragile Mendix selectors, wraps bare code in a `test()` block, injects per-statement progress markers via `injectStepMarkers()`
-- `injectStepMarkers()` — parses the test body into statements, wraps each with `[ZONIQ_STEP:START/DONE/FAIL]` console.log markers for real-time progress tracking
+- `wrapScript()` — strips imports, unwraps IIFE patterns, strips codegen boilerplate, cleans fragile Mendix selectors, wraps bare code in a `test()` block. Only injects `goto(TARGET_URL)` + `waitForMendix()` preamble when the script has no existing `page.goto()`.
+- `injectStepMarkers()` — parses the test body into statements, wraps each with `[ZONIQ_STEP:START/DONE/FAIL]` console.log markers for real-time progress tracking. Assigns index `-1` to filtered statements (boilerplate, redundant navigates) so marker indices match `parseScriptToSteps()` output exactly.
 - `runPlaywright()` — spawns `playwright test` with JSON reporter, streams step progress via stdout parsing
 - Stores data in JSON files at user data directory
 
@@ -84,8 +84,8 @@ Step editing flow:
 - LLM orchestration loop with tool use for live page inspection
 
 ### Test Execution Flow
-1. `wrapScript()` — strips Codegen imports, cleans fragile `#mxui_widget_*` selectors, wraps bare code in `test()` block, adds `require` for Playwright and Mendix helpers
-2. `injectStepMarkers()` — parses test body into statements, wraps each with progress markers (`[ZONIQ_STEP:START/DONE/FAIL]`)
+1. `wrapScript()` — strips Codegen imports, unwraps IIFE `(async () => { ... })()` patterns, strips codegen boilerplate (`chromium.launch`, `browser.newContext`, `context.newPage`, `page.close`, `context.close`, `browser.close`), cleans fragile `#mxui_widget_*` selectors, wraps bare code in `test()` block, adds `require` for Playwright and Mendix helpers. Only injects `goto(TARGET_URL)` + `waitForMendix()` when the script lacks its own `page.goto()`.
+2. `injectStepMarkers()` — parses test body into statements, wraps each with progress markers (`[ZONIQ_STEP:START/DONE/FAIL]`). Filters statements the same way `parseScriptToSteps()` does (boilerplate, redundant navigates) using index `-1`, so marker indices align with the UI step list.
 3. `runPlaywright()` — spawns `npx playwright test` with JSON reporter, parses stdout for real-time step progress
 4. Results parsed from JSON report and stored in `scenarios.json`
 
@@ -159,3 +159,21 @@ Other supported selector formats:
 - `splitIntoStatements()` peeks ahead for `.` continuation lines to handle multi-line method chaining
 - Codegen boilerplate (`browser.launch()`, `context.newPage()`, `page.close()`, etc.) is filtered out during `parseScriptToSteps()`
 - `wrapScript()` is idempotent regarding import stripping — safe to call on already-processed scripts
+
+### Critical: Step marker index alignment
+
+**`injectStepMarkers()` indices MUST match `parseScriptToSteps()` indices exactly.** The step list shown in the UI comes from `parseScriptToSteps(originalScript)`, while progress markers come from `injectStepMarkers(wrappedScript)`. If these indices diverge, steps show as UNKNOWN or map to the wrong step.
+
+Both functions must apply the same filtering:
+- Skip codegen boilerplate (browser/context/page lifecycle)
+- Skip redundant navigates (root-ish URLs on already-visited origins)
+- Skip injected preamble (`goto(TARGET_URL)`, `mx.waitForMendix`)
+
+When adding new filtering logic to `parseScriptToSteps()`, always mirror it in `injectStepMarkers()` (using index `-1` for filtered statements).
+
+### Script formats handled by `wrapScript()`
+
+Scripts can arrive in three formats — `wrapScript()` must handle all of them:
+1. **IIFE** `(async () => { ... })()` — from Playwright codegen recordings. Must be unwrapped and boilerplate stripped.
+2. **`test()` block** — already wrapped, passed through as-is (no preamble injection).
+3. **Bare `await page.*` statements** — wrapped in `test()` block with `goto(TARGET_URL)` + `waitForMendix()` preamble.
