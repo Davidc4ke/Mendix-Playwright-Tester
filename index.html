@@ -1321,7 +1321,203 @@ const STEP_ACTION_CONFIG = {
   Screenshot:       { selector: false, value: true,  valuePlaceholder: "Filename (no extension)" },
 };
 
-// ════════════════════════════════════════════════════
+// ── Script-to-Steps Parser ────────────────────────────
+function extractTestBody(script) {
+  let cleaned = script
+    .replace(/^import\s+\{[^}]*\}\s+from\s+['"][^'"]*['"];\s*$/gm, '')
+    .replace(/^import\s+\*\s+as\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, '')
+    .replace(/^import\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, '')
+    .replace(/^const\s+\{[^}]*\}\s*=\s*require\s*\([^)]*\);\s*$/gm, '')
+    .replace(/^const\s+\w+\s*=\s*require\s*\([^)]*\);\s*$/gm, '')
+    .replace(/^const\s+TARGET_URL\s*=\s*.*;\s*$/gm, '')
+    .replace(/^const\s+CREDENTIALS\s*=\s*\{[\s\S]*?\}\s*;\s*$/gm, '')
+    .trim();
+  cleaned = cleaned.replace(/test\.use\s*\(\s*\{[\s\S]*?\}\s*\)\s*;/g, '').trim();
+
+  // Extract body inside test('...', async ({ page }) => { ... });
+  const testMatch = cleaned.match(/test\s*\(\s*['"][^'"]*['"]\s*,\s*async\s*\(\s*\{\s*page\s*\}\s*\)\s*=>\s*\{([\s\S]*)\}\s*\)\s*;?\s*$/);
+  if (testMatch) return testMatch[1].trim();
+
+  // Fallback: extract body from async IIFE — (async () => { ... })();
+  const iifeMatch = cleaned.match(/\(\s*async\s*\(\s*\)\s*=>\s*\{([\s\S]*)\}\s*\)\s*\(\s*\)\s*;?\s*$/);
+  if (iifeMatch) return iifeMatch[1].trim();
+
+  // Bare code with await page.*
+  if (/await\s+page\./.test(cleaned) || /await\s+mx\./.test(cleaned)) return cleaned;
+  return null;
+}
+
+function splitIntoStatements(body) {
+  const statements = [];
+  const lines = body.split('\n');
+  let current = '';
+  let braceDepth = 0;
+  let parenDepth = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('console.log')) continue;
+    // Skip ZONIQ step tracking wrappers
+    if (/^\}\s*catch\s*\(/.test(trimmed) || /^try\s*\{/.test(trimmed) || /^throw\s+/.test(trimmed)) continue;
+    if (/^\[ZONIQ_STEP/.test(trimmed)) continue;
+
+    current += (current ? '\n' : '') + trimmed;
+    for (const ch of trimmed) {
+      if (ch === '{') braceDepth++;
+      else if (ch === '}') braceDepth--;
+      else if (ch === '(') parenDepth++;
+      else if (ch === ')') parenDepth--;
+    }
+
+    if (braceDepth <= 0 && parenDepth <= 0 && (trimmed.endsWith(';') || trimmed.endsWith(')'))) {
+      const stmt = current.trim();
+      if (stmt.startsWith('await ') || (stmt.startsWith('const ') && stmt.includes('await '))) {
+        statements.push(stmt);
+      }
+      current = '';
+      braceDepth = 0;
+      parenDepth = 0;
+    }
+  }
+  if (current.trim()) {
+    const stmt = current.trim();
+    if (stmt.startsWith('await ') || (stmt.startsWith('const ') && stmt.includes('await '))) {
+      statements.push(stmt);
+    }
+  }
+  return statements;
+}
+
+function selectorToMx(sel) {
+  // Convert .mx-name-X selectors back to mx:X
+  const mxMatch = sel.match(/^\.mx-name-(\w+)/);
+  if (mxMatch) return 'mx:' + mxMatch[1];
+  return sel;
+}
+
+function parseStatement(stmt) {
+  let m;
+
+  // ── Mendix helpers ──
+  if (/mx\.login\s*\(/.test(stmt)) return { action: 'Login' };
+  if (/mx\.waitForMendix\s*\(/.test(stmt)) return { action: 'WaitForMendix' };
+  if (/mx\.waitForPopup\s*\(/.test(stmt)) return { action: 'WaitForPopup' };
+  if (/mx\.closePopup\s*\(/.test(stmt)) return { action: 'ClosePopup' };
+  if (/mx\.waitForMicroflow\s*\(/.test(stmt)) return { action: 'WaitForMicroflow' };
+
+  m = stmt.match(/mx\.clickWidget\s*\(\s*page\s*,\s*['"]([^'"]+)['"]/);
+  if (m) return { action: 'Click', selector: 'mx:' + m[1] };
+
+  m = stmt.match(/mx\.fillWidget\s*\(\s*page\s*,\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'Fill', selector: 'mx:' + m[1], value: m[2] };
+
+  m = stmt.match(/mx\.selectDropdown\s*\(\s*page\s*,\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'SelectDropdown', selector: 'mx:' + m[1], value: m[2] };
+
+  m = stmt.match(/mx\.assertWidgetText\s*\(\s*page\s*,\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'AssertText', selector: 'mx:' + m[1], value: m[2] };
+
+  m = stmt.match(/mx\.assertWidgetEnabled\s*\(\s*page\s*,\s*['"]([^'"]+)['"]/);
+  if (m) return { action: 'AssertEnabled', selector: 'mx:' + m[1] };
+
+  m = stmt.match(/mx\.assertWidgetDisabled\s*\(\s*page\s*,\s*['"]([^'"]+)['"]/);
+  if (m) return { action: 'AssertDisabled', selector: 'mx:' + m[1] };
+
+  m = stmt.match(/mx\.assertWidgetVisible\s*\(\s*page\s*,\s*['"]([^'"]+)['"]/);
+  if (m) return { action: 'AssertVisible', selector: 'mx:' + m[1] };
+
+  // ── Navigation ──
+  m = stmt.match(/page\.goto\s*\(\s*['"]([^'"]+)['"]/);
+  if (m) return { action: 'Navigate', value: m[1] };
+
+  // ── page.locator(...).action(...) ──
+  m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.click\s*\(/);
+  if (m) return { action: 'Click', selector: selectorToMx(m[1]) };
+
+  m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'Fill', selector: selectorToMx(m[1]), value: m[2] };
+
+  // ── getByRole(...).click/fill ──
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\)\s*\.click\s*\(/);
+  if (m) return { action: 'Click', selector: m[1] + ':' + m[2] };
+
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\)\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'Fill', selector: m[1] + ':' + m[2], value: m[3] };
+
+  // ── getByRole without name ──
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.click\s*\(/);
+  if (m) return { action: 'Click', selector: m[1] };
+
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'Fill', selector: m[1], value: m[2] };
+
+  // ── getByText(...).click ──
+  m = stmt.match(/page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.click\s*\(/);
+  if (m) return { action: 'Click', selector: 'text:' + m[1] };
+
+  // ── getByLabel(...).fill ──
+  m = stmt.match(/page\.getByLabel\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'Fill', selector: 'label:' + m[1], value: m[2] };
+
+  m = stmt.match(/page\.getByLabel\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.click\s*\(/);
+  if (m) return { action: 'Click', selector: 'label:' + m[1] };
+
+  // ── getByPlaceholder(...).fill/click ──
+  m = stmt.match(/page\.getByPlaceholder\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'Fill', selector: 'placeholder:' + m[1], value: m[2] };
+
+  m = stmt.match(/page\.getByPlaceholder\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.click\s*\(/);
+  if (m) return { action: 'Click', selector: 'placeholder:' + m[1] };
+
+  // ── Assertions: expect / expect.soft ──
+  // toContainText / toHaveText
+  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\).*?\)\s*\.toContainText\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'AssertText', selector: selectorToMx(m[1]), value: m[2] };
+  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\).*?\)\s*\.toHaveText\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'AssertText', selector: selectorToMx(m[1]), value: m[2] };
+
+  // toBeVisible
+  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)/);
+  if (m && /\.toBeVisible\s*\(/.test(stmt)) return { action: 'AssertVisible', selector: selectorToMx(m[1]) };
+
+  // toBeEnabled
+  if (m && /\.toBeEnabled\s*\(/.test(stmt)) return { action: 'AssertEnabled', selector: selectorToMx(m[1]) };
+
+  // toBeDisabled
+  if (m && /\.toBeDisabled\s*\(/.test(stmt)) return { action: 'AssertDisabled', selector: selectorToMx(m[1]) };
+
+  // ── Waits ──
+  m = stmt.match(/page\.waitForTimeout\s*\(\s*(\d+)/);
+  if (m) return { action: 'Wait', value: m[1] };
+
+  // ── Screenshot ──
+  m = stmt.match(/page\.screenshot\s*\(\s*\{[^}]*path:\s*['"](?:results\/)?([^'"]+?)(?:\.png)?['"]/);
+  if (m) return { action: 'Screenshot', value: m[1] };
+
+  // ── Keyboard press (common in recordings) ──
+  m = stmt.match(/page\.keyboard\.press\s*\(\s*['"]([^'"]+)['"]/);
+  if (m) return { action: 'Click', selector: 'keyboard:' + m[1] };
+
+  return null; // Unrecognized statement
+}
+
+function parseScriptToSteps(script) {
+  if (!script) return [];
+  const body = extractTestBody(script);
+  if (!body) return [];
+  const statements = splitIntoStatements(body);
+  const steps = [];
+  for (const stmt of statements) {
+    const step = parseStatement(stmt);
+    if (step) {
+      step.order = steps.length;
+      step.selector = step.selector || '';
+      step.value = step.value || '';
+      steps.push(step);
+    }
+  }
+  return steps;
+}
 //  Init
 // ════════════════════════════════════════════════════
 document.addEventListener("DOMContentLoaded", async () => {
@@ -1502,6 +1698,11 @@ function showScenarioDetail(sc) {
   const empty = document.getElementById("detailEmpty");
   empty.style.display = "none";
   el.style.display = "flex";
+
+  // Auto-parse steps from script if no steps exist yet
+  if (!sc.steps?.length && sc.script) {
+    sc.steps = parseScriptToSteps(sc.script);
+  }
 
   const lastRuns = runs.filter((r) => r.scenarioId === sc.id).slice(0, 5);
 
