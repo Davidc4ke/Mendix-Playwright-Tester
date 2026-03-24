@@ -667,7 +667,7 @@ function resolveLocator(page, selector) {
     const role = selector.slice(0, colonIdx).toLowerCase();
     const name = selector.slice(colonIdx + 1);
     if (ARIA_ROLES.has(role)) {
-      return page.getByRole(role, { name });
+      return page.getByRole(role, { name, exact: true });
     }
   }
   return page.locator(selector);
