@@ -1,11 +1,13 @@
 /**
- * recorder.js — Custom Playwright recorder with highlight toggle support.
+ * recorder.js — Custom Playwright recorder with GUID-free option recording.
  *
  * Usage:
  *   node recorder.js <url> <outputPath> <showHighlights> [channel]
  *
- * Uses Playwright's programmatic API instead of the codegen CLI so we can
- * inject CSS that hides the red highlight boxes when showHighlights is "false".
+ * Uses Playwright's programmatic API instead of the codegen CLI so we can:
+ * 1. Replace <option> value attributes with their visible text BEFORE the user
+ *    interacts — so codegen naturally records human-readable labels, not GUIDs.
+ * 2. Optionally hide the red highlight boxes during recording.
  */
 
 const path = require("path");
@@ -34,6 +36,62 @@ if (!url || !outputPath) {
   };
   const context = await browser.newContext(contextOptions);
 
+  // ── Replace <option> values with visible text ──────────────
+  // Mendix uses internal GUIDs as option values. By swapping them to the
+  // human-readable label text BEFORE the user clicks, Playwright's codegen
+  // naturally records .selectOption('Label Text') instead of .selectOption('12345-guid').
+  // This eliminates the need for any post-recording headless browser resolution.
+  await context.addInitScript(() => {
+    function looksLikeGuid(value) {
+      if (!value || typeof value !== "string") return false;
+      const v = value.trim();
+      if (/^\d{10,}$/.test(v)) return true;
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) return true;
+      if (/^[0-9a-f]{12,}$/i.test(v)) return true;
+      return false;
+    }
+
+    function swapOptionValues(root) {
+      const container = root || document;
+      // If root is a <select>, query its options directly; otherwise search descendants
+      const options = container.tagName === "SELECT"
+        ? container.querySelectorAll("option")
+        : container.querySelectorAll("select option");
+      for (const opt of options) {
+        const label = opt.textContent.trim();
+        if (label && opt.value && looksLikeGuid(opt.value)) {
+          opt.value = label;
+        }
+      }
+    }
+
+    // Swap on initial load
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", () => swapOptionValues());
+    } else {
+      swapOptionValues();
+    }
+
+    // Watch for dynamically added/changed <option> elements (Mendix loads these async)
+    const observer = new MutationObserver((mutations) => {
+      for (const mut of mutations) {
+        for (const node of mut.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (node.tagName === "OPTION" || node.tagName === "SELECT" || node.querySelector?.("option")) {
+            swapOptionValues(node.tagName === "OPTION" ? node.parentElement : node);
+          }
+        }
+      }
+    });
+    if (document.documentElement) {
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+      });
+    }
+  });
+
   // Hide Playwright's recorder highlight overlays when not wanted
   if (showHighlights !== "true") {
     await context.addInitScript(() => {
@@ -53,7 +111,6 @@ if (!url || !outputPath) {
         style.textContent = HIDE_CSS;
         (document.head || document.documentElement).appendChild(style);
       }
-      // Inject immediately and also watch for highlight elements added later
       if (document.head || document.documentElement) {
         injectStyle();
       }
