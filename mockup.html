@@ -1954,6 +1954,164 @@ body {
   background: var(--bg-glass-hover);
   color: var(--text-primary);
 }
+
+/* ══════════════════════════════════════════════════════════
+   ANIMATIONS & ENTRANCE EFFECTS
+   ══════════════════════════════════════════════════════════ */
+
+/* Staggered fade-in for cards */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeSlideRight {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Entrance animations */
+.scenario-card, .run-card {
+  animation: fadeSlideUp 0.4s var(--ease-smooth) backwards;
+}
+
+.scenario-card:nth-child(1), .run-card:nth-child(1) { animation-delay: 0.05s; }
+.scenario-card:nth-child(2), .run-card:nth-child(2) { animation-delay: 0.10s; }
+.scenario-card:nth-child(3), .run-card:nth-child(3) { animation-delay: 0.15s; }
+.scenario-card:nth-child(4), .run-card:nth-child(4) { animation-delay: 0.20s; }
+.scenario-card:nth-child(5), .run-card:nth-child(5) { animation-delay: 0.25s; }
+
+.step-card {
+  animation: fadeSlideRight 0.35s var(--ease-smooth) backwards;
+}
+
+.step-card:nth-child(1) { animation-delay: 0.05s; }
+.step-card:nth-child(2) { animation-delay: 0.09s; }
+.step-card:nth-child(3) { animation-delay: 0.13s; }
+.step-card:nth-child(4) { animation-delay: 0.17s; }
+.step-card:nth-child(5) { animation-delay: 0.21s; }
+.step-card:nth-child(6) { animation-delay: 0.25s; }
+.step-card:nth-child(7) { animation-delay: 0.29s; }
+.step-card:nth-child(8) { animation-delay: 0.33s; }
+
+.detail-header {
+  animation: fadeSlideUp 0.5s var(--ease-smooth) backwards;
+  animation-delay: 0.1s;
+}
+
+.script-preview {
+  animation: fadeIn 0.6s var(--ease-smooth) backwards;
+  animation-delay: 0.3s;
+}
+
+.runs-table {
+  animation: fadeSlideUp 0.5s var(--ease-smooth) backwards;
+  animation-delay: 0.4s;
+}
+
+.stat-card {
+  animation: fadeSlideUp 0.4s var(--ease-smooth) backwards;
+}
+
+.stat-card:nth-child(1) { animation-delay: 0.05s; }
+.stat-card:nth-child(2) { animation-delay: 0.10s; }
+.stat-card:nth-child(3) { animation-delay: 0.15s; }
+.stat-card:nth-child(4) { animation-delay: 0.20s; }
+
+/* Health dot breathing animation */
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 4px rgba(16, 185, 129, 0.4); }
+  50% { box-shadow: 0 0 10px rgba(16, 185, 129, 0.7); }
+}
+
+.health-dot {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+/* Running status pulse */
+.status-pill.running .status-pill-icon {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+/* Titlebar logo shimmer on hover */
+.titlebar-logo {
+  position: relative;
+  overflow: hidden;
+}
+
+.titlebar-logo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+  background-size: 200% 100%;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.titlebar-logo:hover::after {
+  opacity: 1;
+  animation: shimmer 1.5s ease-in-out;
+}
+
+/* Button press effect */
+.btn-action-primary:active,
+.btn-action-record:active,
+.btn-modal-primary:active {
+  transform: translateY(0) scale(0.97);
+}
+
+/* Smooth scrollbar */
+.detail-panel::-webkit-scrollbar,
+.run-detail-panel::-webkit-scrollbar,
+.sidebar::-webkit-scrollbar,
+.modal::-webkit-scrollbar {
+  width: 6px;
+}
+
+.detail-panel::-webkit-scrollbar-track,
+.run-detail-panel::-webkit-scrollbar-track,
+.sidebar::-webkit-scrollbar-track,
+.modal::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.detail-panel::-webkit-scrollbar-thumb,
+.run-detail-panel::-webkit-scrollbar-thumb,
+.sidebar::-webkit-scrollbar-thumb,
+.modal::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
+.detail-panel::-webkit-scrollbar-thumb:hover,
+.run-detail-panel::-webkit-scrollbar-thumb:hover,
+.sidebar::-webkit-scrollbar-thumb:hover,
+.modal::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Focus visible outline for accessibility */
+:focus-visible {
+  outline: 2px solid var(--violet);
+  outline-offset: 2px;
+}
+
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+select:focus:not(:focus-visible) {
+  outline: none;
+}
 </style>
 </head>
 <body>
