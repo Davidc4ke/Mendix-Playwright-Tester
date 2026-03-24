@@ -62,8 +62,8 @@ await mx.fillByTestId(page, testId, value, { timeout?: number });
 // Select from a <select> dropdown
 await mx.selectDropdown(page, widgetName, value);
 
-// Select from a Mendix Reference Selector (native select or searchable)
-await mx.selectReferenceSelector(page, widgetName, value);
+// Select from a Mendix Reference Selector (native select, searchable, or label-based)
+await mx.selectReferenceSelector(page, widgetName, value, { label?: "Label text" });
 
 // Select from a ComboBox widget
 await mx.selectComboBox(page, widgetName, value);

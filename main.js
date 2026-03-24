@@ -226,7 +226,7 @@ function cleanMendixSelectors(script) {
         'CheckBox': { css: '.mx-checkbox', alt: 'page.getByRole("checkbox")' },
         'RadioButton': { css: '.mx-radiobutton', alt: 'page.getByRole("radio")' },
         'DatePicker': { css: '.mx-datepicker', alt: null },
-        'ReferenceSelector': { css: '.mx-referenceselector', alt: null },
+        'ReferenceSelector': { css: '.mx-referenceselector', alt: 'page.getByLabel("Label text")' },
       };
       if (classMap[widgetType]) {
         const comment = classMap[widgetType].alt

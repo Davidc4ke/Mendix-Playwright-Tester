@@ -184,39 +184,91 @@ async function selectDropdown(page, widgetName, value) {
 /**
  * Select a value in a Mendix Reference Selector widget.
  * These render as either a <select> (Mendix 9) or a searchable input (Mendix 10).
+ * Falls back to label-based selection when the input cannot be found inside the
+ * mx-name container.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} widgetName
  * @param {string} value
+ * @param {{ label?: string }} [options]  Optional label text for label-based fallback
  */
-async function selectReferenceSelector(page, widgetName, value) {
+async function selectReferenceSelector(page, widgetName, value, options = {}) {
   const widget = page.locator(`.mx-name-${widgetName}`).first();
   await widget.waitFor({ state: "visible" });
 
-  // Mendix 9: native <select>
+  // Strategy 1 – Mendix 9: native <select>
   const nativeSelect = widget.locator("select");
   try {
     await nativeSelect.waitFor({ state: "visible", timeout: 2000 });
     await nativeSelect.selectOption({ label: value });
     return;
   } catch {
-    // Fall through to searchable input strategy
+    // Fall through to next strategy
   }
 
-  // Mendix 10: searchable combobox
+  // Strategy 2 – Mendix 10: searchable combobox inside the widget container
   const input = widget.locator("input").first();
-  await input.click();
-  await input.fill(value);
-  await page
-    .locator('[role="listbox"] [role="option"]')
-    .filter({ hasText: value })
-    .first()
-    .waitFor({ state: "visible", timeout: 5000 });
-  await page
-    .locator('[role="listbox"] [role="option"]')
-    .filter({ hasText: value })
-    .first()
-    .click();
+  try {
+    await input.waitFor({ state: "visible", timeout: 2000 });
+    await input.click();
+    await input.fill(value);
+    await page
+      .locator('[role="listbox"] [role="option"]')
+      .filter({ hasText: value })
+      .first()
+      .waitFor({ state: "visible", timeout: 5000 });
+    await page
+      .locator('[role="listbox"] [role="option"]')
+      .filter({ hasText: value })
+      .first()
+      .click();
+    return;
+  } catch {
+    // Fall through to label-based strategy
+  }
+
+  // Strategy 3 – Label-based fallback: find the control via its associated <label>
+  let labelText = options.label;
+  if (!labelText) {
+    const labelEl = widget.locator("label").first();
+    try {
+      labelText = await labelEl.textContent({ timeout: 2000 });
+      labelText = labelText?.trim();
+    } catch {
+      // No label element found
+    }
+  }
+
+  if (labelText) {
+    const labelLocator = page.getByLabel(labelText, { exact: false });
+    await labelLocator.waitFor({ state: "visible", timeout: 5000 });
+
+    const tagName = await labelLocator.evaluate((el) =>
+      el.tagName.toLowerCase()
+    );
+    if (tagName === "select") {
+      await labelLocator.selectOption({ label: value });
+    } else {
+      await labelLocator.click();
+      await labelLocator.fill(value);
+      await page
+        .locator('[role="listbox"] [role="option"]')
+        .filter({ hasText: value })
+        .first()
+        .waitFor({ state: "visible", timeout: 5000 });
+      await page
+        .locator('[role="listbox"] [role="option"]')
+        .filter({ hasText: value })
+        .first()
+        .click();
+    }
+    return;
+  }
+
+  throw new Error(
+    `selectReferenceSelector: could not find interactive element for widget "${widgetName}". ` +
+      "Tried mx-name input, mx-name select, and label-based lookup."
+  );
 }
 
 /**
