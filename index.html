@@ -1310,7 +1310,7 @@ const STEP_ACTION_CONFIG = ScriptUtils.STEP_ACTION_CONFIG;
 
 // ── Script-to-Steps Parser (delegated to shared ScriptUtils) ──
 const { extractTestBody, splitIntoStatements, parseStatement, parseScriptToSteps,
-        generateStepCode, replaceInScript, escapeJsString: escJsStr } = ScriptUtils;
+        generateStepCode, replaceInScript, removeFromScript, escapeJsString: escJsStr } = ScriptUtils;
 
 
 //  Init
@@ -1565,6 +1565,9 @@ function renderStepEditor(sc) {
                    onchange="onStepFieldChange('${sc.id}', ${idx}, 'value', this.value)" />
           ` : ''}
         </div>
+        <div class="step-editor-actions">
+          <button class="step-remove-btn" title="Delete step" onclick="onStepDelete('${sc.id}', ${idx})">&#x2715;</button>
+        </div>
       </div>`;
   }).join('');
 
@@ -1631,6 +1634,22 @@ function onStepFieldChange(scenarioId, stepIndex, field, value) {
   const step = sc.steps[stepIndex];
   step[field] = value;
   _updateStepInScript(sc, step);
+  _autoSaveScenario(sc);
+}
+
+function onStepDelete(scenarioId, stepIndex) {
+  const sc = scenarios.find(s => s.id === scenarioId);
+  if (!sc?.steps?.[stepIndex]) return;
+  const step = sc.steps[stepIndex];
+  // Count occurrences of this sourceText before this step (for duplicate handling)
+  let occurrence = 0;
+  for (let i = 0; i < stepIndex; i++) {
+    if (sc.steps[i].sourceText === step.sourceText) occurrence++;
+  }
+  sc.script = removeFromScript(sc.script, step.sourceText, occurrence);
+  // Re-parse steps from updated script and refresh view
+  sc.steps = parseScriptToSteps(sc.script);
+  showScenarioDetail(sc);
   _autoSaveScenario(sc);
 }
 
