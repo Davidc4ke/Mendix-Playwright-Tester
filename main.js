@@ -462,6 +462,7 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
 
     let stdoutBuf = "";
     let stderrBuf = "";
+    const guidResolutions = new Map(); // GUID → label resolved by smartSelect
 
     const proc = spawn(PLAYWRIGHT_CLI, args, { env, shell: true, timeout: 300_000 });
 
@@ -469,11 +470,19 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
       const text = chunk.toString();
       stdoutBuf += text;
 
-      // Parse step progress markers from stdout
-      if (onStepProgress) {
-        const lines = text.split("\n");
-        for (const line of lines) {
-          const cl = line.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+      // Parse step progress markers and GUID resolution markers from stdout
+      const lines = text.split("\n");
+      for (const line of lines) {
+        const cl = line.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+
+        // Capture GUID → label resolutions emitted by smartSelect
+        const guidMatch = cl.match(/^\[ZONIQ_GUID_RESOLVED:([^:]+):(.*)\]$/);
+        if (guidMatch) {
+          guidResolutions.set(guidMatch[1], guidMatch[2]);
+          continue;
+        }
+
+        if (onStepProgress) {
           const startMatch = cl.match(/^\[ZONIQ_STEP:START:(-?\d+):(.*)\]/);
           const doneMatch = cl.match(/^\[ZONIQ_STEP:DONE:(-?\d+)\]/);
           const failMatch = cl.match(/^\[ZONIQ_STEP:FAIL:(-?\d+):(.*)\]$/);
@@ -564,7 +573,7 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
         }
       }
 
-      const resultObj = { status, summary, errors, artifacts, stderr: stderrBuf?.substring(0, 2000) };
+      const resultObj = { status, summary, errors, artifacts, stderr: stderrBuf?.substring(0, 2000), guidResolutions };
 
       // Extract step data from Playwright JSON report as a fallback for
       // tests that don't use real-time ZONIQ_STEP marker tracking.
@@ -1175,6 +1184,34 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
     delete results.reportStepList;
     delete results.reportStepResults;
     run.results = results;
+
+    // ── Auto-heal script: replace GUIDs with resolved label text ──
+    // smartSelect emits [ZONIQ_GUID_RESOLVED:guid:label] markers when it
+    // resolves a GUID to a human-readable label. Apply those replacements
+    // to the stored scenario script so GUIDs are permanently eliminated.
+    if (results.guidResolutions && results.guidResolutions.size > 0 && scenario.id) {
+      const db2pre = loadDB();
+      const sc = db2pre.scenarios.find(s => s.id === scenario.id);
+      if (sc && sc.script) {
+        let updated = sc.script;
+        for (const [guid, label] of results.guidResolutions) {
+          // Replace the GUID value in selectOption / smartSelect calls
+          // e.g. .selectOption('7149464409836204') → .selectOption('Dennis Blok')
+          //      mx.smartSelect(page, locator, '7149464409836204') → mx.smartSelect(page, locator, 'Dennis Blok')
+          const escaped = label.replace(/'/g, "\\'");
+          updated = updated.split(`'${guid}'`).join(`'${escaped}'`);
+          updated = updated.split(`"${guid}"`).join(`"${escaped}"`);
+        }
+        if (updated !== sc.script) {
+          sc.script = updated;
+          sc.updatedAt = new Date().toISOString();
+          saveDB(db2pre);
+          console.log(`[guid-heal] Replaced ${results.guidResolutions.size} GUID(s) with labels in scenario "${sc.name}"`);
+        }
+      }
+    }
+    // Remove guidResolutions from persisted results (internal only)
+    delete results.guidResolutions;
 
     const db2 = loadDB();
     const idx = db2.runs.findIndex((r) => r.runId === runId);

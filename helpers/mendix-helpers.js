@@ -280,6 +280,8 @@ async function smartSelect(page, locator, value, options = {}) {
       const resolved = await locator.first().locator(`option[value="${value}"]`).textContent().catch(() => null);
       if (resolved && resolved.trim()) {
         labelToSelect = resolved.trim();
+        // Emit marker so the runner can replace this GUID in the stored script
+        console.log(`[ZONIQ_GUID_RESOLVED:${value}:${labelToSelect}]`);
       }
       // If we can't resolve it, fall through and try the raw value as label text anyway
     }
