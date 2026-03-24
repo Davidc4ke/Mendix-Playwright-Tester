@@ -156,7 +156,7 @@ Other supported selector formats:
 
 **Users must NEVER be asked to manually edit steps, selectors, or values to fix targeting issues.** All Mendix quirks (dynamic GUIDs, disabled-while-loading elements, async option loading, fragile widget IDs) must be handled automatically at runtime by `wrapScript()` transformations and `mendix-helpers.js`. If a recorded script doesn't work out of the box, that is a bug in the runtime layer — fix it there, not by telling the user to edit their script. This applies to:
 
-- Reference selectors / dropdowns that use internal Mendix GUIDs as `<option>` values — `smartSelect` always matches by label text (never by GUID). If a recorded value is a GUID, it resolves it to the option's visible label at runtime before selecting
+- Reference selectors / dropdowns that use internal Mendix GUIDs as `<option>` values — GUIDs are handled at two layers: (1) `parseScriptToSteps()` strips GUID values from the step editor UI so users never see them, and (2) `smartSelect` resolves GUIDs to visible option labels at runtime. The script (source of truth) keeps the original GUID; `smartSelect` always selects by label, never by GUID value
 - Elements that start disabled while Mendix loads data — `smartSelect` waits for enabled state
 - Fragile `#mxui_widget_*` selectors — `wrapScript()` strips these automatically
 - Any other Mendix-specific selector or timing issue
@@ -166,6 +166,7 @@ When implementing new fixes: always solve at the `wrapScript()` / helper layer s
 ## Key Implementation Details
 
 - `wrapScript()` auto-transforms `.selectOption()` calls into `mx.smartSelect()` calls. `smartSelect` is label-first: it never matches by GUID value. If the recorded value is a GUID, it resolves to the option's visible label at runtime before selecting. This is a UAT tool — users match on what they see, not internal IDs
+- `looksLikeGuid()` in `lib/script-utils.js` is the shared GUID detector used by both `parseScriptToSteps()` (to strip GUIDs from the step editor) and `smartSelect` (to resolve GUIDs to labels at runtime). Detects: numeric IDs 10+ digits, UUIDs, and long hex strings
 - `activeAgent.agent` can be `null` during prehealer phase (before the healer is created) — always guard with `if (activeAgent.agent)` before calling `.cancel()`
 - `replaceInScript()` takes an `occurrence` parameter (0-indexed) to handle duplicate statements — the caller must count prior steps with matching `sourceText`
 - `splitIntoStatements()` peeks ahead for `.` continuation lines to handle multi-line method chaining
