@@ -365,6 +365,8 @@ function generateStepCode(step) {
       return `  await page.goto(TARGET_URL + '/logout');\n  await mx.waitForMendix(page);`;
     case "Screenshot":
       return `  await page.screenshot({ path: 'results/${val || "screenshot"}.png', fullPage: true });`;
+    case "Raw":
+      return `  ${step.value}`;
     default:
       return `  // Unknown action: ${escapeJsString(step.action)}`;
   }
