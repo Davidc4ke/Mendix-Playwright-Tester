@@ -156,7 +156,7 @@ Other supported selector formats:
 
 **Users must NEVER be asked to manually edit steps, selectors, or values to fix targeting issues.** All Mendix quirks (dynamic GUIDs, disabled-while-loading elements, async option loading, fragile widget IDs) must be handled automatically at runtime by `wrapScript()` transformations and `mendix-helpers.js`. If a recorded script doesn't work out of the box, that is a bug in the runtime layer — fix it there, not by telling the user to edit their script. This applies to:
 
-- Reference selectors / dropdowns that use internal Mendix GUIDs as `<option>` values — `smartSelect` handles fallback from GUID → label text matching automatically
+- Reference selectors / dropdowns that use internal Mendix GUIDs as `<option>` values — `smartSelect` always matches by label text (never by GUID). If a recorded value is a GUID, it resolves it to the option's visible label at runtime before selecting
 - Elements that start disabled while Mendix loads data — `smartSelect` waits for enabled state
 - Fragile `#mxui_widget_*` selectors — `wrapScript()` strips these automatically
 - Any other Mendix-specific selector or timing issue
@@ -165,7 +165,7 @@ When implementing new fixes: always solve at the `wrapScript()` / helper layer s
 
 ## Key Implementation Details
 
-- `wrapScript()` auto-transforms `.selectOption()` calls into `mx.smartSelect()` calls, which wait for enabled state and fall back to label matching when GUID values fail
+- `wrapScript()` auto-transforms `.selectOption()` calls into `mx.smartSelect()` calls. `smartSelect` is label-first: it never matches by GUID value. If the recorded value is a GUID, it resolves to the option's visible label at runtime before selecting. This is a UAT tool — users match on what they see, not internal IDs
 - `activeAgent.agent` can be `null` during prehealer phase (before the healer is created) — always guard with `if (activeAgent.agent)` before calling `.cancel()`
 - `replaceInScript()` takes an `occurrence` parameter (0-indexed) to handle duplicate statements — the caller must count prior steps with matching `sourceText`
 - `splitIntoStatements()` peeks ahead for `.` continuation lines to handle multi-line method chaining
