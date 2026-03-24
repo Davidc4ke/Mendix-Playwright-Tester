@@ -25,13 +25,17 @@ const DEFAULT_SETTINGS = {
   recorder: {
     showHighlights: false,
   },
+  testExecution: {
+    retryOnFailure: false,        // Retry failed tests once
+    stepTimeout: 30,              // Seconds before a step times out and fails the test
+  },
 };
 
 function loadSettings() {
   try {
     if (fs.existsSync(SETTINGS_PATH)) {
       const data = JSON.parse(fs.readFileSync(SETTINGS_PATH, "utf-8"));
-      return { ...DEFAULT_SETTINGS, ...data, llm: { ...DEFAULT_SETTINGS.llm, ...data.llm }, agent: { ...DEFAULT_SETTINGS.agent, ...data.agent }, recorder: { ...DEFAULT_SETTINGS.recorder, ...data.recorder } };
+      return { ...DEFAULT_SETTINGS, ...data, llm: { ...DEFAULT_SETTINGS.llm, ...data.llm }, agent: { ...DEFAULT_SETTINGS.agent, ...data.agent }, recorder: { ...DEFAULT_SETTINGS.recorder, ...data.recorder }, testExecution: { ...DEFAULT_SETTINGS.testExecution, ...data.testExecution } };
     }
   } catch {}
   return { ...DEFAULT_SETTINGS };
@@ -42,6 +46,7 @@ function saveSettings(settings) {
     llm: { ...DEFAULT_SETTINGS.llm, ...settings.llm },
     agent: { ...DEFAULT_SETTINGS.agent, ...settings.agent },
     recorder: { ...DEFAULT_SETTINGS.recorder, ...settings.recorder },
+    testExecution: { ...DEFAULT_SETTINGS.testExecution, ...settings.testExecution },
   };
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(merged, null, 2));
   return merged;
