@@ -249,6 +249,36 @@ function cleanMendixSelectors(script) {
   return cleaned;
 }
 
+// Valid ARIA roles that Playwright supports via getByRole()
+const ARIA_ROLES = new Set([
+  'alert','alertdialog','application','article','banner','blockquote','button',
+  'caption','cell','checkbox','code','columnheader','combobox','complementary',
+  'contentinfo','definition','deletion','dialog','directory','document',
+  'emphasis','feed','figure','form','generic','grid','gridcell','group',
+  'heading','img','insertion','link','list','listbox','listitem','log','main',
+  'marquee','math','meter','menu','menubar','menuitem','menuitemcheckbox',
+  'menuitemradio','navigation','none','note','option','paragraph','presentation',
+  'progressbar','radio','radiogroup','region','row','rowgroup','rowheader',
+  'scrollbar','search','searchbox','separator','slider','spinbutton','status',
+  'strong','subscript','superscript','switch','tab','table','tablist','tabpanel',
+  'term','textbox','time','timer','toolbar','tooltip','tree','treegrid','treeitem',
+]);
+
+function resolveLocator(selector) {
+  if (!selector) return null;
+  // Handle role:Name pattern (e.g. "textbox:Username" → getByRole('textbox', { name: 'Username' }))
+  const colonIdx = selector.indexOf(':');
+  if (colonIdx > 0) {
+    const role = selector.slice(0, colonIdx).toLowerCase();
+    const name = selector.slice(colonIdx + 1);
+    if (ARIA_ROLES.has(role)) {
+      const escapedName = escapeJsString(name);
+      return `page.getByRole('${role}', { name: '${escapedName}' })`;
+    }
+  }
+  return `page.locator('${escapeJsString(selector)}')`;
+}
+
 function generateStepCode(step) {
   const widgetName = (sel) =>
     escapeJsString(String(sel || "").replace(/^mx:/, ""));
@@ -275,29 +305,29 @@ function generateStepCode(step) {
     case "Click":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.clickWidget(page, '${widgetName(step.selector)}');`;
-      return `  await page.locator('${sel}').click();`;
+      return `  await ${resolveLocator(step.selector)}.click();`;
     case "Fill":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.fillWidget(page, '${widgetName(step.selector)}', '${val}');`;
-      return `  await page.locator('${sel}').fill('${val}');`;
+      return `  await ${resolveLocator(step.selector)}.fill('${val}');`;
     case "SelectDropdown":
       return `  await mx.selectDropdown(page, '${widgetName(step.selector)}', '${val}');`;
     case "AssertText":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.assertWidgetText(page, '${widgetName(step.selector)}', '${val}', { soft: true });`;
-      return `  await expect.soft(page.locator('${sel}'), 'Step ${step.order}: "${sel}" should contain "${val}"').toContainText('${val}');`;
+      return `  await expect.soft(${resolveLocator(step.selector)}, 'Step ${step.order}: "${sel}" should contain "${val}"').toContainText('${val}');`;
     case "AssertVisible":
       if (step.selector?.startsWith("mx:"))
         return `  await expect.soft(page.locator('.mx-name-${widgetName(step.selector)}').first(), 'Step ${step.order}: "${widgetName(step.selector)}" should be visible').toBeVisible();`;
-      return `  await expect.soft(page.locator('${sel}'), 'Step ${step.order}: "${sel}" should be visible').toBeVisible();`;
+      return `  await expect.soft(${resolveLocator(step.selector)}, 'Step ${step.order}: "${sel}" should be visible').toBeVisible();`;
     case "AssertEnabled":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.assertWidgetEnabled(page, '${widgetName(step.selector)}');`;
-      return `  await expect.soft(page.locator('${sel}'), 'Step ${step.order}: "${sel}" should be enabled').toBeEnabled();`;
+      return `  await expect.soft(${resolveLocator(step.selector)}, 'Step ${step.order}: "${sel}" should be enabled').toBeEnabled();`;
     case "AssertDisabled":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.assertWidgetDisabled(page, '${widgetName(step.selector)}');`;
-      return `  await expect.soft(page.locator('${sel}'), 'Step ${step.order}: "${sel}" should be disabled').toBeDisabled();`;
+      return `  await expect.soft(${resolveLocator(step.selector)}, 'Step ${step.order}: "${sel}" should be disabled').toBeDisabled();`;
     case "Wait":
       return `  await page.waitForTimeout(${parseInt(step.value, 10) || 1000}); // WARNING: Hard wait — prefer mx.waitForMendix() or a specific condition`;
     case "WaitForMendix":
