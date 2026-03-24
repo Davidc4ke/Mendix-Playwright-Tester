@@ -1207,6 +1207,146 @@ body {
   color: var(--violet);
   background: rgba(139, 92, 246, 0.05);
 }
+
+/* ══════════════════════════════════════════════════════════
+   SCRIPT PREVIEW
+   ══════════════════════════════════════════════════════════ */
+.script-preview {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.script-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid var(--border);
+}
+
+.script-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.script-lang {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-glass);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.script-filename {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.script-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.btn-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.btn-copy:hover {
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+/* Code block */
+.script-code {
+  padding: var(--space-4);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.7;
+  tab-size: 2;
+  counter-reset: line;
+}
+
+.script-code pre {
+  margin: 0;
+  font-family: inherit;
+}
+
+.code-line {
+  display: flex;
+  gap: var(--space-3);
+  padding: 0 var(--space-2);
+  border-radius: 2px;
+  transition: background var(--duration) var(--ease-smooth);
+}
+
+.code-line:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.line-num {
+  color: var(--text-muted);
+  min-width: 28px;
+  text-align: right;
+  user-select: none;
+  opacity: 0.5;
+}
+
+.line-content {
+  white-space: pre;
+}
+
+/* Syntax colors */
+.syn-kw { color: #c084fc; }       /* keyword - purple */
+.syn-fn { color: #67e8f9; }       /* function - cyan */
+.syn-str { color: #86efac; }      /* string - green */
+.syn-cmt { color: #4a4960; font-style: italic; } /* comment */
+.syn-num { color: #fbbf24; }      /* number - amber */
+.syn-op { color: #8b8a9e; }       /* operator */
+.syn-obj { color: #f0abfc; }      /* object/class */
+.syn-prop { color: #93c5fd; }     /* property */
+.syn-param { color: #fdba74; }    /* parameter - orange */
+
+/* Collapse toggle */
+.script-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px;
+  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  user-select: none;
+}
+
+.script-toggle:hover {
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text-secondary);
+}
 </style>
 </head>
 <body>
@@ -1603,7 +1743,36 @@ body {
 
       <div class="detail-divider"></div>
 
-      <!-- Script preview and runs sections will go here (Steps 8-9) -->
+      <!-- ── SCRIPT PREVIEW ── -->
+      <div class="script-preview-section">
+        <div class="section-header">
+          <div style="display:flex;align-items:center;">
+            <span class="section-title">Generated Script</span>
+            <span class="section-badge">auto-generated</span>
+          </div>
+          <div class="section-actions">
+            <button class="btn-section">&#128194; Open in Editor</button>
+          </div>
+        </div>
+
+        <div class="script-preview">
+          <div class="script-toolbar">
+            <div class="script-toolbar-left">
+              <span class="script-lang">JavaScript</span>
+              <span class="script-filename">login-flow-happy-path.spec.js</span>
+            </div>
+            <div class="script-toolbar-right">
+              <button class="btn-copy">&#128203; Copy</button>
+            </div>
+          </div>
+          <div class="script-code"><pre><div class="code-line"><span class="line-num"> 1</span><span class="line-content"><span class="syn-kw">const</span> { <span class="syn-obj">test</span>, <span class="syn-obj">expect</span> } <span class="syn-op">=</span> <span class="syn-fn">require</span>(<span class="syn-str">'@playwright/test'</span>);</span></div><div class="code-line"><span class="line-num"> 2</span><span class="line-content"><span class="syn-kw">const</span> { <span class="syn-fn">login</span>, <span class="syn-fn">waitForMendix</span>, <span class="syn-fn">clickWidget</span> } <span class="syn-op">=</span> <span class="syn-fn">require</span>(<span class="syn-str">'./helpers/mendix-helpers'</span>);</span></div><div class="code-line"><span class="line-num"> 3</span><span class="line-content"></span></div><div class="code-line"><span class="line-num"> 4</span><span class="line-content"><span class="syn-obj">test</span>(<span class="syn-str">'Login Flow - Happy Path'</span>, <span class="syn-kw">async</span> ({ <span class="syn-param">page</span> }) <span class="syn-op">=&gt;</span> {</span></div><div class="code-line"><span class="line-num"> 5</span><span class="line-content">  <span class="syn-cmt">// Step 1: Navigate to application</span></span></div><div class="code-line"><span class="line-num"> 6</span><span class="line-content">  <span class="syn-kw">await</span> <span class="syn-param">page</span>.<span class="syn-fn">goto</span>(<span class="syn-str">'https://myapp.mendixcloud.com/login.html'</span>);</span></div><div class="code-line"><span class="line-num"> 7</span><span class="line-content"></span></div><div class="code-line"><span class="line-num"> 8</span><span class="line-content">  <span class="syn-cmt">// Step 2: Login as admin</span></span></div><div class="code-line"><span class="line-num"> 9</span><span class="line-content">  <span class="syn-kw">await</span> <span class="syn-fn">login</span>(<span class="syn-param">page</span>, <span class="syn-str">'admin'</span>, <span class="syn-str">'••••••'</span>);</span></div><div class="code-line"><span class="line-num">10</span><span class="line-content"></span></div><div class="code-line"><span class="line-num">11</span><span class="line-content">  <span class="syn-cmt">// Step 3: Wait for Mendix</span></span></div><div class="code-line"><span class="line-num">12</span><span class="line-content">  <span class="syn-kw">await</span> <span class="syn-fn">waitForMendix</span>(<span class="syn-param">page</span>);</span></div><div class="code-line"><span class="line-num">13</span><span class="line-content"></span></div><div class="code-line"><span class="line-num">14</span><span class="line-content">  <span class="syn-cmt">// Step 4: Click New Order button</span></span></div><div class="code-line"><span class="line-num">15</span><span class="line-content">  <span class="syn-kw">await</span> <span class="syn-fn">clickWidget</span>(<span class="syn-param">page</span>, <span class="syn-str">'btnNewOrder'</span>);</span></div><div class="code-line"><span class="line-num">16</span><span class="line-content"></span></div><div class="code-line"><span class="line-num">17</span><span class="line-content">  <span class="syn-cmt">// Step 8: Assert success message</span></span></div><div class="code-line"><span class="line-num">18</span><span class="line-content">  <span class="syn-kw">await</span> <span class="syn-fn">expect</span>(<span class="syn-param">page</span>.<span class="syn-fn">locator</span>(<span class="syn-str">'text=Order created successfully'</span>))</span></div><div class="code-line"><span class="line-num">19</span><span class="line-content">    .<span class="syn-fn">toBeVisible</span>({ <span class="syn-prop">timeout</span>: <span class="syn-num">30000</span> });</span></div><div class="code-line"><span class="line-num">20</span><span class="line-content">});</span></div></pre></div>
+          <div class="script-toggle">&#9660; Show full script (42 lines)</div>
+        </div>
+      </div>
+
+      <div class="detail-divider"></div>
+
+      <!-- Recent runs section will go here (Step 9) -->
     </main>
   </div>
 </div>
