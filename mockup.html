@@ -1662,6 +1662,298 @@ body {
   border-color: var(--border-glow-cyan);
   box-shadow: 0 0 12px rgba(6, 182, 212, 0.15);
 }
+
+/* ══════════════════════════════════════════════════════════
+   MODALS
+   ══════════════════════════════════════════════════════════ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.modal-overlay.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal {
+  background: linear-gradient(180deg, rgba(20, 20, 48, 0.98), rgba(12, 12, 30, 0.98));
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), var(--shadow-glow);
+  width: 90%;
+  max-width: 520px;
+  max-height: 80vh;
+  overflow-y: auto;
+  transform: translateY(20px) scale(0.97);
+  transition: transform var(--duration-slow) var(--ease-spring);
+}
+
+.modal-overlay.open .modal {
+  transform: translateY(0) scale(1);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.modal-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.modal-close:hover {
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: var(--space-6);
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border);
+}
+
+/* Form elements */
+.form-group {
+  margin-bottom: var(--space-5);
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
+
+.form-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  outline: none;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.form-input:focus {
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
+.form-input::placeholder {
+  color: var(--text-muted);
+}
+
+.form-input-mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.form-select {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.form-select:focus {
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
+.form-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.form-toggle-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.form-toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  position: relative;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.form-toggle.active {
+  background: var(--violet);
+  border-color: var(--violet);
+}
+
+.form-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.form-toggle.active::after {
+  left: 18px;
+  background: #fff;
+}
+
+.form-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Section separator in modal */
+.modal-section-title {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Record indicator */
+.record-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-4);
+}
+
+.record-pulse {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--rose);
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.85); }
+}
+
+.record-text {
+  font-size: 12px;
+  color: var(--rose);
+  font-weight: 600;
+}
+
+.record-subtext {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Modal button styles */
+.btn-modal-primary {
+  padding: 8px 20px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--gradient-primary);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  box-shadow: 0 2px 12px rgba(139, 92, 246, 0.3);
+}
+
+.btn-modal-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+}
+
+.btn-modal-cancel {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.btn-modal-cancel:hover {
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+}
 </style>
 </head>
 <body>
@@ -2388,6 +2680,193 @@ document.getElementById('btn-back-to-scenario').addEventListener('click', () => 
   runDetailPanel.classList.remove('visible');
   scenarioPanel.style.display = '';
 });
+
+// ── Modal logic ──
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+// Close on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.classList.remove('open');
+  });
+});
+
+// Close buttons
+document.querySelectorAll('.modal-close, .btn-modal-cancel').forEach(btn => {
+  btn.addEventListener('click', () => {
+    btn.closest('.modal-overlay').classList.remove('open');
+  });
+});
+
+// Toggle switches
+document.querySelectorAll('.form-toggle').forEach(toggle => {
+  toggle.addEventListener('click', () => toggle.classList.toggle('active'));
+});
+
+// Wire up settings button
+document.querySelector('.btn-settings').addEventListener('click', () => openModal('modal-settings'));
+
+// Wire up "New Scenario" button (first btn-sidebar-action)
+document.querySelectorAll('.btn-sidebar-action')[0]?.addEventListener('click', () => openModal('modal-new-scenario'));
+
+// Wire up record buttons
+document.querySelectorAll('.btn-action-record').forEach(btn => {
+  btn.addEventListener('click', () => openModal('modal-record'));
+});
 </script>
+
+<!-- ══════════════════════════════════════════════════════════
+     SETTINGS MODAL
+     ══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-settings">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Settings</span>
+      <button class="modal-close">&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-title">Connection</div>
+      <div class="form-group">
+        <label class="form-label">API Port</label>
+        <input class="form-input form-input-mono" type="text" value="3100" />
+        <div class="form-hint">Express server port for REST API</div>
+      </div>
+
+      <div class="modal-section-title">Playwright</div>
+      <div class="form-group">
+        <label class="form-label">Browser</label>
+        <select class="form-select">
+          <option selected>Chromium</option>
+          <option>Firefox</option>
+          <option>WebKit</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Default Timeout (ms)</label>
+        <input class="form-input form-input-mono" type="text" value="30000" />
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Headless Mode</span>
+        <div class="form-toggle active"></div>
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Record Video</span>
+        <div class="form-toggle active"></div>
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Screenshots on Failure</span>
+        <div class="form-toggle active"></div>
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Trace Viewer</span>
+        <div class="form-toggle"></div>
+      </div>
+
+      <div class="modal-section-title">Data</div>
+      <div class="form-group">
+        <label class="form-label">Data Directory</label>
+        <input class="form-input form-input-mono" type="text" value="~/.config/zoniq-test-runner/" readonly />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-modal-cancel">Cancel</button>
+      <button class="btn-modal-primary">Save Settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     NEW SCENARIO MODAL
+     ══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-new-scenario">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">New Scenario</span>
+      <button class="modal-close">&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Scenario Name</label>
+        <input class="form-input" type="text" placeholder="e.g., Login Flow - Happy Path" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Application URL</label>
+        <input class="form-input form-input-mono" type="text" placeholder="https://myapp.mendixcloud.com" />
+      </div>
+
+      <div class="modal-section-title">Credentials (Optional)</div>
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <input class="form-input" type="text" placeholder="admin" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input class="form-input" type="password" placeholder="••••••" />
+      </div>
+
+      <div class="modal-section-title">Test Type</div>
+      <div class="form-group">
+        <label class="form-label">Creation Method</label>
+        <select class="form-select">
+          <option selected>Visual Step Builder</option>
+          <option>Import Script</option>
+          <option>Record from Browser</option>
+          <option>Empty Script</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-modal-cancel">Cancel</button>
+      <button class="btn-modal-primary">Create Scenario</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     RECORD MODAL
+     ══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-record">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Record Test</span>
+      <button class="modal-close">&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <div class="record-indicator">
+        <span class="record-pulse"></span>
+        <div>
+          <div class="record-text">Ready to Record</div>
+          <div class="record-subtext">A browser window will open for interaction recording</div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Starting URL</label>
+        <input class="form-input form-input-mono" type="text" value="https://myapp.mendixcloud.com/login.html" />
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Auto-login before recording</span>
+        <div class="form-toggle active"></div>
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Capture Mendix widget names</span>
+        <div class="form-toggle active"></div>
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Generate visual steps</span>
+        <div class="form-toggle active"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-modal-cancel">Cancel</button>
+      <button class="btn-modal-primary" style="background:var(--gradient-record);box-shadow:0 2px 12px rgba(239,68,68,0.3);">&#9679; Start Recording</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
