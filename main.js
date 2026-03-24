@@ -127,11 +127,21 @@ function loadDB() {
       return JSON.parse(fs.readFileSync(DB_PATH, "utf-8"));
     }
   } catch {}
-  return { scenarios: [], runs: [] };
+  return { scenarios: [], runs: [], savedUrls: [] };
 }
 
 function saveDB(db) {
   fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+}
+
+function addSavedUrl(db, url) {
+  if (!url || typeof url !== "string") return;
+  const normalized = url.trim();
+  if (!normalized) return;
+  if (!db.savedUrls) db.savedUrls = [];
+  if (!db.savedUrls.includes(normalized)) {
+    db.savedUrls.push(normalized);
+  }
 }
 
 // ── Playwright helpers path ──────────────────────────────
@@ -194,7 +204,7 @@ test('Recorded Test', async ({ page }) => {
   }
 
   return `
-const { test, expect } = require('@playwright/test');
+const { test, expect, chromium } = require('@playwright/test');
 const mx = require('${MENDIX_HELPERS_PATH}');
 const TARGET_URL = ${JSON.stringify(targetUrl)};
 const CREDENTIALS = ${JSON.stringify(credentials || {})};
@@ -226,7 +236,7 @@ function cleanMendixSelectors(script) {
         'CheckBox': { css: '.mx-checkbox', alt: 'page.getByRole("checkbox")' },
         'RadioButton': { css: '.mx-radiobutton', alt: 'page.getByRole("radio")' },
         'DatePicker': { css: '.mx-datepicker', alt: null },
-        'ReferenceSelector': { css: '.mx-referenceselector', alt: null },
+        'ReferenceSelector': { css: '.mx-referenceselector', alt: 'page.getByLabel("Label text")' },
       };
       if (classMap[widgetType]) {
         const comment = classMap[widgetType].alt
@@ -249,68 +259,98 @@ function cleanMendixSelectors(script) {
   return cleaned;
 }
 
+// Valid ARIA roles that Playwright supports via getByRole()
+const ARIA_ROLES = new Set([
+  'alert','alertdialog','application','article','banner','blockquote','button',
+  'caption','cell','checkbox','code','columnheader','combobox','complementary',
+  'contentinfo','definition','deletion','dialog','directory','document',
+  'emphasis','feed','figure','form','generic','grid','gridcell','group',
+  'heading','img','insertion','link','list','listbox','listitem','log','main',
+  'marquee','math','meter','menu','menubar','menuitem','menuitemcheckbox',
+  'menuitemradio','navigation','none','note','option','paragraph','presentation',
+  'progressbar','radio','radiogroup','region','row','rowgroup','rowheader',
+  'scrollbar','search','searchbox','separator','slider','spinbutton','status',
+  'strong','subscript','superscript','switch','tab','table','tablist','tabpanel',
+  'term','textbox','time','timer','toolbar','tooltip','tree','treegrid','treeitem',
+]);
+
+function resolveLocator(selector) {
+  if (!selector) return null;
+  // Handle special prefixes: label:, text:, placeholder:, keyboard:
+  if (selector.startsWith('label:'))
+    return `page.getByLabel('${escapeJsString(selector.slice(6))}')`;
+  if (selector.startsWith('text:'))
+    return `page.getByText('${escapeJsString(selector.slice(5))}')`;
+  if (selector.startsWith('placeholder:'))
+    return `page.getByPlaceholder('${escapeJsString(selector.slice(12))}')`;
+  if (selector.startsWith('keyboard:'))
+    return null; // Handled separately in Click case
+  // Handle role:Name pattern (e.g. "textbox:Username" → getByRole('textbox', { name: 'Username' }))
+  const colonIdx = selector.indexOf(':');
+  if (colonIdx > 0) {
+    const role = selector.slice(0, colonIdx).toLowerCase();
+    const name = selector.slice(colonIdx + 1);
+    if (ARIA_ROLES.has(role)) {
+      const escapedName = escapeJsString(name);
+      return `page.getByRole('${role}', { name: '${escapedName}' })`;
+    }
+  }
+  return `page.locator('${escapeJsString(selector)}')`;
+}
+
 function generateStepCode(step) {
   const widgetName = (sel) =>
     escapeJsString(String(sel || "").replace(/^mx:/, ""));
   const val = escapeJsString(step.value);
   const sel = escapeJsString(step.selector);
 
-  // Helper: generate the right Playwright locator for parsed selectors
-  // Supports role-based (button:Save, textbox:Username), label:, text:, placeholder:, mx:, and raw CSS
-  function locatorExpr(selector) {
-    if (!selector) return `page.locator('')`;
-    // Role-based selectors: "role:name" e.g. "button:Save", "textbox:Username", "gridcell:31/03/"
-    const roleNames = ['button','textbox','checkbox','radio','link','heading','cell','gridcell','row','option','menuitem','tab','combobox','listbox','dialog','alert','img','navigation','list','listitem','separator','slider','spinbutton','switch','table','tree','treeitem'];
-    const roleMatch = selector.match(/^(\w+):(.+)$/);
-    if (roleMatch && roleNames.includes(roleMatch[1])) {
-      return `page.getByRole('${roleMatch[1]}', { name: '${escapeJsString(roleMatch[2])}' })`;
-    }
-    if (selector.startsWith('label:'))
-      return `page.getByLabel('${escapeJsString(selector.replace(/^label:/, ''))}')`;
-    if (selector.startsWith('text:'))
-      return `page.getByText('${escapeJsString(selector.replace(/^text:/, ''))}')`;
-    if (selector.startsWith('placeholder:'))
-      return `page.getByPlaceholder('${escapeJsString(selector.replace(/^placeholder:/, ''))}')`;
-    if (selector.startsWith('keyboard:'))
-      return null; // Handled separately
-    return `page.locator('${escapeJsString(selector)}')`;
+  // Actions that require a non-empty selector
+  const SELECTOR_REQUIRED = ['Click', 'Fill', 'SelectDropdown', 'AssertText', 'AssertVisible', 'AssertEnabled', 'AssertDisabled'];
+  if (SELECTOR_REQUIRED.includes(step.action) && !step.selector?.trim()) {
+    throw new Error(`Step ${(step.order ?? 0) + 1} ("${step.action}") is missing a selector. Please provide a CSS selector or mx:widgetName.`);
   }
 
   switch (step.action) {
     case "Navigate":
       return `  await page.goto('${val}');\n  await mx.waitForMendix(page);`;
-    case "Login":
+    case "Login": {
+      if (step.username && step.password) {
+        const u = escapeJsString(step.username);
+        const p = escapeJsString(step.password);
+        return `  await mx.login(page, TARGET_URL, '${u}', '${p}');`;
+      }
       return `  await mx.login(page, TARGET_URL, CREDENTIALS.username, CREDENTIALS.password);`;
+    }
     case "Click":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.clickWidget(page, '${widgetName(step.selector)}');`;
       if (step.selector?.startsWith("keyboard:"))
         return `  await page.keyboard.press('${escapeJsString(step.selector.replace(/^keyboard:/, ''))}');`;
-      return `  await ${locatorExpr(step.selector)}.click();`;
+      return `  await ${resolveLocator(step.selector)}.click();`;
     case "Fill":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.fillWidget(page, '${widgetName(step.selector)}', '${val}');`;
-      return `  await ${locatorExpr(step.selector)}.fill('${val}');`;
+      return `  await ${resolveLocator(step.selector)}.fill('${val}');`;
     case "SelectDropdown":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.selectDropdown(page, '${widgetName(step.selector)}', '${val}');`;
-      return `  await ${locatorExpr(step.selector)}.selectOption('${val}');`;
+      return `  await ${resolveLocator(step.selector)}.selectOption('${val}');`;
     case "AssertText":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.assertWidgetText(page, '${widgetName(step.selector)}', '${val}', { soft: true });`;
-      return `  await expect.soft(${locatorExpr(step.selector)}, 'Step ${step.order}: "${sel}" should contain "${val}"').toContainText('${val}');`;
+      return `  await expect.soft(${resolveLocator(step.selector)}, 'Step ${step.order}: "${sel}" should contain "${val}"').toContainText('${val}');`;
     case "AssertVisible":
       if (step.selector?.startsWith("mx:"))
         return `  await expect.soft(page.locator('.mx-name-${widgetName(step.selector)}').first(), 'Step ${step.order}: "${widgetName(step.selector)}" should be visible').toBeVisible();`;
-      return `  await expect.soft(${locatorExpr(step.selector)}, 'Step ${step.order}: "${sel}" should be visible').toBeVisible();`;
+      return `  await expect.soft(${resolveLocator(step.selector)}, 'Step ${step.order}: "${sel}" should be visible').toBeVisible();`;
     case "AssertEnabled":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.assertWidgetEnabled(page, '${widgetName(step.selector)}');`;
-      return `  await expect.soft(${locatorExpr(step.selector)}, 'Step ${step.order}: "${sel}" should be enabled').toBeEnabled();`;
+      return `  await expect.soft(${resolveLocator(step.selector)}, 'Step ${step.order}: "${sel}" should be enabled').toBeEnabled();`;
     case "AssertDisabled":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.assertWidgetDisabled(page, '${widgetName(step.selector)}');`;
-      return `  await expect.soft(${locatorExpr(step.selector)}, 'Step ${step.order}: "${sel}" should be disabled').toBeDisabled();`;
+      return `  await expect.soft(${resolveLocator(step.selector)}, 'Step ${step.order}: "${sel}" should be disabled').toBeDisabled();`;
     case "Wait":
       return `  await page.waitForTimeout(${parseInt(step.value, 10) || 1000}); // WARNING: Hard wait — prefer mx.waitForMendix() or a specific condition`;
     case "WaitForMendix":
@@ -321,6 +361,8 @@ function generateStepCode(step) {
       return `  await mx.closePopup(page);`;
     case "WaitForMicroflow":
       return `  await mx.waitForMicroflow(page);`;
+    case "Logout":
+      return `  await page.goto(TARGET_URL + '/logout');\n  await mx.waitForMendix(page);`;
     case "Screenshot":
       return `  await page.screenshot({ path: 'results/${val || "screenshot"}.png', fullPage: true });`;
     default:
@@ -331,7 +373,11 @@ function generateStepCode(step) {
 function generateScriptFromSteps(steps, testName, targetUrl) {
   const lines = steps.map((step, idx) => {
     const code = generateStepCode(step);
-    const desc = escapeJsString(`${step.action}${step.selector ? ' ' + step.selector : ''}${step.value ? ' = ' + step.value : ''}`);
+    const desc = escapeJsString(
+      step.action === 'Login' && step.username
+        ? `Login as ${step.username}`
+        : `${step.action}${step.selector ? ' ' + step.selector : ''}${step.value ? ' = ' + step.value : ''}`
+    );
     // Wrap each step with progress markers so the runner can track execution
     return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
       `  try {\n  ${code}\n` +
@@ -646,7 +692,12 @@ function startAPIServer() {
       return res.status(400).json({ error: "Invalid testRunId — must be a UUID" });
     }
     const name = testName || "Step Test";
-    const scriptBody = generateScriptFromSteps(steps, name, targetUrl);
+    let scriptBody;
+    try {
+      scriptBody = generateScriptFromSteps(steps, name, targetUrl);
+    } catch (validationErr) {
+      return res.status(400).json({ error: validationErr.message });
+    }
     const scriptPath = path.join(TEMP_DIR, `run-${runId}.spec.js`);
     fs.writeFileSync(scriptPath, wrapScript(scriptBody, targetUrl, credentials));
 
@@ -760,6 +811,16 @@ function startAPIServer() {
     });
     activeAgent = { type: "healer", agent: healer };
 
+    // Resolve results directory when healing by run ID
+    let runResultsDir = null;
+    let healArtifacts = [];
+    if (runId) {
+      const dir = path.join(RESULTS_DIR, runId);
+      if (fs.existsSync(dir)) runResultsDir = dir;
+      const run = loadDB().runs.find((r) => r.runId === runId);
+      healArtifacts = run?.results?.artifacts || [];
+    }
+
     res.json({ status: "running" });
 
     try {
@@ -769,6 +830,8 @@ function startAPIServer() {
         errors: healErrors,
         targetUrl: healUrl,
         credentials: healCreds,
+        runResultsDir,
+        artifacts: healArtifacts,
       });
       activeAgent = null;
       // If a scenarioId was provided, save the healed script
@@ -816,8 +879,12 @@ function startAPIServer() {
     // Generate wrapped script for execution
     let scriptContent;
     if (healSteps && healSteps.length > 0) {
-      const body = generateScriptFromSteps(healSteps, "Preheal Test", healUrl);
-      scriptContent = wrapScript(body, healUrl, healCreds);
+      try {
+        const body = generateScriptFromSteps(healSteps, "Preheal Test", healUrl);
+        scriptContent = wrapScript(body, healUrl, healCreds);
+      } catch (validationErr) {
+        return res.status(400).json({ error: validationErr.message });
+      }
     } else if (healScript) {
       scriptContent = wrapScript(healScript, healUrl, healCreds);
     } else {
@@ -946,6 +1013,7 @@ ipcMain.handle("save-scenario", (event, scenario) => {
     scenario.updatedAt = scenario.createdAt;
     db.scenarios.push(scenario);
   }
+  addSavedUrl(db, scenario.targetUrl);
   saveDB(db);
   return scenario;
 });
@@ -963,37 +1031,48 @@ ipcMain.handle("get-runs", () => {
   return loadDB().runs.slice(-100).reverse();
 });
 
+// Get saved URLs
+ipcMain.handle("get-saved-urls", () => {
+  const db = loadDB();
+  return db.savedUrls || [];
+});
+
 // Launch Codegen recorder
 ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
   return new Promise((resolve, reject) => {
     const outputFile = `recording-${Date.now()}.js`;
     const outputPath = path.join(SCRIPTS_DIR, outputFile);
 
-    // Determine highlight preference from options or settings
-    const settings = loadSettings();
-    const showHighlights = options.showHighlights !== undefined
-      ? options.showHighlights
-      : settings.recorder.showHighlights;
-
-    const recorderScript = path.join(__dirname, "helpers", "recorder.js");
-    const recorderArgs = [
-      recorderScript,
-      targetUrl,
-      outputPath,
-      String(!!showHighlights),
+    const codegenArgs = [
+      "codegen",
+      "--target=javascript",
+      `--output=${outputPath}`,
+      `--viewport-size=1920,1080`,
     ];
     const channel = getBrowserChannel();
     if (channel) {
-      recorderArgs.push(channel);
+      codegenArgs.push(`--channel=${channel}`);
     }
 
-    console.log(`[recorder] CMD: node ${recorderArgs.join(" ")}`);
+    // Normalize URL
+    let normalizedUrl = targetUrl;
+    if (normalizedUrl && !normalizedUrl.startsWith("http") && !normalizedUrl.startsWith("file://") && !normalizedUrl.startsWith("about:")) {
+      normalizedUrl = "http://" + normalizedUrl;
+    }
+    if (normalizedUrl) {
+      codegenArgs.push(normalizedUrl);
+    }
 
-    const proc = spawn(
-      process.execPath,
-      recorderArgs,
-      { env: getPlaywrightEnv(), shell: false }
-    );
+    const db = loadDB();
+    addSavedUrl(db, normalizedUrl);
+    saveDB(db);
+
+    console.log(`[recorder] CMD: ${PLAYWRIGHT_CLI} ${codegenArgs.join(" ")}`);
+
+    const proc = spawn(PLAYWRIGHT_CLI, codegenArgs, {
+      env: getPlaywrightEnv(),
+      shell: true,
+    });
 
     proc.stdout.on("data", (chunk) => {
       console.log(`[recorder stdout] ${chunk}`);
@@ -1042,8 +1121,12 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
 
   let scriptContent;
   if (scenario.steps && scenario.steps.length > 0) {
-    const body = generateScriptFromSteps(scenario.steps, scenario.name, scenario.targetUrl);
-    scriptContent = wrapScript(body, scenario.targetUrl, scenario.credentials);
+    try {
+      const body = generateScriptFromSteps(scenario.steps, scenario.name, scenario.targetUrl);
+      scriptContent = wrapScript(body, scenario.targetUrl, scenario.credentials);
+    } catch (validationErr) {
+      return { runId, status: "error", errors: [{ message: validationErr.message }] };
+    }
   } else if (scenario.script) {
     scriptContent = wrapScript(scenario.script, scenario.targetUrl, scenario.credentials);
   } else {
@@ -1223,6 +1306,8 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
     }
   };
 
+  const runResultsDir = path.join(RESULTS_DIR, runId);
+
   try {
     const result = await healer.heal({
       script: scenario.script || "",
@@ -1230,6 +1315,8 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
       errors: run.results.errors,
       targetUrl: scenario.targetUrl,
       credentials: scenario.credentials,
+      runResultsDir: fs.existsSync(runResultsDir) ? runResultsDir : null,
+      artifacts: run.results?.artifacts || [],
       onProgress,
     });
 
@@ -1263,8 +1350,12 @@ ipcMain.handle("agent-preheal", async (event, { scenarioId }) => {
   // Generate the script to test
   let scriptContent;
   if (scenario.steps && scenario.steps.length > 0) {
-    const body = generateScriptFromSteps(scenario.steps, scenario.name, scenario.targetUrl);
-    scriptContent = wrapScript(body, scenario.targetUrl, scenario.credentials);
+    try {
+      const body = generateScriptFromSteps(scenario.steps, scenario.name, scenario.targetUrl);
+      scriptContent = wrapScript(body, scenario.targetUrl, scenario.credentials);
+    } catch (validationErr) {
+      return { error: validationErr.message };
+    }
   } else if (scenario.script) {
     scriptContent = wrapScript(scenario.script, scenario.targetUrl, scenario.credentials);
   } else {

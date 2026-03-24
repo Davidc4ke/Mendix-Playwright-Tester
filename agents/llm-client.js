@@ -58,6 +58,28 @@ class LLMClient {
     };
   }
 
+  /**
+   * Convert Anthropic-style content blocks to OpenAI format.
+   * Anthropic uses { type: "image", source: { type: "base64", media_type, data } }
+   * OpenAI uses { type: "image_url", image_url: { url: "data:media_type;base64,data" } }
+   */
+  _toOpenAIContent(content) {
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return content;
+
+    return content.map((block) => {
+      if (block.type === "image" && block.source?.type === "base64") {
+        return {
+          type: "image_url",
+          image_url: {
+            url: `data:${block.source.media_type};base64,${block.source.data}`,
+          },
+        };
+      }
+      return block;
+    });
+  }
+
   async _chatOpenAI(messages, options) {
     const OpenAI = require("openai");
     const clientOpts = { apiKey: this.apiKey };
@@ -69,7 +91,7 @@ class LLMClient {
       openAIMessages.push({ role: "system", content: options.system });
     }
     for (const msg of messages) {
-      openAIMessages.push({ role: msg.role, content: msg.content });
+      openAIMessages.push({ role: msg.role, content: this._toOpenAIContent(msg.content) });
     }
 
     const response = await client.chat.completions.create({
