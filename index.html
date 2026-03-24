@@ -1644,6 +1644,19 @@ async function saveSteps(scenarioId) {
 
 async function executeSelected() {
   if (!selectedScenario) return;
+
+  // Validate steps have required selectors before execution
+  if (selectedScenario.steps && selectedScenario.steps.length > 0) {
+    for (let i = 0; i < selectedScenario.steps.length; i++) {
+      const step = selectedScenario.steps[i];
+      const config = STEP_ACTION_CONFIG[step.action] || {};
+      if (config.selector && !step.selector?.trim()) {
+        toast(`Step ${i + 1} ("${step.action}") is missing a selector. Please provide a CSS selector or mx:widgetName.`, "error");
+        return;
+      }
+    }
+  }
+
   toast("Starting test execution...", "info");
   await window.zoniq.executeScenario(selectedScenario);
   await loadRuns();

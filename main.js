@@ -255,6 +255,12 @@ function generateStepCode(step) {
   const val = escapeJsString(step.value);
   const sel = escapeJsString(step.selector);
 
+  // Actions that require a non-empty selector
+  const SELECTOR_REQUIRED = ['Click', 'Fill', 'SelectDropdown', 'AssertText', 'AssertVisible', 'AssertEnabled', 'AssertDisabled'];
+  if (SELECTOR_REQUIRED.includes(step.action) && !step.selector?.trim()) {
+    throw new Error(`Step ${(step.order ?? 0) + 1} ("${step.action}") is missing a selector. Please provide a CSS selector or mx:widgetName.`);
+  }
+
   switch (step.action) {
     case "Navigate":
       return `  await page.goto('${val}');\n  await mx.waitForMendix(page);`;
@@ -633,7 +639,12 @@ function startAPIServer() {
       return res.status(400).json({ error: "Invalid testRunId — must be a UUID" });
     }
     const name = testName || "Step Test";
-    const scriptBody = generateScriptFromSteps(steps, name, targetUrl);
+    let scriptBody;
+    try {
+      scriptBody = generateScriptFromSteps(steps, name, targetUrl);
+    } catch (validationErr) {
+      return res.status(400).json({ error: validationErr.message });
+    }
     const scriptPath = path.join(TEMP_DIR, `run-${runId}.spec.js`);
     fs.writeFileSync(scriptPath, wrapScript(scriptBody, targetUrl, credentials));
 
@@ -815,8 +826,12 @@ function startAPIServer() {
     // Generate wrapped script for execution
     let scriptContent;
     if (healSteps && healSteps.length > 0) {
-      const body = generateScriptFromSteps(healSteps, "Preheal Test", healUrl);
-      scriptContent = wrapScript(body, healUrl, healCreds);
+      try {
+        const body = generateScriptFromSteps(healSteps, "Preheal Test", healUrl);
+        scriptContent = wrapScript(body, healUrl, healCreds);
+      } catch (validationErr) {
+        return res.status(400).json({ error: validationErr.message });
+      }
     } else if (healScript) {
       scriptContent = wrapScript(healScript, healUrl, healCreds);
     } else {
@@ -1042,8 +1057,12 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
 
   let scriptContent;
   if (scenario.steps && scenario.steps.length > 0) {
-    const body = generateScriptFromSteps(scenario.steps, scenario.name, scenario.targetUrl);
-    scriptContent = wrapScript(body, scenario.targetUrl, scenario.credentials);
+    try {
+      const body = generateScriptFromSteps(scenario.steps, scenario.name, scenario.targetUrl);
+      scriptContent = wrapScript(body, scenario.targetUrl, scenario.credentials);
+    } catch (validationErr) {
+      return { runId, status: "error", errors: [{ message: validationErr.message }] };
+    }
   } else if (scenario.script) {
     scriptContent = wrapScript(scenario.script, scenario.targetUrl, scenario.credentials);
   } else {
@@ -1267,8 +1286,12 @@ ipcMain.handle("agent-preheal", async (event, { scenarioId }) => {
   // Generate the script to test
   let scriptContent;
   if (scenario.steps && scenario.steps.length > 0) {
-    const body = generateScriptFromSteps(scenario.steps, scenario.name, scenario.targetUrl);
-    scriptContent = wrapScript(body, scenario.targetUrl, scenario.credentials);
+    try {
+      const body = generateScriptFromSteps(scenario.steps, scenario.name, scenario.targetUrl);
+      scriptContent = wrapScript(body, scenario.targetUrl, scenario.credentials);
+    } catch (validationErr) {
+      return { error: validationErr.message };
+    }
   } else if (scenario.script) {
     scriptContent = wrapScript(scenario.script, scenario.targetUrl, scenario.credentials);
   } else {
