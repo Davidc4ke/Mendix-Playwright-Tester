@@ -276,6 +276,15 @@ const ARIA_ROLES = new Set([
 
 function resolveLocator(selector) {
   if (!selector) return null;
+  // Handle special prefixes: label:, text:, placeholder:, keyboard:
+  if (selector.startsWith('label:'))
+    return `page.getByLabel('${escapeJsString(selector.slice(6))}')`;
+  if (selector.startsWith('text:'))
+    return `page.getByText('${escapeJsString(selector.slice(5))}')`;
+  if (selector.startsWith('placeholder:'))
+    return `page.getByPlaceholder('${escapeJsString(selector.slice(12))}')`;
+  if (selector.startsWith('keyboard:'))
+    return null; // Handled separately in Click case
   // Handle role:Name pattern (e.g. "textbox:Username" → getByRole('textbox', { name: 'Username' }))
   const colonIdx = selector.indexOf(':');
   if (colonIdx > 0) {
@@ -315,13 +324,17 @@ function generateStepCode(step) {
     case "Click":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.clickWidget(page, '${widgetName(step.selector)}');`;
+      if (step.selector?.startsWith("keyboard:"))
+        return `  await page.keyboard.press('${escapeJsString(step.selector.replace(/^keyboard:/, ''))}');`;
       return `  await ${resolveLocator(step.selector)}.click();`;
     case "Fill":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.fillWidget(page, '${widgetName(step.selector)}', '${val}');`;
       return `  await ${resolveLocator(step.selector)}.fill('${val}');`;
     case "SelectDropdown":
-      return `  await mx.selectDropdown(page, '${widgetName(step.selector)}', '${val}');`;
+      if (step.selector?.startsWith("mx:"))
+        return `  await mx.selectDropdown(page, '${widgetName(step.selector)}', '${val}');`;
+      return `  await ${resolveLocator(step.selector)}.selectOption('${val}');`;
     case "AssertText":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.assertWidgetText(page, '${widgetName(step.selector)}', '${val}', { soft: true });`;
