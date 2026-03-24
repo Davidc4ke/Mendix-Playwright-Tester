@@ -98,7 +98,36 @@ if (!url || !outputPath) {
     });
   }
 
-  // Wait for the browser to be closed by the user
+  // _enableRecorder keeps the browser process alive (Playwright Inspector) even
+  // after the user closes all browser tabs. Detect when all pages are gone and
+  // force-close the browser so the process exits and main.js gets the script.
+  function watchForAllPagesClosed() {
+    const pages = context.pages();
+    for (const p of pages) {
+      p.on("close", () => {
+        // Small delay to let Playwright settle (e.g. new tab opening)
+        setTimeout(() => {
+          if (context.pages().length === 0) {
+            console.log("[recorder] All pages closed, shutting down browser");
+            browser.close().catch(() => {});
+          }
+        }, 500);
+      });
+    }
+  }
+  watchForAllPagesClosed();
+  context.on("page", (newPage) => {
+    newPage.on("close", () => {
+      setTimeout(() => {
+        if (context.pages().length === 0) {
+          console.log("[recorder] All pages closed, shutting down browser");
+          browser.close().catch(() => {});
+        }
+      }, 500);
+    });
+  });
+
+  // Wait for the browser to fully disconnect
   await new Promise((resolve) => browser.on("disconnected", resolve));
 })().catch((err) => {
   console.error("[recorder] Fatal error:", err);
