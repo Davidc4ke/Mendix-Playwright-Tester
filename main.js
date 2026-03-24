@@ -380,6 +380,13 @@ function generateScriptFromSteps(steps, testName, targetUrl) {
         ? `Login as ${step.username}`
         : `${step.action}${step.selector ? ' ' + step.selector : ''}${step.value ? ' = ' + step.value : ''}`
     );
+    // Raw steps must NOT be wrapped in try/catch: const/let declarations inside
+    // a try block are block-scoped and would be invisible to subsequent steps.
+    if (step.action === 'Raw') {
+      return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
+        `${code}\n` +
+        `  console.log('[ZONIQ_STEP:DONE:${idx}]');`;
+    }
     // Wrap each step with progress markers so the runner can track execution
     return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
       `  try {\n  ${code}\n` +
