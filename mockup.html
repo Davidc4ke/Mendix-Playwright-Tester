@@ -1347,6 +1347,88 @@ body {
   background: rgba(0, 0, 0, 0.3);
   color: var(--text-secondary);
 }
+
+/* ══════════════════════════════════════════════════════════
+   RECENT RUNS TABLE
+   ══════════════════════════════════════════════════════════ */
+.runs-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+.runs-table thead th {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-glass);
+  position: sticky;
+  top: 0;
+}
+
+.runs-table thead th:first-child {
+  border-radius: var(--radius-lg) 0 0 0;
+}
+
+.runs-table thead th:last-child {
+  border-radius: 0 var(--radius-lg) 0 0;
+}
+
+.runs-table tbody tr {
+  cursor: pointer;
+  transition: background var(--duration) var(--ease-smooth);
+}
+
+.runs-table tbody tr:hover {
+  background: var(--bg-glass-hover);
+}
+
+.runs-table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+
+.runs-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.run-id {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.run-duration {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* Mini sparkline-style bar for table */
+.mini-bar {
+  display: inline-flex;
+  gap: 1px;
+  align-items: flex-end;
+  height: 14px;
+}
+
+.mini-bar-seg {
+  width: 3px;
+  border-radius: 1px;
+  transition: height var(--duration-slow) var(--ease-smooth);
+}
+
+.mini-bar-seg.pass { background: var(--emerald); }
+.mini-bar-seg.fail { background: var(--rose); }
+.mini-bar-seg.skip { background: var(--text-muted); opacity: 0.3; }
 </style>
 </head>
 <body>
@@ -1772,7 +1854,128 @@ body {
 
       <div class="detail-divider"></div>
 
-      <!-- Recent runs section will go here (Step 9) -->
+      <!-- ── RECENT RUNS ── -->
+      <div class="recent-runs-section">
+        <div class="section-header">
+          <div style="display:flex;align-items:center;">
+            <span class="section-title">Recent Runs</span>
+            <span class="section-badge">12 total</span>
+          </div>
+          <div class="section-actions">
+            <button class="btn-section">&#128202; View All</button>
+          </div>
+        </div>
+
+        <table class="runs-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Run ID</th>
+              <th>Duration</th>
+              <th>Steps</th>
+              <th>When</th>
+              <th>Results</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="status-pill passed"><span class="status-pill-icon">&#10003;</span> Passed</span></td>
+              <td><span class="run-id">#run-a1b2c3</span></td>
+              <td><span class="run-duration">4.2s</span></td>
+              <td>8/8</td>
+              <td>2 min ago</td>
+              <td>
+                <span class="mini-bar">
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:12px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:10px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:13px"></span>
+                  <span class="mini-bar-seg pass" style="height:11px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="status-pill passed"><span class="status-pill-icon">&#10003;</span> Passed</span></td>
+              <td><span class="run-id">#run-d4e5f6</span></td>
+              <td><span class="run-duration">3.8s</span></td>
+              <td>8/8</td>
+              <td>1h ago</td>
+              <td>
+                <span class="mini-bar">
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:12px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:11px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:13px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="status-pill failed"><span class="status-pill-icon">&#10007;</span> Failed</span></td>
+              <td><span class="run-id">#run-g7h8i9</span></td>
+              <td><span class="run-duration">2.1s</span></td>
+              <td>5/8</td>
+              <td>3h ago</td>
+              <td>
+                <span class="mini-bar">
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:12px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:11px"></span>
+                  <span class="mini-bar-seg fail" style="height:14px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="status-pill passed"><span class="status-pill-icon">&#10003;</span> Passed</span></td>
+              <td><span class="run-id">#run-j1k2l3</span></td>
+              <td><span class="run-duration">4.5s</span></td>
+              <td>8/8</td>
+              <td>Yesterday</td>
+              <td>
+                <span class="mini-bar">
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:13px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:12px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:11px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="status-pill failed"><span class="status-pill-icon">&#10007;</span> Failed</span></td>
+              <td><span class="run-id">#run-m4n5o6</span></td>
+              <td><span class="run-duration">1.9s</span></td>
+              <td>3/8</td>
+              <td>Yesterday</td>
+              <td>
+                <span class="mini-bar">
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:12px"></span>
+                  <span class="mini-bar-seg fail" style="height:14px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </main>
   </div>
 </div>
