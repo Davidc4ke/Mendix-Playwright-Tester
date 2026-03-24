@@ -382,6 +382,82 @@ function transformSelectOptionCalls(script) {
   );
 }
 
+/**
+ * Post-process a recorded script to replace Mendix GUID option values with
+ * their human-readable label text.  Launches a quick headless browser using
+ * the saved storage state from the recording session, navigates to the target
+ * URL, scrapes all <option> value→text mappings, and replaces GUIDs in-place.
+ *
+ * Non-fatal: if resolution fails for any reason, returns the original script.
+ * The runtime smartSelect + auto-heal fallback will still handle it.
+ */
+async function resolveGuidsInScript(script, targetUrl, storagePath) {
+  // 1. Find all GUID values in selectOption calls
+  const guidRegex = /\.selectOption\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  const guids = new Set();
+  let m;
+  while ((m = guidRegex.exec(script)) !== null) {
+    if (ScriptUtils.looksLikeGuid(m[1])) guids.add(m[1]);
+  }
+  if (!guids.size) return script; // No GUIDs — nothing to resolve
+
+  console.log(`[guid-resolve] Found ${guids.size} GUID(s) in recorded script, resolving to labels...`);
+
+  let browser;
+  try {
+    const { chromium } = require('playwright');
+    const launchOpts = { headless: true };
+    const channel = getBrowserChannel();
+    if (channel) launchOpts.channel = channel;
+    browser = await chromium.launch(launchOpts);
+
+    const contextOpts = {};
+    if (fs.existsSync(storagePath)) {
+      contextOpts.storageState = storagePath;
+    }
+    const context = await browser.newContext(contextOpts);
+    const page = await context.newPage();
+
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Wait for Mendix loading indicators to clear
+    try { await page.locator('.mx-progress').waitFor({ state: 'hidden', timeout: 10000 }); } catch {}
+    try { await page.locator('.mx-progress-bar').waitFor({ state: 'hidden', timeout: 5000 }); } catch {}
+    // Extra settle time for async option loading
+    await page.waitForTimeout(2000);
+
+    // 2. Build value→label map from ALL <option> elements on the page
+    const valueToLabel = await page.evaluate(() => {
+      const map = {};
+      document.querySelectorAll('select option').forEach(opt => {
+        if (opt.value && opt.textContent.trim()) {
+          map[opt.value] = opt.textContent.trim();
+        }
+      });
+      return map;
+    });
+
+    // 3. Replace GUIDs with labels in the script
+    let resolved = script;
+    let resolvedCount = 0;
+    for (const guid of guids) {
+      if (valueToLabel[guid]) {
+        const escaped = valueToLabel[guid].replace(/'/g, "\\'");
+        resolved = resolved.split(`'${guid}'`).join(`'${escaped}'`);
+        resolved = resolved.split(`"${guid}"`).join(`"${escaped}"`);
+        resolvedCount++;
+        console.log(`[guid-resolve] ${guid} → ${valueToLabel[guid]}`);
+      }
+    }
+    console.log(`[guid-resolve] Resolved ${resolvedCount}/${guids.size} GUID(s)`);
+    return resolved;
+  } catch (err) {
+    console.warn(`[guid-resolve] Failed (non-fatal): ${err.message}`);
+    return script; // Return original — runtime fallback will handle it
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+}
+
 // ── Playwright execution ─────────────────────────────────
 function extractSpecs(suites) {
   const specs = [];
@@ -1027,11 +1103,16 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
     const outputFile = `recording-${Date.now()}.js`;
     const outputPath = path.join(SCRIPTS_DIR, outputFile);
 
+    // Save browser storage state so we can resolve GUID option values
+    // to human-readable labels after recording finishes
+    const storagePath = path.join(TEMP_DIR, `recording-storage-${Date.now()}.json`);
+
     const codegenArgs = [
       "codegen",
       "--target=javascript",
       `--output=${outputPath}`,
       `--viewport-size=1920,1080`,
+      `--save-storage=${storagePath}`,
     ];
     const channel = getBrowserChannel();
     if (channel) {
@@ -1065,21 +1146,34 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
       console.error(`[recorder stderr] ${chunk}`);
     });
 
-    proc.on("close", (code) => {
+    proc.on("close", async (code) => {
       console.log(`[recorder] exited with code ${code}`);
       try {
         if (fs.existsSync(outputPath)) {
-          const script = fs.readFileSync(outputPath, "utf-8");
+          let script = fs.readFileSync(outputPath, "utf-8");
+          // Resolve Mendix GUID option values → human-readable labels
+          if (normalizedUrl) {
+            try {
+              script = await resolveGuidsInScript(script, normalizedUrl, storagePath);
+            } catch (err) {
+              console.warn('[recorder] GUID resolution failed (non-fatal):', err.message);
+            }
+          }
+          // Clean up storage file
+          try { fs.unlinkSync(storagePath); } catch {}
           resolve({ outputFile, script });
         } else {
+          try { fs.unlinkSync(storagePath); } catch {}
           resolve({ outputFile: null, script: null });
         }
       } catch (err) {
+        try { fs.unlinkSync(storagePath); } catch {}
         reject(err);
       }
     });
 
     proc.on("error", (err) => {
+      try { fs.unlinkSync(storagePath); } catch {}
       console.error(`[recorder] spawn error:`, err);
       reject(err);
     });

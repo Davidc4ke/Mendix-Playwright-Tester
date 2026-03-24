@@ -165,15 +165,18 @@ When implementing new fixes: always solve at the `wrapScript()` / helper layer s
 
 ## GUIDs Are Never the Source of Truth
 
-**Mendix GUIDs are internal, ephemeral, environment-specific IDs. They MUST NEVER appear in stored scripts or the step editor.** This is a UAT (User Acceptance Testing) tool — users select "Dennis Blok", not "7149464409836204". GUIDs change between environments, deploys, and even page loads. They are meaningless for test targeting.
+**Mendix GUIDs are internal, ephemeral, environment-specific IDs. They MUST NEVER appear in stored scripts or the step editor.** This is a UAT (User Acceptance Testing) tool — users select by human-readable labels, not internal IDs. GUIDs change between environments, deploys, and even page loads. They are meaningless for test targeting.
 
-GUIDs are eliminated at three layers:
+**Primary mechanism — resolve at recording time:**
+- The recorder uses `--save-storage` to capture the browser's auth state when codegen closes
+- `resolveGuidsInScript()` immediately launches a headless browser with that saved state, navigates to the target URL, scrapes all `<select> <option>` value→text mappings, and replaces GUID values in the script with their label text
+- By the time the script is returned to the UI, GUIDs are already gone
+- This is non-fatal: if resolution fails (selects behind deep navigation, network issue), the fallbacks below handle it
 
-1. **Step editor UI** — `parseScriptToSteps()` detects GUID values via `looksLikeGuid()` and strips them from SelectDropdown steps so the user sees the "Option text" placeholder, never a GUID
-2. **Runtime** — `smartSelect()` is label-first. If a value looks like a GUID, it resolves it to the visible `<option>` label text before selecting. It emits a `[ZONIQ_GUID_RESOLVED:guid:label]` marker
-3. **Auto-heal after run** — `runPlaywright()` captures GUID resolution markers from stdout. After execution, it permanently replaces GUIDs in the stored scenario script with the resolved human-readable labels. After the first successful run, the script says `'Dennis Blok'` instead of `'7149464409836204'`
-
-The goal: Playwright codegen records GUIDs (we can't control that), but by the time the user sees the script, the GUIDs are gone.
+**Fallback layers (defense in depth):**
+1. **Step editor UI** — `parseScriptToSteps()` strips any remaining GUID values so the user never sees them
+2. **Runtime** — `smartSelect()` is label-first. If a value still looks like a GUID, it resolves to the visible `<option>` label before selecting
+3. **Auto-heal after run** — `runPlaywright()` captures GUID resolution markers and permanently replaces any remaining GUIDs in the stored script
 
 ## Key Implementation Details
 
