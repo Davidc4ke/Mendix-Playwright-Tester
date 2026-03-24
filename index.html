@@ -2003,6 +2003,7 @@ function showRunDetail(run) {
       <div class="btn-group">
         <span class="badge badge-${run.status}" style="font-size:12px;padding:4px 12px;">${run.status.toUpperCase()}</span>
         ${run.status === "failed" && run.scenarioId ? `<button class="btn btn-sm btn-ai" onclick="startHealing('${run.scenarioId}', '${run.runId}')">&#10024; AI Heal</button>` : ""}
+        <button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--amber);color:var(--amber);" onclick="copyLogForAI('${run.runId}')">&#128203; Copy Log For AI</button>
         <button class="btn btn-sm" onclick="window.zoniq.openResultsFolder('${run.runId}')">&#128193; Open Folder</button>
       </div>
     </div>
@@ -2179,6 +2180,112 @@ function copyErrorToClipboard(errorIndex) {
   if (e.snippet) text += `\nCode:\n${e.snippet}`;
   navigator.clipboard.writeText(text).then(() => {
     toast("Error details copied to clipboard", "info");
+  }).catch(() => {
+    toast("Could not copy to clipboard", "error");
+  });
+}
+
+function copyLogForAI(runId) {
+  const run = runs.find(r => r.runId === runId);
+  if (!run) return;
+  const r = run.results || {};
+  const s = r.summary || { total: 0, passed: 0, failed: 0 };
+  const lines = [];
+
+  lines.push("# Zoniq Test Run Debug Report");
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push("");
+
+  // ── Run metadata ──
+  lines.push("## Run Info");
+  lines.push(`- **Test:** ${run.testName || "—"}`);
+  lines.push(`- **Run ID:** ${run.runId}`);
+  lines.push(`- **Status:** ${run.status}`);
+  lines.push(`- **Target URL:** ${run.targetUrl || "—"}`);
+  lines.push(`- **Started:** ${run.startedAt ? new Date(run.startedAt).toLocaleString() : "—"}`);
+  lines.push(`- **Completed:** ${run.completedAt ? new Date(run.completedAt).toLocaleString() : "—"}`);
+  lines.push(`- **Total:** ${s.total}  Passed: ${s.passed}  Failed: ${s.failed}`);
+  lines.push("");
+
+  // ── Scenario definition ──
+  const scenario = scenarios.find(sc => sc.id === run.scenarioId);
+  if (scenario) {
+    lines.push("## Scenario Definition");
+    lines.push(`- **Name:** ${scenario.name || "—"}`);
+    if (scenario.steps && scenario.steps.length) {
+      lines.push("### Steps");
+      scenario.steps.forEach((st, i) => {
+        let desc = `${i + 1}. [${st.action}] ${st.description || ""}`;
+        if (st.selector) desc += ` | selector: ${st.selector}`;
+        if (st.value) desc += ` | value: ${st.value}`;
+        lines.push(desc);
+      });
+    }
+    if (scenario.script) {
+      lines.push("### Script");
+      lines.push("```javascript");
+      lines.push(scenario.script);
+      lines.push("```");
+    }
+    lines.push("");
+  }
+
+  // ── Step results ──
+  const stepList = r.stepList || [];
+  const stepResultsMap = r.stepResults || {};
+  if (stepList.length) {
+    lines.push("## Step Results");
+    stepList.forEach(step => {
+      const sr = stepResultsMap[String(step.index)] || {};
+      const status = sr.status || "unknown";
+      const num = step.index < 0 ? 0 : step.index + 1;
+      const dur = sr.durationMs != null ? ` (${(sr.durationMs / 1000).toFixed(2)}s)` : "";
+      lines.push(`- Step ${num}: [${status.toUpperCase()}]${dur} ${step.description || step.action}`);
+      if (step.selector) lines.push(`  - Selector: ${step.selector}`);
+      if (step.value) lines.push(`  - Value: ${step.value}`);
+      if (sr.error) lines.push(`  - Error: ${sr.error}`);
+    });
+    lines.push("");
+  }
+
+  // ── Playwright errors ──
+  if (r.errors?.length) {
+    lines.push("## Errors");
+    r.errors.forEach((e, i) => {
+      lines.push(`### Error ${i + 1}: ${e.test || "Test"}`);
+      if (e.message) {
+        lines.push("```");
+        lines.push(e.message);
+        lines.push("```");
+      }
+      if (e.snippet) {
+        lines.push("```javascript");
+        lines.push(e.snippet);
+        lines.push("```");
+      }
+    });
+    lines.push("");
+  }
+
+  // ── Artifacts ──
+  if (r.artifacts?.length) {
+    lines.push("## Artifacts");
+    r.artifacts.forEach(a => lines.push(`- ${a}`));
+    lines.push("");
+  }
+
+  // ── Stderr / output ──
+  if (r.stderr) {
+    lines.push("## Raw Output (stderr)");
+    lines.push("```");
+    lines.push(r.stderr);
+    lines.push("```");
+    lines.push("");
+  }
+
+  const text = lines.join("\n");
+  navigator.clipboard.writeText(text).then(() => {
+    toast("Full debug log copied to clipboard", "info");
   }).catch(() => {
     toast("Could not copy to clipboard", "error");
   });
