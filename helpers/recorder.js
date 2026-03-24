@@ -1,16 +1,17 @@
 /**
- * recorder.js — Custom Playwright recorder with GUID-free option recording.
+ * recorder.js — Custom Playwright recorder with highlight toggle support.
  *
  * Usage:
  *   node recorder.js <url> <outputPath> <showHighlights> [channel]
  *
- * Uses Playwright's programmatic API instead of the codegen CLI so we can:
- * 1. Capture GUID→label mappings from <option> elements without mutating the
- *    DOM, and replace GUIDs in the recorded script after recording finishes.
- * 2. Optionally hide the red highlight boxes during recording.
+ * Uses Playwright's programmatic API instead of the codegen CLI so we can
+ * inject CSS that hides the red highlight boxes when showHighlights is "false".
+ *
+ * NOTE: GUIDs in recorded .selectOption() calls are handled by downstream
+ * runtime layers — wrapScript() transforms .selectOption() into
+ * mx.smartSelect() which resolves GUIDs to labels at playback time.
  */
 
-const fs = require("fs");
 const path = require("path");
 const playwright = require("playwright-core");
 
@@ -19,15 +20,6 @@ const [, , url, outputPath, showHighlights, channel] = process.argv;
 if (!url || !outputPath) {
   console.error("Usage: node recorder.js <url> <outputPath> <showHighlights> [channel]");
   process.exit(1);
-}
-
-function looksLikeGuid(value) {
-  if (!value || typeof value !== "string") return false;
-  const v = value.trim();
-  if (/^\d{10,}$/.test(v)) return true;
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) return true;
-  if (/^[0-9a-f]{12,}$/i.test(v)) return true;
-  return false;
 }
 
 (async () => {
@@ -45,74 +37,6 @@ function looksLikeGuid(value) {
     deviceScaleFactor: process.platform === "darwin" ? 2 : 1,
   };
   const context = await browser.newContext(contextOptions);
-
-  // ── Collect GUID→label mappings from <option> elements ──────────
-  // We expose a function that the page can call to report mappings.
-  // The addInitScript observes <option> elements and reports their
-  // value→textContent pairs WITHOUT mutating the DOM — so Mendix
-  // form handling works normally during recording.
-  const guidToLabel = new Map();
-
-  // Each page in the context gets the exposed function
-  context.on("page", (newPage) => {
-    newPage.exposeFunction("__zoniqReportOption", (value, label) => {
-      if (looksLikeGuid(value) && label) {
-        guidToLabel.set(value, label);
-      }
-    }).catch(() => {}); // Ignore if page is already closed
-  });
-
-  // Also expose on any existing pages
-  for (const p of context.pages()) {
-    await p.exposeFunction("__zoniqReportOption", (value, label) => {
-      if (looksLikeGuid(value) && label) {
-        guidToLabel.set(value, label);
-      }
-    }).catch(() => {});
-  }
-
-  await context.addInitScript(() => {
-    function reportOptions(root) {
-      const container = root || document;
-      const selects = container.tagName === "SELECT"
-        ? [container]
-        : container.querySelectorAll("select");
-      for (const sel of selects) {
-        for (const opt of sel.options) {
-          const label = opt.textContent.trim();
-          if (label && opt.value) {
-            window.__zoniqReportOption?.(opt.value, label);
-          }
-        }
-      }
-    }
-
-    // Report on initial load
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", () => reportOptions());
-    } else {
-      reportOptions();
-    }
-
-    // Watch for dynamically added/changed <option> elements (Mendix loads these async)
-    const observer = new MutationObserver((mutations) => {
-      for (const mut of mutations) {
-        for (const node of mut.addedNodes) {
-          if (node.nodeType !== 1) continue;
-          if (node.tagName === "OPTION" || node.tagName === "SELECT" || node.querySelector?.("option")) {
-            reportOptions(node.tagName === "OPTION" ? node.parentElement : node);
-          }
-        }
-      }
-    });
-    if (document.documentElement) {
-      observer.observe(document.documentElement, { childList: true, subtree: true });
-    } else {
-      document.addEventListener("DOMContentLoaded", () => {
-        observer.observe(document.documentElement, { childList: true, subtree: true });
-      });
-    }
-  });
 
   // Hide Playwright's recorder highlight overlays when not wanted
   if (showHighlights !== "true") {
@@ -176,32 +100,6 @@ function looksLikeGuid(value) {
 
   // Wait for the browser to be closed by the user
   await new Promise((resolve) => browser.on("disconnected", resolve));
-
-  // ── Post-recording: replace GUIDs in the script with labels ──────
-  const absOutput = path.resolve(outputPath);
-  if (guidToLabel.size > 0 && fs.existsSync(absOutput)) {
-    let script = fs.readFileSync(absOutput, "utf-8");
-    let replaced = 0;
-    for (const [guid, label] of guidToLabel) {
-      const escaped = label.replace(/'/g, "\\'");
-      const before = script;
-      script = script.split(`'${guid}'`).join(`'${escaped}'`);
-      script = script.split(`"${guid}"`).join(`"${escaped}"`);
-      if (script !== before) {
-        replaced++;
-        console.log(`[recorder] GUID resolved: ${guid} → ${label}`);
-      }
-    }
-    if (replaced > 0) {
-      fs.writeFileSync(absOutput, script);
-      console.log(`[recorder] Replaced ${replaced} GUID(s) with labels in recorded script`);
-    }
-  }
-
-  // Explicitly exit — exposeFunction bindings and context listeners can keep
-  // the Node process alive after the browser disconnects, which prevents
-  // main.js from receiving the "close" event and showing the save dialog.
-  process.exit(0);
 })().catch((err) => {
   console.error("[recorder] Fatal error:", err);
   process.exit(1);
