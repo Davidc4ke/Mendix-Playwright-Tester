@@ -2366,9 +2366,10 @@ async function recordIntoModal() {
 
 async function launchRecorderPrompt() {
   document.getElementById("recordUrl").value = "";
+  openModal("recordModal");
+  document.getElementById("recordUrl").focus();
   const settings = await window.zoniq.getSettings();
   document.getElementById("recordShowHighlights").checked = settings.recorder?.showHighlights || false;
-  openModal("recordModal");
 }
 
 async function startRecording() {
