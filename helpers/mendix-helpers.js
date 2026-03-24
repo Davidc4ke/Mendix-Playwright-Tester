@@ -641,6 +641,40 @@ async function fillByTestId(page, testId, value, options = {}) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+const ARIA_ROLES = new Set([
+  'alert','alertdialog','application','article','banner','blockquote','button',
+  'caption','cell','checkbox','code','columnheader','combobox','complementary',
+  'contentinfo','definition','deletion','dialog','directory','document',
+  'emphasis','feed','figure','form','generic','grid','gridcell','group',
+  'heading','img','insertion','link','list','listbox','listitem','log','main',
+  'marquee','math','meter','menu','menubar','menuitem','menuitemcheckbox',
+  'menuitemradio','navigation','none','note','option','paragraph','presentation',
+  'progressbar','radio','radiogroup','region','row','rowgroup','rowheader',
+  'scrollbar','search','searchbox','separator','slider','spinbutton','status',
+  'strong','subscript','superscript','switch','tab','table','tablist','tabpanel',
+  'term','textbox','time','timer','toolbar','tooltip','tree','treegrid','treeitem',
+]);
+
+/**
+ * Resolve a selector string to a Playwright locator.
+ * Supports "role:Name" patterns (e.g. "textbox:Username") in addition to plain CSS.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} selector
+ */
+function resolveLocator(page, selector) {
+  const colonIdx = selector.indexOf(':');
+  if (colonIdx > 0) {
+    const role = selector.slice(0, colonIdx).toLowerCase();
+    const name = selector.slice(colonIdx + 1);
+    if (ARIA_ROLES.has(role)) {
+      return page.getByRole(role, { name });
+    }
+  }
+  return page.locator(selector);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 module.exports = {
   // Loading
   waitForMendix,
@@ -678,4 +712,6 @@ module.exports = {
   waitForMicroflow,
   // Screenshots
   takeScreenshot,
+  // Selector resolution
+  resolveLocator,
 };

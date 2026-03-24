@@ -483,7 +483,7 @@ class HealerAgent {
         if (step.selector?.startsWith("mx:")) {
           await mx.clickWidget(page, widget(step.selector));
         } else {
-          await page.locator(step.selector).click({ timeout: 15000 });
+          await mx.resolveLocator(page, step.selector).click({ timeout: 15000 });
         }
         await mx.waitForMendix(page, { timeout: 5000 }).catch(() => {});
         break;
@@ -491,7 +491,7 @@ class HealerAgent {
         if (step.selector?.startsWith("mx:")) {
           await mx.fillWidget(page, widget(step.selector), step.value || "");
         } else {
-          await page.locator(step.selector).fill(step.value || "", { timeout: 15000 });
+          await mx.resolveLocator(page, step.selector).fill(step.value || "", { timeout: 15000 });
         }
         break;
       case "SelectDropdown":

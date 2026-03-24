@@ -156,7 +156,7 @@ class BrowserContext {
           if (action.widget) {
             await mx.clickWidget(page, action.widget, { timeout: 10000 });
           } else if (action.selector) {
-            await page.locator(action.selector).click({ timeout: 10000 });
+            await mx.resolveLocator(page, action.selector).click({ timeout: 10000 });
           } else {
             return { success: false, error: "click requires widget or selector" };
           }
@@ -167,7 +167,7 @@ class BrowserContext {
           if (action.widget) {
             await mx.fillWidget(page, action.widget, action.value || "", { timeout: 10000 });
           } else if (action.selector) {
-            await page.locator(action.selector).fill(action.value || "", { timeout: 10000 });
+            await mx.resolveLocator(page, action.selector).fill(action.value || "", { timeout: 10000 });
           } else {
             return { success: false, error: "fill requires widget or selector" };
           }
