@@ -30,6 +30,31 @@ function looksLikeGuid(value) {
   return false;
 }
 
+/**
+ * Post-recording: replace any GUID values in the script with human-readable labels.
+ */
+function replaceGuidsInScript(guidToLabel) {
+  const absOutput = path.resolve(outputPath);
+  if (guidToLabel.size > 0 && fs.existsSync(absOutput)) {
+    let script = fs.readFileSync(absOutput, "utf-8");
+    let replaced = 0;
+    for (const [guid, label] of guidToLabel) {
+      const escaped = label.replace(/'/g, "\\'");
+      const before = script;
+      script = script.split(`'${guid}'`).join(`'${escaped}'`);
+      script = script.split(`"${guid}"`).join(`"${escaped}"`);
+      if (script !== before) {
+        replaced++;
+        console.log(`[recorder] GUID resolved: ${guid} → ${label}`);
+      }
+    }
+    if (replaced > 0) {
+      fs.writeFileSync(absOutput, script);
+      console.log(`[recorder] Replaced ${replaced} GUID(s) with labels in recorded script`);
+    }
+  }
+}
+
 (async () => {
   const launchOptions = {
     headless: false,
@@ -174,34 +199,77 @@ function looksLikeGuid(value) {
     });
   }
 
-  // Wait for the browser to be closed by the user
-  await new Promise((resolve) => browser.on("disconnected", resolve));
+  // ── Detect browser/page closure ─────────────────────────────────
+  // In Chromium headful mode, closing the last tab does NOT terminate
+  // the browser process (known Playwright behaviour), so
+  // browser.on("disconnected") may never fire. We use multiple
+  // strategies to detect when the user is done recording.
 
-  // ── Post-recording: replace GUIDs in the script with labels ──────
-  const absOutput = path.resolve(outputPath);
-  if (guidToLabel.size > 0 && fs.existsSync(absOutput)) {
-    let script = fs.readFileSync(absOutput, "utf-8");
-    let replaced = 0;
-    for (const [guid, label] of guidToLabel) {
-      const escaped = label.replace(/'/g, "\\'");
-      const before = script;
-      script = script.split(`'${guid}'`).join(`'${escaped}'`);
-      script = script.split(`"${guid}"`).join(`"${escaped}"`);
-      if (script !== before) {
-        replaced++;
-        console.log(`[recorder] GUID resolved: ${guid} → ${label}`);
-      }
-    }
-    if (replaced > 0) {
-      fs.writeFileSync(absOutput, script);
-      console.log(`[recorder] Replaced ${replaced} GUID(s) with labels in recorded script`);
-    }
+  function shutdown() {
+    replaceGuidsInScript(guidToLabel);
+    process.exit(0);
   }
 
-  // Explicitly exit — exposeFunction bindings and context listeners can keep
-  // the Node process alive after the browser disconnects, which prevents
-  // main.js from receiving the "close" event and showing the save dialog.
-  process.exit(0);
+  // Strategy 1: browser disconnect (works when browser process dies)
+  browser.on("disconnected", () => {
+    console.log("[recorder] Browser disconnected, exiting");
+    shutdown();
+  });
+
+  // Strategy 2: page close event
+  page.on("close", () => {
+    console.log("[recorder] Main page closed, exiting");
+    setTimeout(shutdown, 300);
+  });
+
+  // Strategy 3: context close event
+  context.on("close", () => {
+    console.log("[recorder] Context closed, exiting");
+    setTimeout(shutdown, 300);
+  });
+
+  // Strategy 4: poll — check if the page is still alive every second.
+  // Catches cases where events don't fire (e.g. _enableRecorder
+  // intercepts them, or the browser process is killed externally).
+  const pollInterval = setInterval(async () => {
+    try {
+      if (page.isClosed()) {
+        console.log("[recorder] Page detected as closed (poll), exiting");
+        clearInterval(pollInterval);
+        shutdown();
+        return;
+      }
+      // Lightweight CDP call to verify connection is alive
+      await page.evaluate("1").catch(() => {
+        throw new Error("evaluate failed");
+      });
+    } catch {
+      console.log("[recorder] Browser connection lost (poll), exiting");
+      clearInterval(pollInterval);
+      shutdown();
+    }
+  }, 1000);
+
+  // Strategy 5: watch all pages — if every page in the context closes
+  context.on("page", (newPage) => {
+    // Expose GUID reporting on new pages too
+    newPage.exposeFunction("__zoniqReportOption", (value, label) => {
+      if (looksLikeGuid(value) && label) {
+        guidToLabel.set(value, label);
+      }
+    }).catch(() => {});
+
+    newPage.on("close", () => {
+      const remaining = context.pages().length;
+      if (remaining === 0) {
+        console.log("[recorder] All pages closed, exiting");
+        setTimeout(shutdown, 300);
+      }
+    });
+  });
+
+  // Keep the process alive until one of the above fires
+  await new Promise(() => {});
 })().catch((err) => {
   console.error("[recorder] Fatal error:", err);
   process.exit(1);
