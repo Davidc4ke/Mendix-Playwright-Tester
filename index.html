@@ -1160,7 +1160,7 @@
     </div>
     <div class="form-group">
       <label>Target App URL</label>
-      <input class="form-input" id="scUrl" placeholder="https://client-app.mendixcloud.com" />
+      <input class="form-input" id="scUrl" list="urlHistory" placeholder="https://client-app.mendixcloud.com" autocomplete="off" />
     </div>
     <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
       <div class="form-group">
@@ -1198,7 +1198,7 @@
     <div class="modal-title">Record Test</div>
     <div class="form-group">
       <label>Target App URL</label>
-      <input class="form-input" id="recordUrl" placeholder="https://client-app.mendixcloud.com" />
+      <input class="form-input" id="recordUrl" list="urlHistory" placeholder="https://client-app.mendixcloud.com" autocomplete="off" />
     </div>
     <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
       A browser will open. Click through your test scenario. When you close the browser, the recorded script will be saved as a new scenario.
@@ -1213,6 +1213,8 @@
     </div>
   </div>
 </div>
+
+<datalist id="urlHistory"></datalist>
 
 <!-- ── Health Modal ───────────────────────────────── -->
 <div class="modal-overlay" id="healthModal">
@@ -1534,6 +1536,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await runHealthCheck();
   await loadScenarios();
   await loadRuns();
+  await loadUrlHistory();
 
   // Listen for run events
   window.zoniq.onRunStarted((run) => {
@@ -1884,6 +1887,14 @@ async function deleteScenario(id) {
   document.getElementById("detailContent").style.display = "none";
   document.getElementById("detailEmpty").style.display = "flex";
   toast("Scenario deleted", "info");
+}
+
+async function loadUrlHistory() {
+  const urls = await window.zoniq.getSavedUrls();
+  const datalist = document.getElementById("urlHistory");
+  datalist.innerHTML = urls
+    .map((u) => `<option value="${u.replace(/"/g, '&quot;')}"></option>`)
+    .join("");
 }
 
 // ════════════════════════════════════════════════════
@@ -2327,6 +2338,7 @@ async function saveScenarioFromModal() {
   const saved = await window.zoniq.saveScenario(scenario);
   closeModal("scenarioModal");
   await loadScenarios();
+  await loadUrlHistory();
   selectScenario(saved.id);
   toast("Scenario saved", "success");
 }

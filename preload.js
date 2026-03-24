@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("zoniq", {
   saveScenario: (s) => ipcRenderer.invoke("save-scenario", s),
   deleteScenario: (id) => ipcRenderer.invoke("delete-scenario", id),
   getRuns: () => ipcRenderer.invoke("get-runs"),
+  getSavedUrls: () => ipcRenderer.invoke("get-saved-urls"),
   launchRecorder: (url, options) => ipcRenderer.invoke("launch-recorder", url, options),
   importScript: () => ipcRenderer.invoke("import-script"),
   executeScenario: (s) => ipcRenderer.invoke("execute-scenario", s),

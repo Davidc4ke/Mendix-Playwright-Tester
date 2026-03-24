@@ -127,11 +127,21 @@ function loadDB() {
       return JSON.parse(fs.readFileSync(DB_PATH, "utf-8"));
     }
   } catch {}
-  return { scenarios: [], runs: [] };
+  return { scenarios: [], runs: [], savedUrls: [] };
 }
 
 function saveDB(db) {
   fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+}
+
+function addSavedUrl(db, url) {
+  if (!url || typeof url !== "string") return;
+  const normalized = url.trim();
+  if (!normalized) return;
+  if (!db.savedUrls) db.savedUrls = [];
+  if (!db.savedUrls.includes(normalized)) {
+    db.savedUrls.push(normalized);
+  }
 }
 
 // ── Playwright helpers path ──────────────────────────────
@@ -990,6 +1000,7 @@ ipcMain.handle("save-scenario", (event, scenario) => {
     scenario.updatedAt = scenario.createdAt;
     db.scenarios.push(scenario);
   }
+  addSavedUrl(db, scenario.targetUrl);
   saveDB(db);
   return scenario;
 });
@@ -1005,6 +1016,12 @@ ipcMain.handle("delete-scenario", (event, id) => {
 // Get all runs
 ipcMain.handle("get-runs", () => {
   return loadDB().runs.slice(-100).reverse();
+});
+
+// Get saved URLs
+ipcMain.handle("get-saved-urls", () => {
+  const db = loadDB();
+  return db.savedUrls || [];
 });
 
 // Launch Codegen recorder
@@ -1032,6 +1049,10 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
     if (normalizedUrl) {
       codegenArgs.push(normalizedUrl);
     }
+
+    const db = loadDB();
+    addSavedUrl(db, normalizedUrl);
+    saveDB(db);
 
     console.log(`[recorder] CMD: ${PLAYWRIGHT_CLI} ${codegenArgs.join(" ")}`);
 
