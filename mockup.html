@@ -950,6 +950,263 @@ body {
   background: var(--border);
   margin: var(--space-6) 0;
 }
+
+/* ══════════════════════════════════════════════════════════
+   STEP EDITOR
+   ══════════════════════════════════════════════════════════ */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.section-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  margin-left: var(--space-2);
+}
+
+.section-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.btn-section {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.btn-section:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+/* Timeline container */
+.step-timeline {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-left: 28px;
+}
+
+.step-timeline::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 16px;
+  bottom: 16px;
+  width: 2px;
+  background: linear-gradient(to bottom, var(--violet) 0%, var(--cyan) 50%, var(--emerald) 100%);
+  opacity: 0.25;
+  border-radius: 1px;
+}
+
+/* Step card */
+.step-card {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  position: relative;
+  transition: all var(--duration) var(--ease-smooth);
+  cursor: grab;
+}
+
+.step-card:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  transform: translateX(2px);
+}
+
+/* Timeline dot */
+.step-dot {
+  position: absolute;
+  left: -23px;
+  top: 14px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid;
+  background: var(--bg-base);
+  z-index: 1;
+}
+
+/* Step type color accents */
+.step-card[data-type="navigate"] { border-left: 3px solid var(--cyan); }
+.step-card[data-type="navigate"] .step-dot { border-color: var(--cyan); }
+
+.step-card[data-type="login"] { border-left: 3px solid var(--violet); }
+.step-card[data-type="login"] .step-dot { border-color: var(--violet); }
+
+.step-card[data-type="click"] { border-left: 3px solid var(--blue); }
+.step-card[data-type="click"] .step-dot { border-color: var(--blue); }
+
+.step-card[data-type="fill"] { border-left: 3px solid var(--amber); }
+.step-card[data-type="fill"] .step-dot { border-color: var(--amber); }
+
+.step-card[data-type="assert"] { border-left: 3px solid var(--emerald); }
+.step-card[data-type="assert"] .step-dot { border-color: var(--emerald); }
+
+.step-card[data-type="wait"] { border-left: 3px solid var(--pink); }
+.step-card[data-type="wait"] .step-dot { border-color: var(--pink); }
+
+.step-card[data-type="select"] { border-left: 3px solid var(--orange); }
+.step-card[data-type="select"] .step-dot { border-color: var(--orange); }
+
+/* Step number */
+.step-number {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 18px;
+  text-align: center;
+  padding-top: 2px;
+}
+
+/* Step body */
+.step-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-type-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.step-card[data-type="navigate"] .step-type-label { color: var(--cyan); }
+.step-card[data-type="login"] .step-type-label { color: var(--violet); }
+.step-card[data-type="click"] .step-type-label { color: var(--blue); }
+.step-card[data-type="fill"] .step-type-label { color: var(--amber); }
+.step-card[data-type="assert"] .step-type-label { color: var(--emerald); }
+.step-card[data-type="wait"] .step-type-label { color: var(--pink); }
+.step-card[data-type="select"] .step-type-label { color: var(--orange); }
+
+.step-description {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.step-target {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+/* Step actions (visible on hover) */
+.step-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--duration) var(--ease-smooth);
+}
+
+.step-card:hover .step-actions {
+  opacity: 1;
+}
+
+.btn-step-action {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.btn-step-action:hover {
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+}
+
+/* Drag handle */
+.step-drag {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 10px;
+  opacity: 0;
+  transition: opacity var(--duration) var(--ease-smooth);
+  cursor: grab;
+  user-select: none;
+}
+
+.step-card:hover .step-drag {
+  opacity: 0.5;
+}
+
+/* Add step button at bottom */
+.step-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: var(--space-3);
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  margin-left: 28px;
+  margin-top: var(--space-2);
+}
+
+.step-add:hover {
+  border-color: var(--violet);
+  color: var(--violet);
+  background: rgba(139, 92, 246, 0.05);
+}
 </style>
 </head>
 <body>
@@ -1190,7 +1447,163 @@ body {
       </div>
       <div class="detail-divider"></div>
 
-      <!-- Steps, script, runs sections will go here (Steps 7-9) -->
+      <!-- ── STEP EDITOR ── -->
+      <div class="step-editor-section">
+        <div class="section-header">
+          <div style="display:flex;align-items:center;">
+            <span class="section-title">Test Steps</span>
+            <span class="section-badge">8 steps</span>
+          </div>
+          <div class="section-actions">
+            <button class="btn-section">&#8693; Reorder</button>
+            <button class="btn-section">&#10010; Add Step</button>
+          </div>
+        </div>
+
+        <div class="step-timeline">
+          <!-- Step 1: Navigate -->
+          <div class="step-card" data-type="navigate">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">01</span>
+            <div class="step-body">
+              <div class="step-type-label">Navigate</div>
+              <div class="step-description">Open application URL</div>
+              <div class="step-target">https://myapp.mendixcloud.com/login.html</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 2: Login -->
+          <div class="step-card" data-type="login">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">02</span>
+            <div class="step-body">
+              <div class="step-type-label">Login</div>
+              <div class="step-description">Login as admin user</div>
+              <div class="step-target">mx:txtUsername &rarr; admin &middot; mx:txtPassword &rarr; ••••</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 3: Wait -->
+          <div class="step-card" data-type="wait">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">03</span>
+            <div class="step-body">
+              <div class="step-type-label">Wait</div>
+              <div class="step-description">Wait for Mendix to load</div>
+              <div class="step-target">waitForMendix(page)</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 4: Click -->
+          <div class="step-card" data-type="click">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">04</span>
+            <div class="step-body">
+              <div class="step-type-label">Click</div>
+              <div class="step-description">Click &ldquo;New Order&rdquo; button</div>
+              <div class="step-target">mx:btnNewOrder</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 5: Wait -->
+          <div class="step-card" data-type="wait">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">05</span>
+            <div class="step-body">
+              <div class="step-type-label">Wait</div>
+              <div class="step-description">Wait for popup dialog</div>
+              <div class="step-target">waitForPopup(page)</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 6: Fill -->
+          <div class="step-card" data-type="fill">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">06</span>
+            <div class="step-body">
+              <div class="step-type-label">Fill</div>
+              <div class="step-description">Enter order title</div>
+              <div class="step-target">mx:txtTitle &rarr; "Test Order #42"</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 7: Select -->
+          <div class="step-card" data-type="select">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">07</span>
+            <div class="step-body">
+              <div class="step-type-label">Select</div>
+              <div class="step-description">Choose priority level</div>
+              <div class="step-target">mx:ddlPriority &rarr; "High"</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 8: Assert -->
+          <div class="step-card" data-type="assert">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">08</span>
+            <div class="step-body">
+              <div class="step-type-label">Assert</div>
+              <div class="step-description">Verify success message visible</div>
+              <div class="step-target">text="Order created successfully"</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+        </div>
+
+        <button class="step-add">&#10010; Add new step</button>
+      </div>
+
+      <div class="detail-divider"></div>
+
+      <!-- Script preview and runs sections will go here (Steps 8-9) -->
     </main>
   </div>
 </div>
