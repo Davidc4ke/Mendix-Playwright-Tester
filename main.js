@@ -292,7 +292,7 @@ function resolveLocator(selector) {
     const name = selector.slice(colonIdx + 1);
     if (ARIA_ROLES.has(role)) {
       const escapedName = escapeJsString(name);
-      return `page.getByRole('${role}', { name: '${escapedName}', exact: true })`;
+      return `page.getByRole('${role}', { name: '${escapedName}' })`;
     }
   }
   return `page.locator('${escapeJsString(selector)}')`;
