@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Zoniq Test Runner - Redesign Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════
+   RESET & FOUNDATIONS
+   ══════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* ── Backgrounds ── */
+  --bg-base: #06070d;
+  --bg-surface: rgba(15, 15, 35, 0.7);
+  --bg-elevated: rgba(25, 25, 55, 0.6);
+  --bg-glass: rgba(255, 255, 255, 0.04);
+  --bg-glass-hover: rgba(255, 255, 255, 0.07);
+  --bg-glass-active: rgba(255, 255, 255, 0.10);
+  --bg-input: rgba(0, 0, 0, 0.3);
+
+  /* ── Borders ── */
+  --border: rgba(255, 255, 255, 0.06);
+  --border-subtle: rgba(255, 255, 255, 0.03);
+  --border-hover: rgba(255, 255, 255, 0.12);
+  --border-glow: rgba(139, 92, 246, 0.4);
+  --border-glow-cyan: rgba(6, 182, 212, 0.3);
+
+  /* ── Text ── */
+  --text-primary: #f0eef6;
+  --text-secondary: #8b8a9e;
+  --text-muted: #4a4960;
+  --text-inverse: #06070d;
+
+  /* ── Accent Gradients ── */
+  --gradient-primary: linear-gradient(135deg, #8b5cf6, #6366f1, #3b82f6);
+  --gradient-warm: linear-gradient(135deg, #f472b6, #a855f7);
+  --gradient-success: linear-gradient(135deg, #10b981, #34d399);
+  --gradient-danger: linear-gradient(135deg, #ef4444, #f87171);
+  --gradient-record: linear-gradient(135deg, #ef4444, #dc2626);
+  --gradient-cyan: linear-gradient(135deg, #06b6d4, #22d3ee);
+  --gradient-amber: linear-gradient(135deg, #f59e0b, #fbbf24);
+
+  /* ── Flat Colors ── */
+  --violet: #8b5cf6;
+  --cyan: #06b6d4;
+  --emerald: #10b981;
+  --rose: #f43f5e;
+  --amber: #f59e0b;
+  --blue: #3b82f6;
+
+  /* ── Glows ── */
+  --glow-violet: 0 0 20px rgba(139, 92, 246, 0.25);
+  --glow-cyan: 0 0 20px rgba(6, 182, 212, 0.25);
+  --glow-emerald: 0 0 20px rgba(16, 185, 129, 0.3);
+  --glow-rose: 0 0 20px rgba(244, 63, 94, 0.3);
+  --glow-amber: 0 0 20px rgba(245, 158, 11, 0.25);
+
+  /* ── Typography ── */
+  --font-display: 'Plus Jakarta Sans', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  /* ── Spacing ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* ── Radii ── */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ── */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.35);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.45);
+  --shadow-glow: 0 0 30px rgba(139, 92, 246, 0.12);
+
+  /* ── Transitions ── */
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration: 200ms;
+  --duration-slow: 400ms;
+
+  /* ── Layout ── */
+  --sidebar-width: 340px;
+  --titlebar-height: 56px;
+}
+
+html { font-size: 14px; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  line-height: 1.5;
+  overflow: hidden;
+  height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ══════════════════════════════════════════════════════════
+   BACKGROUND ATMOSPHERE - Animated gradient orbs + noise
+   ══════════════════════════════════════════════════════════ */
+.app {
+  display: grid;
+  grid-template-rows: var(--titlebar-height) 1fr;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Ambient orbs */
+.app::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 600px 500px at 15% 10%, rgba(139, 92, 246, 0.12), transparent),
+    radial-gradient(ellipse 500px 400px at 80% 80%, rgba(6, 182, 212, 0.08), transparent),
+    radial-gradient(ellipse 400px 350px at 50% 50%, rgba(99, 102, 241, 0.06), transparent);
+  animation: drift 20s ease-in-out infinite alternate;
+}
+
+/* Subtle noise texture */
+.app::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
+}
+
+@keyframes drift {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(15px, -10px) scale(1.02); }
+  66% { transform: translate(-10px, 15px) scale(0.98); }
+  100% { transform: translate(5px, -5px) scale(1.01); }
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.08);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+/* ══════════════════════════════════════════════════════════
+   UTILITY: Glass surface mixin
+   ══════════════════════════════════════════════════════════ */
+.glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+}
+
+/* ══════════════════════════════════════════════════════════
+   LAYOUT SHELL
+   ══════════════════════════════════════════════════════════ */
+.main-layout {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--bg-surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+}
+
+.detail-panel {
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  z-index: 1;
+  padding: var(--space-8);
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- TITLEBAR (placeholder) -->
+  <header class="titlebar" style="position:relative;z-index:2;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;border-bottom:1px solid var(--border);background:var(--bg-surface);backdrop-filter:blur(16px);">
+    Step 1 complete — foundation loaded
+  </header>
+
+  <!-- MAIN LAYOUT -->
+  <div class="main-layout">
+    <aside class="sidebar" style="display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">
+      Sidebar placeholder
+    </aside>
+    <main class="detail-panel" style="display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">
+      Detail panel placeholder
+    </main>
+  </div>
+</div>
+
+</body>
+</html>
