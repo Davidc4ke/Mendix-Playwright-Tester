@@ -382,10 +382,10 @@ function transformSelectOptionCalls(script) {
   );
 }
 
-// GUID resolution is handled at runtime — wrapScript() transforms
-// .selectOption() calls into mx.smartSelect() which detects GUIDs via
-// looksLikeGuid() and resolves them to visible <option> labels before selecting.
-// No post-recording headless browser or DOM mutation needed.
+// GUID resolution is handled at recording time — recorder.js collects
+// GUID→label mappings from <option> elements (without mutating the DOM)
+// and replaces GUIDs in the script after the user closes the browser.
+// Runtime fallback: smartSelect() resolves any remaining GUIDs at playback.
 
 // ── Playwright execution ─────────────────────────────────
 function extractSpecs(suites) {
