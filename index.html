@@ -1437,29 +1437,38 @@ function parseStatement(stmt) {
   m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'Fill', selector: selectorToMx(m[1]), value: m[2] };
 
-  // ── getByRole(...).click/fill ──
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\)\s*\.click\s*\(/);
+  m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'SelectDropdown', selector: selectorToMx(m[1]), value: m[2] };
+
+  // ── getByRole(...).click/fill (supports extra options like exact: true and .nth()) ──
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.click\s*\(/);
   if (m) return { action: 'Click', selector: m[1] + ':' + m[2] };
 
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\)\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'Fill', selector: m[1] + ':' + m[2], value: m[3] };
 
-  // ── getByRole without name ──
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.click\s*\(/);
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'SelectDropdown', selector: m[1] + ':' + m[2], value: m[3] };
+
+  // ── getByRole without name (supports .nth()) ──
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.click\s*\(/);
   if (m) return { action: 'Click', selector: m[1] };
 
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'Fill', selector: m[1], value: m[2] };
 
-  // ── getByText(...).click ──
-  m = stmt.match(/page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.click\s*\(/);
+  // ── getByText(...).click (supports .nth()) ──
+  m = stmt.match(/page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.click\s*\(/);
   if (m) return { action: 'Click', selector: 'text:' + m[1] };
 
-  // ── getByLabel(...).fill ──
-  m = stmt.match(/page\.getByLabel\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
+  // ── getByLabel(...).fill/click/selectOption (supports .nth()) ──
+  m = stmt.match(/page\.getByLabel\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'Fill', selector: 'label:' + m[1], value: m[2] };
 
-  m = stmt.match(/page\.getByLabel\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.click\s*\(/);
+  m = stmt.match(/page\.getByLabel\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'SelectDropdown', selector: 'label:' + m[1], value: m[2] };
+
+  m = stmt.match(/page\.getByLabel\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.click\s*\(/);
   if (m) return { action: 'Click', selector: 'label:' + m[1] };
 
   // ── getByPlaceholder(...).fill/click ──

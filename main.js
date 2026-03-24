@@ -255,6 +255,27 @@ function generateStepCode(step) {
   const val = escapeJsString(step.value);
   const sel = escapeJsString(step.selector);
 
+  // Helper: generate the right Playwright locator for parsed selectors
+  // Supports role-based (button:Save, textbox:Username), label:, text:, placeholder:, mx:, and raw CSS
+  function locatorExpr(selector) {
+    if (!selector) return `page.locator('')`;
+    // Role-based selectors: "role:name" e.g. "button:Save", "textbox:Username", "gridcell:31/03/"
+    const roleNames = ['button','textbox','checkbox','radio','link','heading','cell','gridcell','row','option','menuitem','tab','combobox','listbox','dialog','alert','img','navigation','list','listitem','separator','slider','spinbutton','switch','table','tree','treeitem'];
+    const roleMatch = selector.match(/^(\w+):(.+)$/);
+    if (roleMatch && roleNames.includes(roleMatch[1])) {
+      return `page.getByRole('${roleMatch[1]}', { name: '${escapeJsString(roleMatch[2])}' })`;
+    }
+    if (selector.startsWith('label:'))
+      return `page.getByLabel('${escapeJsString(selector.replace(/^label:/, ''))}')`;
+    if (selector.startsWith('text:'))
+      return `page.getByText('${escapeJsString(selector.replace(/^text:/, ''))}')`;
+    if (selector.startsWith('placeholder:'))
+      return `page.getByPlaceholder('${escapeJsString(selector.replace(/^placeholder:/, ''))}')`;
+    if (selector.startsWith('keyboard:'))
+      return null; // Handled separately
+    return `page.locator('${escapeJsString(selector)}')`;
+  }
+
   switch (step.action) {
     case "Navigate":
       return `  await page.goto('${val}');\n  await mx.waitForMendix(page);`;
@@ -263,29 +284,33 @@ function generateStepCode(step) {
     case "Click":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.clickWidget(page, '${widgetName(step.selector)}');`;
-      return `  await page.locator('${sel}').click();`;
+      if (step.selector?.startsWith("keyboard:"))
+        return `  await page.keyboard.press('${escapeJsString(step.selector.replace(/^keyboard:/, ''))}');`;
+      return `  await ${locatorExpr(step.selector)}.click();`;
     case "Fill":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.fillWidget(page, '${widgetName(step.selector)}', '${val}');`;
-      return `  await page.locator('${sel}').fill('${val}');`;
+      return `  await ${locatorExpr(step.selector)}.fill('${val}');`;
     case "SelectDropdown":
-      return `  await mx.selectDropdown(page, '${widgetName(step.selector)}', '${val}');`;
+      if (step.selector?.startsWith("mx:"))
+        return `  await mx.selectDropdown(page, '${widgetName(step.selector)}', '${val}');`;
+      return `  await ${locatorExpr(step.selector)}.selectOption('${val}');`;
     case "AssertText":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.assertWidgetText(page, '${widgetName(step.selector)}', '${val}', { soft: true });`;
-      return `  await expect.soft(page.locator('${sel}'), 'Step ${step.order}: "${sel}" should contain "${val}"').toContainText('${val}');`;
+      return `  await expect.soft(${locatorExpr(step.selector)}, 'Step ${step.order}: "${sel}" should contain "${val}"').toContainText('${val}');`;
     case "AssertVisible":
       if (step.selector?.startsWith("mx:"))
         return `  await expect.soft(page.locator('.mx-name-${widgetName(step.selector)}').first(), 'Step ${step.order}: "${widgetName(step.selector)}" should be visible').toBeVisible();`;
-      return `  await expect.soft(page.locator('${sel}'), 'Step ${step.order}: "${sel}" should be visible').toBeVisible();`;
+      return `  await expect.soft(${locatorExpr(step.selector)}, 'Step ${step.order}: "${sel}" should be visible').toBeVisible();`;
     case "AssertEnabled":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.assertWidgetEnabled(page, '${widgetName(step.selector)}');`;
-      return `  await expect.soft(page.locator('${sel}'), 'Step ${step.order}: "${sel}" should be enabled').toBeEnabled();`;
+      return `  await expect.soft(${locatorExpr(step.selector)}, 'Step ${step.order}: "${sel}" should be enabled').toBeEnabled();`;
     case "AssertDisabled":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.assertWidgetDisabled(page, '${widgetName(step.selector)}');`;
-      return `  await expect.soft(page.locator('${sel}'), 'Step ${step.order}: "${sel}" should be disabled').toBeDisabled();`;
+      return `  await expect.soft(${locatorExpr(step.selector)}, 'Step ${step.order}: "${sel}" should be disabled').toBeDisabled();`;
     case "Wait":
       return `  await page.waitForTimeout(${parseInt(step.value, 10) || 1000}); // WARNING: Hard wait — prefer mx.waitForMendix() or a specific condition`;
     case "WaitForMendix":
