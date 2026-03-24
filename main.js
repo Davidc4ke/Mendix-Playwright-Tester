@@ -176,6 +176,12 @@ function wrapScript(script, targetUrl, credentials) {
     .replace(/test\.use\s*\(\s*\{[\s\S]*?\}\s*\)\s*;/g, '')
     .trim();
 
+  // Unwrap Codegen's IIFE wrapper: (async () => { ... })();
+  const iifeMatch = scriptBody.match(/^\(\s*async\s*\(\s*\)\s*=>\s*\{([\s\S]*)\}\s*\)\s*\(\s*\)\s*;?\s*$/);
+  if (iifeMatch) {
+    scriptBody = iifeMatch[1].trim();
+  }
+
   // Clean fragile Mendix selectors
   scriptBody = cleanMendixSelectors(scriptBody);
 
