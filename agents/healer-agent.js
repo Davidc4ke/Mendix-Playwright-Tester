@@ -68,7 +68,11 @@ class HealerAgent {
    * @param {function} [params.onProgress] — Progress callback
    * @returns {{ healedScript: string, changes: Array, analysis: string, confidence: string }}
    */
-  async heal({ script, steps, errors, targetUrl, credentials, runResultsDir, artifacts, onProgress }) {
+  async heal({ script, steps: _legacySteps, errors, targetUrl, credentials, runResultsDir, artifacts, onProgress }) {
+    // Steps are always derived from the script (script is the source of truth)
+    const ScriptUtils = require('../lib/script-utils');
+    const steps = script ? ScriptUtils.parseScriptToSteps(script) : [];
+
     // ── Try static healing first (fast path, no browser) ──
     if (runResultsDir) {
       try {
