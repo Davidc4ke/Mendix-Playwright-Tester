@@ -382,15 +382,6 @@ function transformSelectOptionCalls(script) {
   );
 }
 
-/**
- * Post-process a recorded script to replace Mendix GUID option values with
- * their human-readable label text.  Launches a quick headless browser using
- * the saved storage state from the recording session, navigates to the target
- * URL, scrapes all <option> value→text mappings, and replaces GUIDs in-place.
- *
- * Non-fatal: if resolution fails for any reason, returns the original script.
- * The runtime smartSelect + auto-heal fallback will still handle it.
- */
 // GUID resolution is now handled at recording time — recorder.js injects a
 // script that swaps <option> values with their visible text BEFORE the user
 // interacts, so codegen naturally records labels instead of GUIDs.
@@ -1064,8 +1055,10 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
 
     console.log(`[recorder] CMD: node ${recorderArgs.join(" ")}`);
 
+    // In Electron, process.execPath is the Electron binary. Setting
+    // ELECTRON_RUN_AS_NODE=1 makes it behave as a plain Node.js runtime.
     const proc = spawn(process.execPath, recorderArgs, {
-      env: getPlaywrightEnv(),
+      env: getPlaywrightEnv({ ELECTRON_RUN_AS_NODE: "1" }),
     });
 
     proc.stdout.on("data", (chunk) => {

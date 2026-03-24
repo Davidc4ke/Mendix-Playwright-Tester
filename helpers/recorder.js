@@ -52,7 +52,11 @@ if (!url || !outputPath) {
     }
 
     function swapOptionValues(root) {
-      const options = (root || document).querySelectorAll("select option");
+      const container = root || document;
+      // If root is a <select>, query its options directly; otherwise search descendants
+      const options = container.tagName === "SELECT"
+        ? container.querySelectorAll("option")
+        : container.querySelectorAll("select option");
       for (const opt of options) {
         const label = opt.textContent.trim();
         if (label && opt.value && looksLikeGuid(opt.value)) {
