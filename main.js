@@ -292,7 +292,7 @@ function resolveLocator(selector) {
     const name = selector.slice(colonIdx + 1);
     if (ARIA_ROLES.has(role)) {
       const escapedName = escapeJsString(name);
-      return `page.getByRole('${role}', { name: '${escapedName}' })`;
+      return `page.getByRole('${role}', { name: '${escapedName}', exact: true })`;
     }
   }
   return `page.locator('${escapeJsString(selector)}')`;
@@ -491,9 +491,10 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
       if (onStepProgress) {
         const lines = text.split("\n");
         for (const line of lines) {
-          const startMatch = line.match(/\[ZONIQ_STEP:START:(-?\d+):(.*?)\]/);
-          const doneMatch = line.match(/\[ZONIQ_STEP:DONE:(-?\d+)\]/);
-          const failMatch = line.match(/\[ZONIQ_STEP:FAIL:(-?\d+):(.*?)\]/);
+          const cl = line.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+          const startMatch = cl.match(/^\[ZONIQ_STEP:START:(-?\d+):(.*)\]/);
+          const doneMatch = cl.match(/^\[ZONIQ_STEP:DONE:(-?\d+)\]/);
+          const failMatch = cl.match(/^\[ZONIQ_STEP:FAIL:(-?\d+):(.*)\]$/);
           if (startMatch) {
             onStepProgress({ runId, stepIndex: parseInt(startMatch[1]), status: "running", description: startMatch[2] });
           } else if (doneMatch) {
