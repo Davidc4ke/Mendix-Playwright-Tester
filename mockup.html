@@ -1,0 +1,3030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Zoniq Test Runner - Redesign Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════
+   RESET & FOUNDATIONS
+   ══════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* ── Backgrounds ── */
+  --bg-base: #06070d;
+  --bg-surface: rgba(15, 15, 35, 0.7);
+  --bg-elevated: rgba(25, 25, 55, 0.6);
+  --bg-glass: rgba(255, 255, 255, 0.04);
+  --bg-glass-hover: rgba(255, 255, 255, 0.07);
+  --bg-glass-active: rgba(255, 255, 255, 0.10);
+  --bg-input: rgba(0, 0, 0, 0.3);
+
+  /* ── Borders ── */
+  --border: rgba(255, 255, 255, 0.06);
+  --border-subtle: rgba(255, 255, 255, 0.03);
+  --border-hover: rgba(255, 255, 255, 0.12);
+  --border-glow: rgba(139, 92, 246, 0.4);
+  --border-glow-cyan: rgba(6, 182, 212, 0.3);
+
+  /* ── Text ── */
+  --text-primary: #f0eef6;
+  --text-secondary: #8b8a9e;
+  --text-muted: #4a4960;
+  --text-inverse: #06070d;
+
+  /* ── Accent Gradients ── */
+  --gradient-primary: linear-gradient(135deg, #8b5cf6, #6366f1, #3b82f6);
+  --gradient-warm: linear-gradient(135deg, #f472b6, #a855f7);
+  --gradient-success: linear-gradient(135deg, #10b981, #34d399);
+  --gradient-danger: linear-gradient(135deg, #ef4444, #f87171);
+  --gradient-record: linear-gradient(135deg, #ef4444, #dc2626);
+  --gradient-cyan: linear-gradient(135deg, #06b6d4, #22d3ee);
+  --gradient-amber: linear-gradient(135deg, #f59e0b, #fbbf24);
+
+  /* ── Flat Colors ── */
+  --violet: #8b5cf6;
+  --cyan: #06b6d4;
+  --emerald: #10b981;
+  --rose: #f43f5e;
+  --amber: #f59e0b;
+  --blue: #3b82f6;
+
+  /* ── Glows ── */
+  --glow-violet: 0 0 20px rgba(139, 92, 246, 0.25);
+  --glow-cyan: 0 0 20px rgba(6, 182, 212, 0.25);
+  --glow-emerald: 0 0 20px rgba(16, 185, 129, 0.3);
+  --glow-rose: 0 0 20px rgba(244, 63, 94, 0.3);
+  --glow-amber: 0 0 20px rgba(245, 158, 11, 0.25);
+
+  /* ── Typography ── */
+  --font-display: 'Plus Jakarta Sans', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  /* ── Spacing ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* ── Radii ── */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ── */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.35);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.45);
+  --shadow-glow: 0 0 30px rgba(139, 92, 246, 0.12);
+
+  /* ── Transitions ── */
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration: 200ms;
+  --duration-slow: 400ms;
+
+  /* ── Layout ── */
+  --sidebar-width: 340px;
+  --titlebar-height: 56px;
+}
+
+html { font-size: 14px; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  line-height: 1.5;
+  overflow: hidden;
+  height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ══════════════════════════════════════════════════════════
+   BACKGROUND ATMOSPHERE - Animated gradient orbs + noise
+   ══════════════════════════════════════════════════════════ */
+.app {
+  display: grid;
+  grid-template-rows: var(--titlebar-height) 1fr;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Ambient orbs */
+.app::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 600px 500px at 15% 10%, rgba(139, 92, 246, 0.12), transparent),
+    radial-gradient(ellipse 500px 400px at 80% 80%, rgba(6, 182, 212, 0.08), transparent),
+    radial-gradient(ellipse 400px 350px at 50% 50%, rgba(99, 102, 241, 0.06), transparent);
+  animation: drift 20s ease-in-out infinite alternate;
+}
+
+/* Subtle noise texture */
+.app::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
+}
+
+@keyframes drift {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(15px, -10px) scale(1.02); }
+  66% { transform: translate(-10px, 15px) scale(0.98); }
+  100% { transform: translate(5px, -5px) scale(1.01); }
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.08);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+/* ══════════════════════════════════════════════════════════
+   UTILITY: Glass surface mixin
+   ══════════════════════════════════════════════════════════ */
+.glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+}
+
+/* ══════════════════════════════════════════════════════════
+   LAYOUT SHELL
+   ══════════════════════════════════════════════════════════ */
+.main-layout {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--bg-surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+}
+
+.detail-panel {
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  z-index: 1;
+  padding: var(--space-8);
+}
+
+/* ══════════════════════════════════════════════════════════
+   TITLEBAR
+   ══════════════════════════════════════════════════════════ */
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-5);
+  background: var(--bg-surface);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 10;
+  user-select: none;
+}
+
+/* Gradient bottom border accent */
+.titlebar::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--violet) 30%, var(--cyan) 70%, transparent 100%);
+  opacity: 0.4;
+}
+
+.titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Animated gradient logo */
+.titlebar-logo {
+  width: 32px;
+  height: 32px;
+  background: var(--gradient-primary);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 15px;
+  color: white;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--glow-violet);
+}
+
+.titlebar-logo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.25) 50%, transparent 60%);
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0%, 100% { transform: translateX(-100%); }
+  50% { transform: translateX(100%); }
+}
+
+.titlebar-brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.titlebar-name {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.titlebar-version {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.titlebar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* Health / Playwright status */
+.health-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.health-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--emerald);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+  animation: breathe 2s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(16, 185, 129, 0.5); }
+  50% { opacity: 0.7; box-shadow: 0 0 14px rgba(16, 185, 129, 0.7); }
+}
+
+/* Settings button */
+.btn-settings {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.btn-settings:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.btn-settings:hover .settings-icon {
+  transform: rotate(60deg);
+}
+
+.settings-icon {
+  transition: transform var(--duration-slow) var(--ease-smooth);
+}
+
+/* ══════════════════════════════════════════════════════════
+   SIDEBAR - Tabs, Search, Action Buttons
+   ══════════════════════════════════════════════════════════ */
+
+/* Tab switcher - pill toggle */
+.sidebar-tabs {
+  display: flex;
+  gap: 2px;
+  padding: var(--space-4) var(--space-4) 0;
+  background: var(--bg-input);
+  border-radius: var(--radius-md);
+  margin: var(--space-4) var(--space-4) 0;
+  position: relative;
+}
+
+.sidebar-tab {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  position: relative;
+  z-index: 1;
+  text-align: center;
+}
+
+.sidebar-tab:hover {
+  color: var(--text-secondary);
+}
+
+.sidebar-tab.active {
+  color: var(--text-primary);
+}
+
+/* Sliding pill indicator behind active tab */
+.sidebar-tabs-indicator {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  width: calc(50% - var(--space-4) - 1px);
+  height: calc(100% - var(--space-4));
+  background: var(--bg-glass-active);
+  border-radius: var(--radius-sm);
+  transition: transform var(--duration) var(--ease-smooth);
+  z-index: 0;
+}
+
+.sidebar-tabs-indicator.right {
+  transform: translateX(100%);
+}
+
+/* Search bar */
+.sidebar-search {
+  padding: var(--space-3) var(--space-4);
+}
+
+.search-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-icon {
+  position: absolute;
+  left: var(--space-3);
+  color: var(--text-muted);
+  pointer-events: none;
+  transition: color var(--duration) var(--ease-smooth);
+}
+
+.search-input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3) var(--space-2) 34px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-input:focus {
+  border-color: var(--border-glow);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+.search-input:focus ~ .search-icon {
+  color: var(--violet);
+}
+
+/* Action buttons area */
+.sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+/* Primary gradient button */
+.btn-primary {
+  background: var(--gradient-primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  box-shadow: var(--glow-violet), var(--shadow-md);
+}
+
+/* Record button */
+.btn-record {
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.btn-record:hover {
+  background: var(--bg-glass-hover);
+  border-color: rgba(239, 68, 68, 0.3);
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.12);
+}
+
+.record-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rose);
+  animation: pulse-record 1.5s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(244, 63, 94, 0.5);
+}
+
+@keyframes pulse-record {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+/* Sidebar card list */
+.sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--space-4) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Tab content panels */
+.sidebar-panel {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.sidebar-panel.active {
+  display: flex;
+}
+
+/* ══════════════════════════════════════════════════════════
+   SCENARIO CARDS
+   ══════════════════════════════════════════════════════════ */
+.scenario-card {
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Left accent strip based on status */
+.scenario-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--text-muted);
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.scenario-card.status-passed::before { background: var(--emerald); box-shadow: 0 0 6px rgba(16,185,129,0.4); }
+.scenario-card.status-failed::before { background: var(--rose); box-shadow: 0 0 6px rgba(244,63,94,0.4); }
+.scenario-card.status-running::before { background: var(--amber); box-shadow: 0 0 6px rgba(245,158,11,0.4); }
+.scenario-card.status-none::before { background: var(--text-muted); opacity: 0.3; }
+
+.scenario-card:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.scenario-card.selected {
+  background: var(--bg-glass-active);
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.15), var(--shadow-glow);
+}
+
+.scenario-card.selected::before {
+  background: var(--gradient-primary);
+  width: 3px;
+  box-shadow: var(--glow-violet);
+}
+
+.scenario-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.scenario-card-name {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.scenario-card-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.scenario-card-status.passed { background: var(--emerald); box-shadow: 0 0 5px rgba(16,185,129,0.5); }
+.scenario-card-status.failed { background: var(--rose); box-shadow: 0 0 5px rgba(244,63,94,0.5); }
+.scenario-card-status.running { background: var(--amber); box-shadow: 0 0 5px rgba(245,158,11,0.5); animation: breathe 1.5s ease-in-out infinite; }
+.scenario-card-status.none { background: var(--text-muted); opacity: 0.4; }
+
+.scenario-card-url {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.scenario-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.scenario-card-steps {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+}
+
+/* ══════════════════════════════════════════════════════════
+   RUN CARDS
+   ══════════════════════════════════════════════════════════ */
+.run-card {
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.run-card:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.run-card.selected {
+  background: var(--bg-glass-active);
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.15), var(--shadow-glow);
+}
+
+.run-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: 6px;
+}
+
+.run-card-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+/* Status pill */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.status-pill.passed {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--emerald);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.15);
+}
+
+.status-pill.failed {
+  background: rgba(244, 63, 94, 0.12);
+  color: var(--rose);
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.15);
+}
+
+.status-pill.running {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--amber);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.15);
+}
+
+.status-pill-icon {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.run-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+/* Mini result bar */
+.result-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-input);
+  overflow: hidden;
+  display: flex;
+}
+
+.result-bar-passed {
+  background: var(--emerald);
+  transition: width var(--duration-slow) var(--ease-smooth);
+}
+
+.result-bar-failed {
+  background: var(--rose);
+  transition: width var(--duration-slow) var(--ease-smooth);
+}
+
+/* ══════════════════════════════════════════════════════════
+   SCENARIO DETAIL - HEADER
+   ══════════════════════════════════════════════════════════ */
+.detail-header {
+  margin-bottom: var(--space-8);
+}
+
+.detail-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.detail-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.detail-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.detail-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* Primary action button (Run Test) */
+.btn-action-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--gradient-primary);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  box-shadow: 0 2px 12px rgba(139, 92, 246, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-action-primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+  opacity: 0;
+  transition: opacity var(--duration) var(--ease-smooth);
+}
+
+.btn-action-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+}
+
+.btn-action-primary:hover::before {
+  opacity: 1;
+}
+
+/* Record button */
+.btn-action-record {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--gradient-record);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  box-shadow: 0 2px 12px rgba(239, 68, 68, 0.25);
+}
+
+.btn-action-record:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.35);
+}
+
+/* Ghost / outline action button */
+.btn-action-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.btn-action-ghost:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.btn-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* Info chips row */
+.detail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  color: var(--text-secondary);
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.chip:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+}
+
+.chip-icon {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.chip-url {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--cyan);
+}
+
+.chip-credential {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.chip-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* Divider */
+.detail-divider {
+  height: 1px;
+  background: var(--border);
+  margin: var(--space-6) 0;
+}
+
+/* ══════════════════════════════════════════════════════════
+   STEP EDITOR
+   ══════════════════════════════════════════════════════════ */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.section-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  margin-left: var(--space-2);
+}
+
+.section-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.btn-section {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.btn-section:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+/* Timeline container */
+.step-timeline {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-left: 28px;
+}
+
+.step-timeline::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 16px;
+  bottom: 16px;
+  width: 2px;
+  background: linear-gradient(to bottom, var(--violet) 0%, var(--cyan) 50%, var(--emerald) 100%);
+  opacity: 0.25;
+  border-radius: 1px;
+}
+
+/* Step card */
+.step-card {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  position: relative;
+  transition: all var(--duration) var(--ease-smooth);
+  cursor: grab;
+}
+
+.step-card:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  transform: translateX(2px);
+}
+
+/* Timeline dot */
+.step-dot {
+  position: absolute;
+  left: -23px;
+  top: 14px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid;
+  background: var(--bg-base);
+  z-index: 1;
+}
+
+/* Step type color accents */
+.step-card[data-type="navigate"] { border-left: 3px solid var(--cyan); }
+.step-card[data-type="navigate"] .step-dot { border-color: var(--cyan); }
+
+.step-card[data-type="login"] { border-left: 3px solid var(--violet); }
+.step-card[data-type="login"] .step-dot { border-color: var(--violet); }
+
+.step-card[data-type="click"] { border-left: 3px solid var(--blue); }
+.step-card[data-type="click"] .step-dot { border-color: var(--blue); }
+
+.step-card[data-type="fill"] { border-left: 3px solid var(--amber); }
+.step-card[data-type="fill"] .step-dot { border-color: var(--amber); }
+
+.step-card[data-type="assert"] { border-left: 3px solid var(--emerald); }
+.step-card[data-type="assert"] .step-dot { border-color: var(--emerald); }
+
+.step-card[data-type="wait"] { border-left: 3px solid var(--pink); }
+.step-card[data-type="wait"] .step-dot { border-color: var(--pink); }
+
+.step-card[data-type="select"] { border-left: 3px solid var(--orange); }
+.step-card[data-type="select"] .step-dot { border-color: var(--orange); }
+
+/* Step number */
+.step-number {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 18px;
+  text-align: center;
+  padding-top: 2px;
+}
+
+/* Step body */
+.step-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-type-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.step-card[data-type="navigate"] .step-type-label { color: var(--cyan); }
+.step-card[data-type="login"] .step-type-label { color: var(--violet); }
+.step-card[data-type="click"] .step-type-label { color: var(--blue); }
+.step-card[data-type="fill"] .step-type-label { color: var(--amber); }
+.step-card[data-type="assert"] .step-type-label { color: var(--emerald); }
+.step-card[data-type="wait"] .step-type-label { color: var(--pink); }
+.step-card[data-type="select"] .step-type-label { color: var(--orange); }
+
+.step-description {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.step-target {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+/* Step actions (visible on hover) */
+.step-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--duration) var(--ease-smooth);
+}
+
+.step-card:hover .step-actions {
+  opacity: 1;
+}
+
+.btn-step-action {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.btn-step-action:hover {
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+}
+
+/* Drag handle */
+.step-drag {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 10px;
+  opacity: 0;
+  transition: opacity var(--duration) var(--ease-smooth);
+  cursor: grab;
+  user-select: none;
+}
+
+.step-card:hover .step-drag {
+  opacity: 0.5;
+}
+
+/* Add step button at bottom */
+.step-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: var(--space-3);
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  margin-left: 28px;
+  margin-top: var(--space-2);
+}
+
+.step-add:hover {
+  border-color: var(--violet);
+  color: var(--violet);
+  background: rgba(139, 92, 246, 0.05);
+}
+
+/* ══════════════════════════════════════════════════════════
+   SCRIPT PREVIEW
+   ══════════════════════════════════════════════════════════ */
+.script-preview {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.script-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid var(--border);
+}
+
+.script-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.script-lang {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-glass);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.script-filename {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.script-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.btn-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.btn-copy:hover {
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+/* Code block */
+.script-code {
+  padding: var(--space-4);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.7;
+  tab-size: 2;
+  counter-reset: line;
+}
+
+.script-code pre {
+  margin: 0;
+  font-family: inherit;
+}
+
+.code-line {
+  display: flex;
+  gap: var(--space-3);
+  padding: 0 var(--space-2);
+  border-radius: 2px;
+  transition: background var(--duration) var(--ease-smooth);
+}
+
+.code-line:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.line-num {
+  color: var(--text-muted);
+  min-width: 28px;
+  text-align: right;
+  user-select: none;
+  opacity: 0.5;
+}
+
+.line-content {
+  white-space: pre;
+}
+
+/* Syntax colors */
+.syn-kw { color: #c084fc; }       /* keyword - purple */
+.syn-fn { color: #67e8f9; }       /* function - cyan */
+.syn-str { color: #86efac; }      /* string - green */
+.syn-cmt { color: #4a4960; font-style: italic; } /* comment */
+.syn-num { color: #fbbf24; }      /* number - amber */
+.syn-op { color: #8b8a9e; }       /* operator */
+.syn-obj { color: #f0abfc; }      /* object/class */
+.syn-prop { color: #93c5fd; }     /* property */
+.syn-param { color: #fdba74; }    /* parameter - orange */
+
+/* Collapse toggle */
+.script-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px;
+  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  user-select: none;
+}
+
+.script-toggle:hover {
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text-secondary);
+}
+
+/* ══════════════════════════════════════════════════════════
+   RECENT RUNS TABLE
+   ══════════════════════════════════════════════════════════ */
+.runs-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+.runs-table thead th {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-glass);
+  position: sticky;
+  top: 0;
+}
+
+.runs-table thead th:first-child {
+  border-radius: var(--radius-lg) 0 0 0;
+}
+
+.runs-table thead th:last-child {
+  border-radius: 0 var(--radius-lg) 0 0;
+}
+
+.runs-table tbody tr {
+  cursor: pointer;
+  transition: background var(--duration) var(--ease-smooth);
+}
+
+.runs-table tbody tr:hover {
+  background: var(--bg-glass-hover);
+}
+
+.runs-table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+
+.runs-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.run-id {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.run-duration {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* Mini sparkline-style bar for table */
+.mini-bar {
+  display: inline-flex;
+  gap: 1px;
+  align-items: flex-end;
+  height: 14px;
+}
+
+.mini-bar-seg {
+  width: 3px;
+  border-radius: 1px;
+  transition: height var(--duration-slow) var(--ease-smooth);
+}
+
+.mini-bar-seg.pass { background: var(--emerald); }
+.mini-bar-seg.fail { background: var(--rose); }
+.mini-bar-seg.skip { background: var(--text-muted); opacity: 0.3; }
+
+/* ══════════════════════════════════════════════════════════
+   TEST RUN DETAIL VIEW
+   ══════════════════════════════════════════════════════════ */
+.run-detail-panel {
+  display: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  z-index: 1;
+  padding: var(--space-8);
+}
+
+.run-detail-panel.visible {
+  display: block;
+}
+
+/* Stats grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.stat-card {
+  padding: var(--space-4);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.stat-card:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.stat-value.success { color: var(--emerald); }
+.stat-value.danger { color: var(--rose); }
+.stat-value.info { color: var(--cyan); }
+.stat-value.neutral { color: var(--text-primary); }
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Step results timeline */
+.step-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.step-result-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 12px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.step-result-row:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+}
+
+.step-result-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.step-result-icon.pass {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--emerald);
+}
+
+.step-result-icon.fail {
+  background: rgba(244, 63, 94, 0.15);
+  color: var(--rose);
+}
+
+.step-result-icon.skip {
+  background: rgba(74, 73, 96, 0.3);
+  color: var(--text-muted);
+}
+
+.step-result-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-result-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.step-result-target {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.step-result-duration {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* Error block */
+.error-block {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  background: rgba(244, 63, 94, 0.06);
+  border: 1px solid rgba(244, 63, 94, 0.2);
+  border-left: 3px solid var(--rose);
+  border-radius: var(--radius-lg);
+}
+
+.error-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rose);
+  margin-bottom: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.error-message {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  background: rgba(0, 0, 0, 0.3);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+}
+
+.error-stack {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+/* Back button */
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  margin-bottom: var(--space-4);
+}
+
+.btn-back:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+/* Artifacts row */
+.artifacts-row {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.artifact-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--cyan);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.artifact-link:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-glow-cyan);
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.15);
+}
+
+/* ══════════════════════════════════════════════════════════
+   MODALS
+   ══════════════════════════════════════════════════════════ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.modal-overlay.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal {
+  background: linear-gradient(180deg, rgba(20, 20, 48, 0.98), rgba(12, 12, 30, 0.98));
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), var(--shadow-glow);
+  width: 90%;
+  max-width: 520px;
+  max-height: 80vh;
+  overflow-y: auto;
+  transform: translateY(20px) scale(0.97);
+  transition: transform var(--duration-slow) var(--ease-spring);
+}
+
+.modal-overlay.open .modal {
+  transform: translateY(0) scale(1);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.modal-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.modal-close:hover {
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: var(--space-6);
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border);
+}
+
+/* Form elements */
+.form-group {
+  margin-bottom: var(--space-5);
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
+
+.form-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  outline: none;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.form-input:focus {
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
+.form-input::placeholder {
+  color: var(--text-muted);
+}
+
+.form-input-mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.form-select {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.form-select:focus {
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
+.form-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.form-toggle-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.form-toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  position: relative;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.form-toggle.active {
+  background: var(--violet);
+  border-color: var(--violet);
+}
+
+.form-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.form-toggle.active::after {
+  left: 18px;
+  background: #fff;
+}
+
+.form-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Section separator in modal */
+.modal-section-title {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Record indicator */
+.record-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-4);
+}
+
+.record-pulse {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--rose);
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.85); }
+}
+
+.record-text {
+  font-size: 12px;
+  color: var(--rose);
+  font-weight: 600;
+}
+
+.record-subtext {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Modal button styles */
+.btn-modal-primary {
+  padding: 8px 20px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--gradient-primary);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  box-shadow: 0 2px 12px rgba(139, 92, 246, 0.3);
+}
+
+.btn-modal-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+}
+
+.btn-modal-cancel {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.btn-modal-cancel:hover {
+  background: var(--bg-glass-hover);
+  color: var(--text-primary);
+}
+
+/* ══════════════════════════════════════════════════════════
+   ANIMATIONS & ENTRANCE EFFECTS
+   ══════════════════════════════════════════════════════════ */
+
+/* Staggered fade-in for cards */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeSlideRight {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Entrance animations */
+.scenario-card, .run-card {
+  animation: fadeSlideUp 0.4s var(--ease-smooth) backwards;
+}
+
+.scenario-card:nth-child(1), .run-card:nth-child(1) { animation-delay: 0.05s; }
+.scenario-card:nth-child(2), .run-card:nth-child(2) { animation-delay: 0.10s; }
+.scenario-card:nth-child(3), .run-card:nth-child(3) { animation-delay: 0.15s; }
+.scenario-card:nth-child(4), .run-card:nth-child(4) { animation-delay: 0.20s; }
+.scenario-card:nth-child(5), .run-card:nth-child(5) { animation-delay: 0.25s; }
+
+.step-card {
+  animation: fadeSlideRight 0.35s var(--ease-smooth) backwards;
+}
+
+.step-card:nth-child(1) { animation-delay: 0.05s; }
+.step-card:nth-child(2) { animation-delay: 0.09s; }
+.step-card:nth-child(3) { animation-delay: 0.13s; }
+.step-card:nth-child(4) { animation-delay: 0.17s; }
+.step-card:nth-child(5) { animation-delay: 0.21s; }
+.step-card:nth-child(6) { animation-delay: 0.25s; }
+.step-card:nth-child(7) { animation-delay: 0.29s; }
+.step-card:nth-child(8) { animation-delay: 0.33s; }
+
+.detail-header {
+  animation: fadeSlideUp 0.5s var(--ease-smooth) backwards;
+  animation-delay: 0.1s;
+}
+
+.script-preview {
+  animation: fadeIn 0.6s var(--ease-smooth) backwards;
+  animation-delay: 0.3s;
+}
+
+.runs-table {
+  animation: fadeSlideUp 0.5s var(--ease-smooth) backwards;
+  animation-delay: 0.4s;
+}
+
+.stat-card {
+  animation: fadeSlideUp 0.4s var(--ease-smooth) backwards;
+}
+
+.stat-card:nth-child(1) { animation-delay: 0.05s; }
+.stat-card:nth-child(2) { animation-delay: 0.10s; }
+.stat-card:nth-child(3) { animation-delay: 0.15s; }
+.stat-card:nth-child(4) { animation-delay: 0.20s; }
+
+/* Health dot breathing animation */
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 4px rgba(16, 185, 129, 0.4); }
+  50% { box-shadow: 0 0 10px rgba(16, 185, 129, 0.7); }
+}
+
+.health-dot {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+/* Running status pulse */
+.status-pill.running .status-pill-icon {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+/* Titlebar logo shimmer on hover */
+.titlebar-logo {
+  position: relative;
+  overflow: hidden;
+}
+
+.titlebar-logo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+  background-size: 200% 100%;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.titlebar-logo:hover::after {
+  opacity: 1;
+  animation: shimmer 1.5s ease-in-out;
+}
+
+/* Button press effect */
+.btn-action-primary:active,
+.btn-action-record:active,
+.btn-modal-primary:active {
+  transform: translateY(0) scale(0.97);
+}
+
+/* Smooth scrollbar */
+.detail-panel::-webkit-scrollbar,
+.run-detail-panel::-webkit-scrollbar,
+.sidebar::-webkit-scrollbar,
+.modal::-webkit-scrollbar {
+  width: 6px;
+}
+
+.detail-panel::-webkit-scrollbar-track,
+.run-detail-panel::-webkit-scrollbar-track,
+.sidebar::-webkit-scrollbar-track,
+.modal::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.detail-panel::-webkit-scrollbar-thumb,
+.run-detail-panel::-webkit-scrollbar-thumb,
+.sidebar::-webkit-scrollbar-thumb,
+.modal::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
+.detail-panel::-webkit-scrollbar-thumb:hover,
+.run-detail-panel::-webkit-scrollbar-thumb:hover,
+.sidebar::-webkit-scrollbar-thumb:hover,
+.modal::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Focus visible outline for accessibility */
+:focus-visible {
+  outline: 2px solid var(--violet);
+  outline-offset: 2px;
+}
+
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+select:focus:not(:focus-visible) {
+  outline: none;
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- TITLEBAR -->
+  <header class="titlebar">
+    <div class="titlebar-left">
+      <div class="titlebar-logo">Z</div>
+      <div class="titlebar-brand">
+        <span class="titlebar-name">Zoniq</span>
+        <span class="titlebar-version">v2.0</span>
+      </div>
+    </div>
+    <div class="titlebar-right">
+      <div class="health-status">
+        <span class="health-dot"></span>
+        <span>Playwright 1.58.2</span>
+      </div>
+      <button class="btn-settings" title="Settings">
+        <svg class="settings-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN LAYOUT -->
+  <div class="main-layout">
+    <aside class="sidebar">
+      <!-- Tab Switcher -->
+      <div class="sidebar-tabs">
+        <div class="sidebar-tabs-indicator" id="tabIndicator"></div>
+        <button class="sidebar-tab active" data-tab="scenarios">Scenarios</button>
+        <button class="sidebar-tab" data-tab="runs">Test Runs</button>
+      </div>
+
+      <!-- SCENARIOS PANEL -->
+      <div class="sidebar-panel active" id="panel-scenarios">
+        <!-- Search -->
+        <div class="sidebar-search">
+          <div class="search-input-wrap">
+            <input type="text" class="search-input" placeholder="Search scenarios...">
+            <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="sidebar-actions">
+          <button class="btn btn-primary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            New Scenario
+          </button>
+          <button class="btn btn-record">
+            <span class="record-dot"></span>
+            Record from Browser
+          </button>
+        </div>
+
+        <!-- Scenario Cards -->
+        <div class="sidebar-list" id="list-scenarios">
+          <div class="scenario-card selected status-passed" data-id="1">
+            <div class="scenario-card-header">
+              <span class="scenario-card-name">Login Flow - Happy Path</span>
+              <span class="scenario-card-status passed"></span>
+            </div>
+            <div class="scenario-card-url">https://acme-app.mendixcloud.com/</div>
+            <div class="scenario-card-meta">
+              <span>2 min ago</span>
+              <span class="scenario-card-steps">8 steps</span>
+            </div>
+          </div>
+
+          <div class="scenario-card status-failed" data-id="2">
+            <div class="scenario-card-header">
+              <span class="scenario-card-name">Create New Order</span>
+              <span class="scenario-card-status failed"></span>
+            </div>
+            <div class="scenario-card-url">https://acme-app.mendixcloud.com/</div>
+            <div class="scenario-card-meta">
+              <span>15 min ago</span>
+              <span class="scenario-card-steps">12 steps</span>
+            </div>
+          </div>
+
+          <div class="scenario-card status-none" data-id="3">
+            <div class="scenario-card-header">
+              <span class="scenario-card-name">Dashboard Widgets Check</span>
+              <span class="scenario-card-status none"></span>
+            </div>
+            <div class="scenario-card-url">https://acme-app.mendixcloud.com/</div>
+            <div class="scenario-card-meta">
+              <span>Never run</span>
+              <span class="scenario-card-steps">5 steps</span>
+            </div>
+          </div>
+
+          <div class="scenario-card status-passed" data-id="4">
+            <div class="scenario-card-header">
+              <span class="scenario-card-name">User Profile Update</span>
+              <span class="scenario-card-status passed"></span>
+            </div>
+            <div class="scenario-card-url">https://acme-app.mendixcloud.com/</div>
+            <div class="scenario-card-meta">
+              <span>1h ago</span>
+              <span class="scenario-card-steps">6 steps</span>
+            </div>
+          </div>
+
+          <div class="scenario-card status-passed" data-id="5">
+            <div class="scenario-card-header">
+              <span class="scenario-card-name">Data Grid Pagination</span>
+              <span class="scenario-card-status passed"></span>
+            </div>
+            <div class="scenario-card-url">https://acme-app.mendixcloud.com/</div>
+            <div class="scenario-card-meta">
+              <span>3h ago</span>
+              <span class="scenario-card-steps">9 steps</span>
+            </div>
+          </div>
+
+          <div class="scenario-card status-running" data-id="6">
+            <div class="scenario-card-header">
+              <span class="scenario-card-name">Export Report to CSV</span>
+              <span class="scenario-card-status running"></span>
+            </div>
+            <div class="scenario-card-url">https://acme-app.mendixcloud.com/</div>
+            <div class="scenario-card-meta">
+              <span>Running...</span>
+              <span class="scenario-card-steps">7 steps</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RUNS PANEL -->
+      <div class="sidebar-panel" id="panel-runs">
+        <div class="sidebar-search">
+          <div class="search-input-wrap">
+            <input type="text" class="search-input" placeholder="Search runs...">
+            <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Run Cards -->
+        <div class="sidebar-list" id="list-runs">
+          <div class="run-card selected">
+            <div class="run-card-header">
+              <span class="run-card-name">Login Flow - Happy Path</span>
+              <span class="status-pill passed"><span class="status-pill-icon">&#10003;</span> Passed</span>
+            </div>
+            <div class="run-card-meta">
+              <span>2 min ago</span>
+              <span>8/8 steps</span>
+            </div>
+            <div class="result-bar"><div class="result-bar-passed" style="width:100%"></div></div>
+          </div>
+
+          <div class="run-card">
+            <div class="run-card-header">
+              <span class="run-card-name">Create New Order</span>
+              <span class="status-pill failed"><span class="status-pill-icon">&#10007;</span> Failed</span>
+            </div>
+            <div class="run-card-meta">
+              <span>15 min ago</span>
+              <span>4/6 steps</span>
+            </div>
+            <div class="result-bar"><div class="result-bar-passed" style="width:66%"></div><div class="result-bar-failed" style="width:34%"></div></div>
+          </div>
+
+          <div class="run-card">
+            <div class="run-card-header">
+              <span class="run-card-name">Login Flow - Happy Path</span>
+              <span class="status-pill passed"><span class="status-pill-icon">&#10003;</span> Passed</span>
+            </div>
+            <div class="run-card-meta">
+              <span>1h ago</span>
+              <span>8/8 steps</span>
+            </div>
+            <div class="result-bar"><div class="result-bar-passed" style="width:100%"></div></div>
+          </div>
+
+          <div class="run-card">
+            <div class="run-card-header">
+              <span class="run-card-name">Data Grid Pagination</span>
+              <span class="status-pill passed"><span class="status-pill-icon">&#10003;</span> Passed</span>
+            </div>
+            <div class="run-card-meta">
+              <span>3h ago</span>
+              <span>9/9 steps</span>
+            </div>
+            <div class="result-bar"><div class="result-bar-passed" style="width:100%"></div></div>
+          </div>
+
+          <div class="run-card">
+            <div class="run-card-header">
+              <span class="run-card-name">Export Report to CSV</span>
+              <span class="status-pill running"><span class="status-pill-icon">&#9679;</span> Running</span>
+            </div>
+            <div class="run-card-meta">
+              <span>Just now</span>
+              <span>3/7 steps</span>
+            </div>
+            <div class="result-bar"><div class="result-bar-passed" style="width:43%"></div></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+    <main class="detail-panel">
+      <!-- ── SCENARIO DETAIL HEADER ── -->
+      <div class="detail-header">
+        <div class="detail-header-top">
+          <div>
+            <div class="detail-title">Login Flow - Happy Path</div>
+            <div class="detail-subtitle">Created 3 days ago &middot; Last run 2 min ago &middot; 12 runs total</div>
+          </div>
+          <div class="detail-actions">
+            <button class="btn-action-primary"><span class="btn-icon">&#9654;</span> Run Test</button>
+            <button class="btn-action-record"><span class="btn-icon">&#9679;</span> Record</button>
+            <button class="btn-action-ghost"><span class="btn-icon">&#128736;</span> Pre-heal</button>
+            <button class="btn-action-ghost"><span class="btn-icon">&#9998;</span> Edit Script</button>
+          </div>
+        </div>
+        <div class="detail-chips">
+          <span class="chip"><span class="chip-icon">&#127760;</span> <span class="chip-url">https://myapp.mendixcloud.com</span></span>
+          <span class="chip"><span class="chip-icon">&#128100;</span> <span class="chip-credential">admin</span> <span class="chip-dot"></span> <span class="chip-credential">••••••</span></span>
+          <span class="chip"><span class="chip-icon">&#128337;</span> Timeout: 30s</span>
+          <span class="chip"><span class="chip-icon">&#127916;</span> Video: on</span>
+          <span class="chip"><span class="chip-icon">&#128247;</span> Screenshots: on failure</span>
+        </div>
+      </div>
+      <div class="detail-divider"></div>
+
+      <!-- ── STEP EDITOR ── -->
+      <div class="step-editor-section">
+        <div class="section-header">
+          <div style="display:flex;align-items:center;">
+            <span class="section-title">Test Steps</span>
+            <span class="section-badge">8 steps</span>
+          </div>
+          <div class="section-actions">
+            <button class="btn-section">&#8693; Reorder</button>
+            <button class="btn-section">&#10010; Add Step</button>
+          </div>
+        </div>
+
+        <div class="step-timeline">
+          <!-- Step 1: Navigate -->
+          <div class="step-card" data-type="navigate">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">01</span>
+            <div class="step-body">
+              <div class="step-type-label">Navigate</div>
+              <div class="step-description">Open application URL</div>
+              <div class="step-target">https://myapp.mendixcloud.com/login.html</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 2: Login -->
+          <div class="step-card" data-type="login">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">02</span>
+            <div class="step-body">
+              <div class="step-type-label">Login</div>
+              <div class="step-description">Login as admin user</div>
+              <div class="step-target">mx:txtUsername &rarr; admin &middot; mx:txtPassword &rarr; ••••</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 3: Wait -->
+          <div class="step-card" data-type="wait">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">03</span>
+            <div class="step-body">
+              <div class="step-type-label">Wait</div>
+              <div class="step-description">Wait for Mendix to load</div>
+              <div class="step-target">waitForMendix(page)</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 4: Click -->
+          <div class="step-card" data-type="click">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">04</span>
+            <div class="step-body">
+              <div class="step-type-label">Click</div>
+              <div class="step-description">Click &ldquo;New Order&rdquo; button</div>
+              <div class="step-target">mx:btnNewOrder</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 5: Wait -->
+          <div class="step-card" data-type="wait">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">05</span>
+            <div class="step-body">
+              <div class="step-type-label">Wait</div>
+              <div class="step-description">Wait for popup dialog</div>
+              <div class="step-target">waitForPopup(page)</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 6: Fill -->
+          <div class="step-card" data-type="fill">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">06</span>
+            <div class="step-body">
+              <div class="step-type-label">Fill</div>
+              <div class="step-description">Enter order title</div>
+              <div class="step-target">mx:txtTitle &rarr; "Test Order #42"</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 7: Select -->
+          <div class="step-card" data-type="select">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">07</span>
+            <div class="step-body">
+              <div class="step-type-label">Select</div>
+              <div class="step-description">Choose priority level</div>
+              <div class="step-target">mx:ddlPriority &rarr; "High"</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+
+          <!-- Step 8: Assert -->
+          <div class="step-card" data-type="assert">
+            <span class="step-dot"></span>
+            <span class="step-drag">&#8942;&#8942;</span>
+            <span class="step-number">08</span>
+            <div class="step-body">
+              <div class="step-type-label">Assert</div>
+              <div class="step-description">Verify success message visible</div>
+              <div class="step-target">text="Order created successfully"</div>
+            </div>
+            <div class="step-actions">
+              <button class="btn-step-action" title="Edit">&#9998;</button>
+              <button class="btn-step-action" title="Duplicate">&#10697;</button>
+              <button class="btn-step-action" title="Delete">&#128465;</button>
+            </div>
+          </div>
+        </div>
+
+        <button class="step-add">&#10010; Add new step</button>
+      </div>
+
+      <div class="detail-divider"></div>
+
+      <!-- ── SCRIPT PREVIEW ── -->
+      <div class="script-preview-section">
+        <div class="section-header">
+          <div style="display:flex;align-items:center;">
+            <span class="section-title">Generated Script</span>
+            <span class="section-badge">auto-generated</span>
+          </div>
+          <div class="section-actions">
+            <button class="btn-section">&#128194; Open in Editor</button>
+          </div>
+        </div>
+
+        <div class="script-preview">
+          <div class="script-toolbar">
+            <div class="script-toolbar-left">
+              <span class="script-lang">JavaScript</span>
+              <span class="script-filename">login-flow-happy-path.spec.js</span>
+            </div>
+            <div class="script-toolbar-right">
+              <button class="btn-copy">&#128203; Copy</button>
+            </div>
+          </div>
+          <div class="script-code"><pre><div class="code-line"><span class="line-num"> 1</span><span class="line-content"><span class="syn-kw">const</span> { <span class="syn-obj">test</span>, <span class="syn-obj">expect</span> } <span class="syn-op">=</span> <span class="syn-fn">require</span>(<span class="syn-str">'@playwright/test'</span>);</span></div><div class="code-line"><span class="line-num"> 2</span><span class="line-content"><span class="syn-kw">const</span> { <span class="syn-fn">login</span>, <span class="syn-fn">waitForMendix</span>, <span class="syn-fn">clickWidget</span> } <span class="syn-op">=</span> <span class="syn-fn">require</span>(<span class="syn-str">'./helpers/mendix-helpers'</span>);</span></div><div class="code-line"><span class="line-num"> 3</span><span class="line-content"></span></div><div class="code-line"><span class="line-num"> 4</span><span class="line-content"><span class="syn-obj">test</span>(<span class="syn-str">'Login Flow - Happy Path'</span>, <span class="syn-kw">async</span> ({ <span class="syn-param">page</span> }) <span class="syn-op">=&gt;</span> {</span></div><div class="code-line"><span class="line-num"> 5</span><span class="line-content">  <span class="syn-cmt">// Step 1: Navigate to application</span></span></div><div class="code-line"><span class="line-num"> 6</span><span class="line-content">  <span class="syn-kw">await</span> <span class="syn-param">page</span>.<span class="syn-fn">goto</span>(<span class="syn-str">'https://myapp.mendixcloud.com/login.html'</span>);</span></div><div class="code-line"><span class="line-num"> 7</span><span class="line-content"></span></div><div class="code-line"><span class="line-num"> 8</span><span class="line-content">  <span class="syn-cmt">// Step 2: Login as admin</span></span></div><div class="code-line"><span class="line-num"> 9</span><span class="line-content">  <span class="syn-kw">await</span> <span class="syn-fn">login</span>(<span class="syn-param">page</span>, <span class="syn-str">'admin'</span>, <span class="syn-str">'••••••'</span>);</span></div><div class="code-line"><span class="line-num">10</span><span class="line-content"></span></div><div class="code-line"><span class="line-num">11</span><span class="line-content">  <span class="syn-cmt">// Step 3: Wait for Mendix</span></span></div><div class="code-line"><span class="line-num">12</span><span class="line-content">  <span class="syn-kw">await</span> <span class="syn-fn">waitForMendix</span>(<span class="syn-param">page</span>);</span></div><div class="code-line"><span class="line-num">13</span><span class="line-content"></span></div><div class="code-line"><span class="line-num">14</span><span class="line-content">  <span class="syn-cmt">// Step 4: Click New Order button</span></span></div><div class="code-line"><span class="line-num">15</span><span class="line-content">  <span class="syn-kw">await</span> <span class="syn-fn">clickWidget</span>(<span class="syn-param">page</span>, <span class="syn-str">'btnNewOrder'</span>);</span></div><div class="code-line"><span class="line-num">16</span><span class="line-content"></span></div><div class="code-line"><span class="line-num">17</span><span class="line-content">  <span class="syn-cmt">// Step 8: Assert success message</span></span></div><div class="code-line"><span class="line-num">18</span><span class="line-content">  <span class="syn-kw">await</span> <span class="syn-fn">expect</span>(<span class="syn-param">page</span>.<span class="syn-fn">locator</span>(<span class="syn-str">'text=Order created successfully'</span>))</span></div><div class="code-line"><span class="line-num">19</span><span class="line-content">    .<span class="syn-fn">toBeVisible</span>({ <span class="syn-prop">timeout</span>: <span class="syn-num">30000</span> });</span></div><div class="code-line"><span class="line-num">20</span><span class="line-content">});</span></div></pre></div>
+          <div class="script-toggle">&#9660; Show full script (42 lines)</div>
+        </div>
+      </div>
+
+      <div class="detail-divider"></div>
+
+      <!-- ── RECENT RUNS ── -->
+      <div class="recent-runs-section">
+        <div class="section-header">
+          <div style="display:flex;align-items:center;">
+            <span class="section-title">Recent Runs</span>
+            <span class="section-badge">12 total</span>
+          </div>
+          <div class="section-actions">
+            <button class="btn-section">&#128202; View All</button>
+          </div>
+        </div>
+
+        <table class="runs-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Run ID</th>
+              <th>Duration</th>
+              <th>Steps</th>
+              <th>When</th>
+              <th>Results</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="status-pill passed"><span class="status-pill-icon">&#10003;</span> Passed</span></td>
+              <td><span class="run-id">#run-a1b2c3</span></td>
+              <td><span class="run-duration">4.2s</span></td>
+              <td>8/8</td>
+              <td>2 min ago</td>
+              <td>
+                <span class="mini-bar">
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:12px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:10px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:13px"></span>
+                  <span class="mini-bar-seg pass" style="height:11px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="status-pill passed"><span class="status-pill-icon">&#10003;</span> Passed</span></td>
+              <td><span class="run-id">#run-d4e5f6</span></td>
+              <td><span class="run-duration">3.8s</span></td>
+              <td>8/8</td>
+              <td>1h ago</td>
+              <td>
+                <span class="mini-bar">
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:12px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:11px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:13px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="status-pill failed"><span class="status-pill-icon">&#10007;</span> Failed</span></td>
+              <td><span class="run-id">#run-g7h8i9</span></td>
+              <td><span class="run-duration">2.1s</span></td>
+              <td>5/8</td>
+              <td>3h ago</td>
+              <td>
+                <span class="mini-bar">
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:12px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:11px"></span>
+                  <span class="mini-bar-seg fail" style="height:14px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="status-pill passed"><span class="status-pill-icon">&#10003;</span> Passed</span></td>
+              <td><span class="run-id">#run-j1k2l3</span></td>
+              <td><span class="run-duration">4.5s</span></td>
+              <td>8/8</td>
+              <td>Yesterday</td>
+              <td>
+                <span class="mini-bar">
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:13px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:12px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:11px"></span>
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="status-pill failed"><span class="status-pill-icon">&#10007;</span> Failed</span></td>
+              <td><span class="run-id">#run-m4n5o6</span></td>
+              <td><span class="run-duration">1.9s</span></td>
+              <td>3/8</td>
+              <td>Yesterday</td>
+              <td>
+                <span class="mini-bar">
+                  <span class="mini-bar-seg pass" style="height:14px"></span>
+                  <span class="mini-bar-seg pass" style="height:12px"></span>
+                  <span class="mini-bar-seg fail" style="height:14px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                  <span class="mini-bar-seg skip" style="height:6px"></span>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <!-- ── TEST RUN DETAIL VIEW (hidden by default, toggled via JS) ── -->
+    <div class="run-detail-panel" id="run-detail">
+      <button class="btn-back" id="btn-back-to-scenario">&#8592; Back to scenario</button>
+
+      <div class="detail-header">
+        <div class="detail-header-top">
+          <div>
+            <div class="detail-title">Run #run-g7h8i9</div>
+            <div class="detail-subtitle">Login Flow - Happy Path &middot; 3h ago &middot; Duration: 2.1s</div>
+          </div>
+          <div class="detail-actions">
+            <button class="btn-action-primary"><span class="btn-icon">&#8635;</span> Re-run</button>
+            <button class="btn-action-ghost"><span class="btn-icon">&#128203;</span> Copy Report</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats grid -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value danger">Failed</div>
+          <div class="stat-label">Status</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value success">5</div>
+          <div class="stat-label">Steps Passed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value danger">1</div>
+          <div class="stat-label">Steps Failed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value info">2.1s</div>
+          <div class="stat-label">Duration</div>
+        </div>
+      </div>
+
+      <!-- Step results -->
+      <div class="section-header">
+        <span class="section-title">Step Results</span>
+      </div>
+
+      <div class="step-results">
+        <div class="step-result-row">
+          <span class="step-result-icon pass">&#10003;</span>
+          <div class="step-result-info">
+            <div class="step-result-name">Navigate - Open application URL</div>
+            <div class="step-result-target">https://myapp.mendixcloud.com/login.html</div>
+          </div>
+          <span class="step-result-duration">0.3s</span>
+        </div>
+        <div class="step-result-row">
+          <span class="step-result-icon pass">&#10003;</span>
+          <div class="step-result-info">
+            <div class="step-result-name">Login - Login as admin user</div>
+            <div class="step-result-target">mx:txtUsername, mx:txtPassword</div>
+          </div>
+          <span class="step-result-duration">0.8s</span>
+        </div>
+        <div class="step-result-row">
+          <span class="step-result-icon pass">&#10003;</span>
+          <div class="step-result-info">
+            <div class="step-result-name">Wait - Wait for Mendix to load</div>
+            <div class="step-result-target">waitForMendix(page)</div>
+          </div>
+          <span class="step-result-duration">0.5s</span>
+        </div>
+        <div class="step-result-row">
+          <span class="step-result-icon pass">&#10003;</span>
+          <div class="step-result-info">
+            <div class="step-result-name">Click - Click "New Order" button</div>
+            <div class="step-result-target">mx:btnNewOrder</div>
+          </div>
+          <span class="step-result-duration">0.2s</span>
+        </div>
+        <div class="step-result-row">
+          <span class="step-result-icon pass">&#10003;</span>
+          <div class="step-result-info">
+            <div class="step-result-name">Wait - Wait for popup dialog</div>
+            <div class="step-result-target">waitForPopup(page)</div>
+          </div>
+          <span class="step-result-duration">0.3s</span>
+        </div>
+        <div class="step-result-row" style="border-color: rgba(244, 63, 94, 0.2);">
+          <span class="step-result-icon fail">&#10007;</span>
+          <div class="step-result-info">
+            <div class="step-result-name" style="color:var(--rose);">Fill - Enter order title</div>
+            <div class="step-result-target">mx:txtTitle &rarr; "Test Order #42"</div>
+          </div>
+          <span class="step-result-duration" style="color:var(--rose);">timeout</span>
+        </div>
+        <div class="step-result-row">
+          <span class="step-result-icon skip">&#8212;</span>
+          <div class="step-result-info">
+            <div class="step-result-name" style="opacity:0.5;">Select - Choose priority level</div>
+            <div class="step-result-target" style="opacity:0.4;">skipped</div>
+          </div>
+          <span class="step-result-duration" style="opacity:0.4;">-</span>
+        </div>
+        <div class="step-result-row">
+          <span class="step-result-icon skip">&#8212;</span>
+          <div class="step-result-info">
+            <div class="step-result-name" style="opacity:0.5;">Assert - Verify success message</div>
+            <div class="step-result-target" style="opacity:0.4;">skipped</div>
+          </div>
+          <span class="step-result-duration" style="opacity:0.4;">-</span>
+        </div>
+      </div>
+
+      <!-- Error block -->
+      <div class="error-block">
+        <div class="error-title">&#9888; Error on Step 6: Fill - Enter order title</div>
+        <div class="error-message">TimeoutError: locator.fill: Timeout 30000ms exceeded.
+=========================== logs ===========================
+waiting for locator('.mx-name-txtTitle input')
+  locator resolved to 0 elements</div>
+        <div class="error-stack">    at fillWidget (/helpers/mendix-helpers.js:42:15)
+    at Object.&lt;anonymous&gt; (login-flow-happy-path.spec.js:15:9)
+    at TestRunner.run (/node_modules/@playwright/test/lib/runner.js:88:22)</div>
+      </div>
+
+      <!-- Artifacts -->
+      <div class="artifacts-row">
+        <a class="artifact-link">&#128247; Screenshot</a>
+        <a class="artifact-link">&#127916; Video Recording</a>
+        <a class="artifact-link">&#128203; Trace Viewer</a>
+        <a class="artifact-link">&#128196; JSON Report</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Run card selection
+document.querySelectorAll('.run-card').forEach(card => {
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.run-card').forEach(c => c.classList.remove('selected'));
+    card.classList.add('selected');
+  });
+});
+
+// Scenario card selection
+document.querySelectorAll('.scenario-card').forEach(card => {
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.scenario-card').forEach(c => c.classList.remove('selected'));
+    card.classList.add('selected');
+  });
+});
+
+// Tab switching
+document.querySelectorAll('.sidebar-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.sidebar-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    const target = tab.dataset.tab;
+    document.getElementById('panel-' + target).classList.add('active');
+    const indicator = document.getElementById('tabIndicator');
+    indicator.classList.toggle('right', target === 'runs');
+  });
+});
+
+// Run detail toggle: click table row to show run detail
+const scenarioPanel = document.querySelector('.detail-panel');
+const runDetailPanel = document.getElementById('run-detail');
+
+document.querySelectorAll('.runs-table tbody tr').forEach(row => {
+  row.addEventListener('click', () => {
+    scenarioPanel.style.display = 'none';
+    runDetailPanel.classList.add('visible');
+  });
+});
+
+document.getElementById('btn-back-to-scenario').addEventListener('click', () => {
+  runDetailPanel.classList.remove('visible');
+  scenarioPanel.style.display = '';
+});
+
+// ── Modal logic ──
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+// Close on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.classList.remove('open');
+  });
+});
+
+// Close buttons
+document.querySelectorAll('.modal-close, .btn-modal-cancel').forEach(btn => {
+  btn.addEventListener('click', () => {
+    btn.closest('.modal-overlay').classList.remove('open');
+  });
+});
+
+// Toggle switches
+document.querySelectorAll('.form-toggle').forEach(toggle => {
+  toggle.addEventListener('click', () => toggle.classList.toggle('active'));
+});
+
+// Wire up settings button
+document.querySelector('.btn-settings').addEventListener('click', () => openModal('modal-settings'));
+
+// Wire up "New Scenario" button (first btn-sidebar-action)
+document.querySelectorAll('.btn-sidebar-action')[0]?.addEventListener('click', () => openModal('modal-new-scenario'));
+
+// Wire up record buttons
+document.querySelectorAll('.btn-action-record').forEach(btn => {
+  btn.addEventListener('click', () => openModal('modal-record'));
+});
+</script>
+
+<!-- ══════════════════════════════════════════════════════════
+     SETTINGS MODAL
+     ══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-settings">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Settings</span>
+      <button class="modal-close">&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-title">Connection</div>
+      <div class="form-group">
+        <label class="form-label">API Port</label>
+        <input class="form-input form-input-mono" type="text" value="3100" />
+        <div class="form-hint">Express server port for REST API</div>
+      </div>
+
+      <div class="modal-section-title">Playwright</div>
+      <div class="form-group">
+        <label class="form-label">Browser</label>
+        <select class="form-select">
+          <option selected>Chromium</option>
+          <option>Firefox</option>
+          <option>WebKit</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Default Timeout (ms)</label>
+        <input class="form-input form-input-mono" type="text" value="30000" />
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Headless Mode</span>
+        <div class="form-toggle active"></div>
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Record Video</span>
+        <div class="form-toggle active"></div>
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Screenshots on Failure</span>
+        <div class="form-toggle active"></div>
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Trace Viewer</span>
+        <div class="form-toggle"></div>
+      </div>
+
+      <div class="modal-section-title">Data</div>
+      <div class="form-group">
+        <label class="form-label">Data Directory</label>
+        <input class="form-input form-input-mono" type="text" value="~/.config/zoniq-test-runner/" readonly />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-modal-cancel">Cancel</button>
+      <button class="btn-modal-primary">Save Settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     NEW SCENARIO MODAL
+     ══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-new-scenario">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">New Scenario</span>
+      <button class="modal-close">&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Scenario Name</label>
+        <input class="form-input" type="text" placeholder="e.g., Login Flow - Happy Path" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Application URL</label>
+        <input class="form-input form-input-mono" type="text" placeholder="https://myapp.mendixcloud.com" />
+      </div>
+
+      <div class="modal-section-title">Credentials (Optional)</div>
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <input class="form-input" type="text" placeholder="admin" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input class="form-input" type="password" placeholder="••••••" />
+      </div>
+
+      <div class="modal-section-title">Test Type</div>
+      <div class="form-group">
+        <label class="form-label">Creation Method</label>
+        <select class="form-select">
+          <option selected>Visual Step Builder</option>
+          <option>Import Script</option>
+          <option>Record from Browser</option>
+          <option>Empty Script</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-modal-cancel">Cancel</button>
+      <button class="btn-modal-primary">Create Scenario</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     RECORD MODAL
+     ══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-record">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Record Test</span>
+      <button class="modal-close">&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <div class="record-indicator">
+        <span class="record-pulse"></span>
+        <div>
+          <div class="record-text">Ready to Record</div>
+          <div class="record-subtext">A browser window will open for interaction recording</div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Starting URL</label>
+        <input class="form-input form-input-mono" type="text" value="https://myapp.mendixcloud.com/login.html" />
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Auto-login before recording</span>
+        <div class="form-toggle active"></div>
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Capture Mendix widget names</span>
+        <div class="form-toggle active"></div>
+      </div>
+      <div class="form-toggle-row">
+        <span class="form-toggle-label">Generate visual steps</span>
+        <div class="form-toggle active"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-modal-cancel">Cancel</button>
+      <button class="btn-modal-primary" style="background:var(--gradient-record);box-shadow:0 2px 12px rgba(239,68,68,0.3);">&#9679; Start Recording</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>
