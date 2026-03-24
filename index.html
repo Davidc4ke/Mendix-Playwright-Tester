@@ -1321,6 +1321,7 @@ const STEP_ACTION_CONFIG = {
   ClosePopup:       { selector: false, value: false },
   WaitForMicroflow: { selector: false, value: false },
   Screenshot:       { selector: false, value: true,  valuePlaceholder: "Filename (no extension)" },
+  Raw:              { selector: false, value: true,  valuePlaceholder: "Raw Playwright statement" },
 };
 
 // ── Script-to-Steps Parser ────────────────────────────
@@ -1432,14 +1433,14 @@ function parseStatement(stmt) {
   m = stmt.match(/page\.goto\s*\(\s*['"]([^'"]+)['"]/);
   if (m) return { action: 'Navigate', value: m[1] };
 
-  // ── page.locator(...).action(...) ──
-  m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.click\s*\(/);
+  // ── page.locator(...).action(...) — supports .filter() and other chains ──
+  m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.click\s*\(/);
   if (m) return { action: 'Click', selector: selectorToMx(m[1]) };
 
-  m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
+  m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.fill\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'Fill', selector: selectorToMx(m[1]), value: m[2] };
 
-  m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
+  m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'SelectDropdown', selector: selectorToMx(m[1]), value: m[2] };
 
   // ── getByRole(...).click/fill (supports extra options like exact: true, .nth(), .filter()) ──
@@ -1452,16 +1453,22 @@ function parseStatement(stmt) {
   m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)[^;]*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'SelectDropdown', selector: m[1] + ':' + m[2], value: m[3] };
 
-  // ── getByRole without name (supports .nth()) ──
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.click\s*\(/);
+  // ── getByRole without name (supports .nth(), .filter()) ──
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.click\s*\(/);
   if (m) return { action: 'Click', selector: m[1] };
 
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.fill\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'Fill', selector: m[1], value: m[2] };
 
-  // ── getByText(...).click (supports .nth()) ──
-  m = stmt.match(/page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.click\s*\(/);
+  // ── getByText(...).click/fill/selectOption (supports .nth(), .filter()) ──
+  m = stmt.match(/page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.click\s*\(/);
   if (m) return { action: 'Click', selector: 'text:' + m[1] };
+
+  m = stmt.match(/page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.fill\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'Fill', selector: 'text:' + m[1], value: m[2] };
+
+  m = stmt.match(/page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'SelectDropdown', selector: 'text:' + m[1], value: m[2] };
 
   // ── getByLabel(...).fill/click/selectOption (supports .nth()) ──
   m = stmt.match(/page\.getByLabel\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
@@ -1481,25 +1488,47 @@ function parseStatement(stmt) {
   if (m) return { action: 'Click', selector: 'placeholder:' + m[1] };
 
   // ── Assertions: expect / expect.soft ──
-  // toContainText / toHaveText
+  // toContainText / toHaveText with page.locator
   m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\).*?\)\s*\.toContainText\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'AssertText', selector: selectorToMx(m[1]), value: m[2] };
   m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\).*?\)\s*\.toHaveText\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'AssertText', selector: selectorToMx(m[1]), value: m[2] };
 
-  // toBeVisible
+  // toBeVisible / toBeEnabled / toBeDisabled with page.locator
   m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)/);
   if (m && /\.toBeVisible\s*\(/.test(stmt)) return { action: 'AssertVisible', selector: selectorToMx(m[1]) };
-
-  // toBeEnabled
   if (m && /\.toBeEnabled\s*\(/.test(stmt)) return { action: 'AssertEnabled', selector: selectorToMx(m[1]) };
-
-  // toBeDisabled
   if (m && /\.toBeDisabled\s*\(/.test(stmt)) return { action: 'AssertDisabled', selector: selectorToMx(m[1]) };
+
+  // toContainText / toHaveText with getByRole
+  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)[^)]*\).*?\.to(?:Contain|Have)Text\s*\(\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'AssertText', selector: m[1] + ':' + m[2], value: m[3] };
+
+  // toBeVisible / toBeEnabled / toBeDisabled with getByRole
+  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)/);
+  if (m && /\.toBeVisible\s*\(/.test(stmt)) return { action: 'AssertVisible', selector: m[1] + ':' + m[2] };
+  if (m && /\.toBeEnabled\s*\(/.test(stmt)) return { action: 'AssertEnabled', selector: m[1] + ':' + m[2] };
+  if (m && /\.toBeDisabled\s*\(/.test(stmt)) return { action: 'AssertDisabled', selector: m[1] + ':' + m[2] };
+
+  // toBeVisible / toContainText with getByText
+  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.getByText\s*\(\s*['"]([^'"]+)['"]/);
+  if (m && /\.toBeVisible\s*\(/.test(stmt)) return { action: 'AssertVisible', selector: 'text:' + m[1] };
+  if (m && /\.toContainText\s*\(/.test(stmt)) {
+    const vm = stmt.match(/\.toContainText\s*\(\s*['"]([^'"]*)['"]/);
+    return { action: 'AssertText', selector: 'text:' + m[1], value: vm ? vm[1] : '' };
+  }
+
+  // toBeVisible with getByLabel
+  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.getByLabel\s*\(\s*['"]([^'"]+)['"]/);
+  if (m && /\.toBeVisible\s*\(/.test(stmt)) return { action: 'AssertVisible', selector: 'label:' + m[1] };
 
   // ── Waits ──
   m = stmt.match(/page\.waitForTimeout\s*\(\s*(\d+)/);
   if (m) return { action: 'Wait', value: m[1] };
+
+  // waitForLoadState / waitForURL → WaitForMendix (navigation waits)
+  if (/page\.waitForLoadState\s*\(/.test(stmt) || /page\.waitForURL\s*\(/.test(stmt))
+    return { action: 'WaitForMendix' };
 
   // ── Screenshot ──
   m = stmt.match(/page\.screenshot\s*\(\s*\{[^}]*path:\s*['"](?:results\/)?([^'"]+?)(?:\.png)?['"]/);
@@ -1509,7 +1538,17 @@ function parseStatement(stmt) {
   m = stmt.match(/page\.keyboard\.press\s*\(\s*['"]([^'"]+)['"]/);
   if (m) return { action: 'Click', selector: 'keyboard:' + m[1] };
 
-  return null; // Unrecognized statement
+  // ── Old Playwright API (page.click / page.fill / page.type) ──
+  m = stmt.match(/page\.fill\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'Fill', selector: selectorToMx(m[1]), value: m[2] };
+
+  m = stmt.match(/page\.type\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/);
+  if (m) return { action: 'Fill', selector: selectorToMx(m[1]), value: m[2] };
+
+  m = stmt.match(/page\.(?:check|uncheck|dblclick|click)\s*\(\s*['"]([^'"]+)['"]/);
+  if (m) return { action: 'Click', selector: selectorToMx(m[1]) };
+
+  return null; // Unrecognized — caller will create a Raw step
 }
 
 function parseScriptToSteps(script) {
@@ -1521,27 +1560,25 @@ function parseScriptToSteps(script) {
   // Track visited base URLs to detect redundant navigations
   const visitedOrigins = new Set();
   for (const stmt of statements) {
-    const step = parseStatement(stmt);
-    if (step) {
-      // Skip redundant Navigate steps — if we already visited a URL on this
-      // origin and the new goto is just the root or a shorter path, it's almost
-      // certainly a SPA artifact from Playwright's recorder.
-      if (step.action === 'Navigate' && step.value) {
-        try {
-          const url = new URL(step.value);
-          const origin = url.origin;
-          const isRootish = url.pathname === '/' || url.pathname === '';
-          if (isRootish && visitedOrigins.has(origin)) {
-            continue; // skip redundant navigation to app root
-          }
-          visitedOrigins.add(origin);
-        } catch { /* not a valid URL, keep it */ }
-      }
-      step.order = steps.length;
-      step.selector = step.selector || '';
-      step.value = step.value || '';
-      steps.push(step);
+    const step = parseStatement(stmt) ?? { action: 'Raw', value: stmt.trim() };
+    // Skip redundant Navigate steps — if we already visited a URL on this
+    // origin and the new goto is just the root or a shorter path, it's almost
+    // certainly a SPA artifact from Playwright's recorder.
+    if (step.action === 'Navigate' && step.value) {
+      try {
+        const url = new URL(step.value);
+        const origin = url.origin;
+        const isRootish = url.pathname === '/' || url.pathname === '';
+        if (isRootish && visitedOrigins.has(origin)) {
+          continue; // skip redundant navigation to app root
+        }
+        visitedOrigins.add(origin);
+      } catch { /* not a valid URL, keep it */ }
     }
+    step.order = steps.length;
+    step.selector = step.selector || '';
+    step.value = step.value || '';
+    steps.push(step);
   }
   return steps;
 }
