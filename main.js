@@ -968,31 +968,32 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
     const outputFile = `recording-${Date.now()}.js`;
     const outputPath = path.join(SCRIPTS_DIR, outputFile);
 
-    // Determine highlight preference from options or settings
-    const settings = loadSettings();
-    const showHighlights = options.showHighlights !== undefined
-      ? options.showHighlights
-      : settings.recorder.showHighlights;
-
-    const recorderScript = path.join(__dirname, "helpers", "recorder.js");
-    const recorderArgs = [
-      recorderScript,
-      targetUrl,
-      outputPath,
-      String(!!showHighlights),
+    const codegenArgs = [
+      "codegen",
+      "--target=javascript",
+      `--output=${outputPath}`,
+      `--viewport-size=1920,1080`,
     ];
     const channel = getBrowserChannel();
     if (channel) {
-      recorderArgs.push(channel);
+      codegenArgs.push(`--channel=${channel}`);
     }
 
-    console.log(`[recorder] CMD: node ${recorderArgs.join(" ")}`);
+    // Normalize URL
+    let normalizedUrl = targetUrl;
+    if (normalizedUrl && !normalizedUrl.startsWith("http") && !normalizedUrl.startsWith("file://") && !normalizedUrl.startsWith("about:")) {
+      normalizedUrl = "http://" + normalizedUrl;
+    }
+    if (normalizedUrl) {
+      codegenArgs.push(normalizedUrl);
+    }
 
-    const proc = spawn(
-      process.execPath,
-      recorderArgs,
-      { env: getPlaywrightEnv(), shell: false }
-    );
+    console.log(`[recorder] CMD: ${PLAYWRIGHT_CLI} ${codegenArgs.join(" ")}`);
+
+    const proc = spawn(PLAYWRIGHT_CLI, codegenArgs, {
+      env: getPlaywrightEnv(),
+      shell: true,
+    });
 
     proc.stdout.on("data", (chunk) => {
       console.log(`[recorder stdout] ${chunk}`);
