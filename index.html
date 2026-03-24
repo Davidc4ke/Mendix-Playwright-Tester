@@ -1442,14 +1442,14 @@ function parseStatement(stmt) {
   m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'SelectDropdown', selector: selectorToMx(m[1]), value: m[2] };
 
-  // ── getByRole(...).click/fill (supports extra options like exact: true and .nth()) ──
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.click\s*\(/);
+  // ── getByRole(...).click/fill (supports extra options like exact: true, .nth(), .filter()) ──
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)[^;]*\.click\s*\(/);
   if (m) return { action: 'Click', selector: m[1] + ':' + m[2] };
 
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)[^;]*\.fill\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'Fill', selector: m[1] + ':' + m[2], value: m[3] };
 
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
+  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)[^;]*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
   if (m) return { action: 'SelectDropdown', selector: m[1] + ':' + m[2], value: m[3] };
 
   // ── getByRole without name (supports .nth()) ──
@@ -1756,7 +1756,7 @@ function showScenarioDetail(sc) {
       <div class="section-header">Steps</div>
       ${renderStepEditor(sc)}
 
-      <div class="section-header" style="margin-top:16px;">Script</div>
+      <div class="section-header" style="margin-top:16px;">Script${sc.steps?.length ? ` <span style="font-size:10px;color:var(--text-muted);font-weight:normal;">(original recording — steps are used at runtime)</span>` : ''}</div>
       <pre class="script-area" style="min-height:60px;max-height:200px;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(sc.script || '// No script defined')}</pre>
 
       ${lastRuns.length ? `
