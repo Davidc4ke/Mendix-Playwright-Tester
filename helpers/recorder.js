@@ -98,37 +98,23 @@ if (!url || !outputPath) {
     });
   }
 
-  // _enableRecorder keeps the browser process alive (Playwright Inspector) even
-  // after the user closes all browser tabs. Detect when all pages are gone and
-  // force-close the browser so the process exits and main.js gets the script.
-  function watchForAllPagesClosed() {
-    const pages = context.pages();
-    for (const p of pages) {
-      p.on("close", () => {
-        // Small delay to let Playwright settle (e.g. new tab opening)
-        setTimeout(() => {
-          if (context.pages().length === 0) {
-            console.log("[recorder] All pages closed, shutting down browser");
-            browser.close().catch(() => {});
-          }
-        }, 500);
-      });
-    }
-  }
-  watchForAllPagesClosed();
-  context.on("page", (newPage) => {
-    newPage.on("close", () => {
-      setTimeout(() => {
-        if (context.pages().length === 0) {
-          console.log("[recorder] All pages closed, shutting down browser");
-          browser.close().catch(() => {});
-        }
-      }, 500);
-    });
+  // _enableRecorder keeps the Playwright Inspector alive even after the user
+  // closes the browser tab. The Inspector may count as a page in context.pages(),
+  // so we can't rely on "all pages closed". Instead, when the main page closes,
+  // force-exit — the script file has already been written by the recorder.
+  page.on("close", () => {
+    console.log("[recorder] Main page closed, exiting");
+    setTimeout(() => process.exit(0), 300);
   });
 
-  // Wait for the browser to fully disconnect
-  await new Promise((resolve) => browser.on("disconnected", resolve));
+  // Also handle normal browser disconnect (user closes entire browser window)
+  browser.on("disconnected", () => {
+    console.log("[recorder] Browser disconnected, exiting");
+    setTimeout(() => process.exit(0), 300);
+  });
+
+  // Keep the process alive until one of the above fires
+  await new Promise(() => {});
 })().catch((err) => {
   console.error("[recorder] Fatal error:", err);
   process.exit(1);
