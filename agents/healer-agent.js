@@ -4,10 +4,14 @@
  * Analyzes a failing test by comparing its errors with the current DOM state,
  * then produces a patched script that fixes the failure.
  *
- * Key behavior: replays the successful portion of the test so the browser
- * is at the POINT OF FAILURE when the LLM analyzes the page state.
+ * Two healing modes:
+ * 1. Static (fast path): Analyzes errors + failure screenshot without launching
+ *    a browser. Works for most failures where the error message is sufficient.
+ * 2. Replay (fallback): Replays the test to the failure point in a live browser
+ *    so the LLM can inspect the actual DOM. Used when static healing has low
+ *    confidence or can't produce a fix.
  *
- * For script-based scenarios, we execute the actual Playwright code directly
+ * For script-based scenarios, replay executes the actual Playwright code directly
  * using the live page object — this supports all locator strategies including
  * getByRole, getByLabel, getByText, locator chains, etc.
  */
@@ -19,6 +23,11 @@ const { BrowserContext } = require("./browser-context");
 
 const SYSTEM_PROMPT = fs.readFileSync(
   path.join(__dirname, "prompts", "healer-system.md"),
+  "utf-8"
+);
+
+const STATIC_SYSTEM_PROMPT = fs.readFileSync(
+  path.join(__dirname, "prompts", "healer-static-system.md"),
   "utf-8"
 );
 
@@ -44,7 +53,9 @@ class HealerAgent {
   }
 
   /**
-   * Heal a failing test.
+   * Heal a failing test. Uses a hybrid approach:
+   * 1. First tries static healing (screenshot + errors, no browser) for speed
+   * 2. Falls back to replay-based healing if static healing has low confidence
    *
    * @param {object} params
    * @param {string} params.script — The original test script
@@ -52,10 +63,68 @@ class HealerAgent {
    * @param {Array}  params.errors — Error objects from the failed run [{ test, message, snippet }]
    * @param {string} params.targetUrl — The app URL
    * @param {object} [params.credentials] — { username, password }
+   * @param {string} [params.runResultsDir] — Path to the run's results directory (for screenshots)
+   * @param {Array}  [params.artifacts] — List of artifact filenames from the failed run
    * @param {function} [params.onProgress] — Progress callback
    * @returns {{ healedScript: string, changes: Array, analysis: string, confidence: string }}
    */
-  async heal({ script, steps, errors, targetUrl, credentials, onProgress }) {
+  async heal({ script, steps, errors, targetUrl, credentials, runResultsDir, artifacts, onProgress }) {
+    // ── Try static healing first (fast path, no browser) ──
+    if (runResultsDir) {
+      try {
+        if (onProgress) onProgress({ status: "analyzing", message: "Analyzing failure from screenshot and errors (no browser needed)..." });
+
+        const staticResult = await this.healStatic({
+          script, steps, errors, targetUrl, runResultsDir, artifacts, onProgress,
+        });
+
+        if (this._cancelled) throw new Error("Cancelled");
+
+        if (staticResult.healedScript && staticResult.confidence !== "low") {
+          if (onProgress) onProgress({ status: "done", message: "Healing complete (from error analysis)" });
+          return staticResult;
+        }
+
+        // Static healing had low confidence — fall through to replay
+        if (onProgress) onProgress({
+          status: "replaying",
+          message: "Need more context — launching browser to inspect the page...",
+        });
+      } catch (err) {
+        if (err.message === "Cancelled") throw err;
+        // Static healing failed — fall through to replay
+        if (onProgress) onProgress({
+          status: "replaying",
+          message: "Falling back to browser-based healing...",
+        });
+      }
+    }
+
+    // ── Replay-based healing (full browser) ──
+    return this._healWithReplay({ script, steps, errors, targetUrl, credentials, onProgress });
+  }
+
+  /**
+   * Static healing: analyze errors + screenshot without launching a browser.
+   * Makes a single LLM call with multimodal content (text + image).
+   */
+  async healStatic({ script, steps, errors, targetUrl, runResultsDir, artifacts, onProgress }) {
+    const message = this._buildStaticMessage(script, steps, errors, targetUrl, runResultsDir, artifacts);
+
+    const response = await this.llm.chat(
+      [{ role: "user", content: message }],
+      { system: STATIC_SYSTEM_PROMPT }
+    );
+
+    const result = this._parseHealerResponse(response.content);
+    return result;
+  }
+
+  /**
+   * Replay-based healing: launches a browser, replays the test to the failure
+   * point, then uses the LLM orchestration loop with live page state.
+   */
+  async _healWithReplay({ script, steps, errors, targetUrl, credentials, onProgress }) {
     let browser = null;
     let page = null;
 
@@ -450,6 +519,96 @@ class HealerAgent {
       default:
         break;
     }
+  }
+
+  /**
+   * Build a multimodal message for static healing (text + optional screenshot).
+   * Returns an Anthropic-style content array that works with both providers.
+   */
+  _buildStaticMessage(script, steps, errors, targetUrl, runResultsDir, artifacts) {
+    const textParts = [];
+
+    textParts.push("# Failing Test — Please Heal (from error analysis)\n");
+    textParts.push(`Target URL: ${targetUrl}\n`);
+
+    textParts.push("## Original Script\n```javascript");
+    textParts.push(script);
+    textParts.push("```\n");
+
+    if (steps?.length) {
+      textParts.push("## Test Steps");
+      steps.forEach((s, i) => {
+        textParts.push(`${i + 1}. ${s.action}${s.selector ? " " + s.selector : ""}${s.value ? " = " + s.value : ""}`);
+      });
+      textParts.push("");
+    }
+
+    textParts.push("## Error Messages from Failed Run\n");
+    if (errors?.length) {
+      for (const err of errors) {
+        textParts.push(`### ${err.test || "Test"}`);
+        textParts.push("```");
+        textParts.push(err.message || "No error message");
+        textParts.push("```");
+        if (err.snippet) {
+          textParts.push("Code context:");
+          textParts.push("```javascript");
+          textParts.push(err.snippet);
+          textParts.push("```");
+        }
+        textParts.push("");
+      }
+    } else {
+      textParts.push("No specific error messages available.\n");
+    }
+
+    textParts.push("Please analyze the errors and the screenshot (if provided) and produce a healed script.");
+    textParts.push("If you cannot confidently determine the fix without seeing the live page, set confidence to \"low\".");
+
+    const content = [];
+    content.push({ type: "text", text: textParts.join("\n") });
+
+    // Find and attach the failure screenshot
+    if (runResultsDir) {
+      const screenshotFile = this._findScreenshot(runResultsDir, artifacts);
+      if (screenshotFile) {
+        try {
+          const imageData = fs.readFileSync(screenshotFile);
+          const base64 = imageData.toString("base64");
+          const ext = path.extname(screenshotFile).toLowerCase();
+          const mediaType = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : "image/png";
+          content.push({
+            type: "image",
+            source: { type: "base64", media_type: mediaType, data: base64 },
+          });
+        } catch {}
+      }
+    }
+
+    return content;
+  }
+
+  /**
+   * Find the best failure screenshot in the results directory.
+   */
+  _findScreenshot(runResultsDir, artifacts) {
+    // Prefer screenshots listed in artifacts
+    if (artifacts?.length) {
+      const screenshotArtifact = artifacts.find((a) => /\.(png|jpg|jpeg)$/i.test(a));
+      if (screenshotArtifact) {
+        const fullPath = path.join(runResultsDir, screenshotArtifact);
+        if (fs.existsSync(fullPath)) return fullPath;
+      }
+    }
+
+    // Fallback: look for any PNG/JPG in the results dir
+    try {
+      const files = fs.readdirSync(runResultsDir);
+      const screenshot = files.find((f) => /\.(png|jpg|jpeg)$/i.test(f));
+      if (screenshot) return path.join(runResultsDir, screenshot);
+    } catch {}
+
+    return null;
   }
 
   _buildInitialMessage(script, steps, errors, targetUrl, replayResult) {

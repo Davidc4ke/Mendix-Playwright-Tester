@@ -732,6 +732,16 @@ function startAPIServer() {
     });
     activeAgent = { type: "healer", agent: healer };
 
+    // Resolve results directory when healing by run ID
+    let runResultsDir = null;
+    let healArtifacts = [];
+    if (runId) {
+      const dir = path.join(RESULTS_DIR, runId);
+      if (fs.existsSync(dir)) runResultsDir = dir;
+      const run = loadDB().runs.find((r) => r.runId === runId);
+      healArtifacts = run?.results?.artifacts || [];
+    }
+
     res.json({ status: "running" });
 
     try {
@@ -741,6 +751,8 @@ function startAPIServer() {
         errors: healErrors,
         targetUrl: healUrl,
         credentials: healCreds,
+        runResultsDir,
+        artifacts: healArtifacts,
       });
       activeAgent = null;
       // If a scenarioId was provided, save the healed script
@@ -1189,6 +1201,8 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
     }
   };
 
+  const runResultsDir = path.join(RESULTS_DIR, runId);
+
   try {
     const result = await healer.heal({
       script: scenario.script || "",
@@ -1196,6 +1210,8 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
       errors: run.results.errors,
       targetUrl: scenario.targetUrl,
       credentials: scenario.credentials,
+      runResultsDir: fs.existsSync(runResultsDir) ? runResultsDir : null,
+      artifacts: run.results?.artifacts || [],
       onProgress,
     });
 
