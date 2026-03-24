@@ -176,9 +176,188 @@ async function assertWidgetVisible(page, widgetName, options = {}) {
  * @param {string} value       Visible label of the option to select
  */
 async function selectDropdown(page, widgetName, value) {
-  const select = page.locator(`.mx-name-${widgetName} select`).first();
-  await select.waitFor({ state: "visible" });
-  await select.selectOption({ label: value });
+  const widget = page.locator(`.mx-name-${widgetName}`).first();
+  await widget.waitFor({ state: "visible" });
+
+  // Try native <select> first
+  const select = widget.locator("select").first();
+  try {
+    await select.waitFor({ state: "attached", timeout: 2000 });
+    // Wait for Mendix to finish loading options (select starts disabled)
+    try {
+      await expect(select).toBeEnabled({ timeout: 15000 });
+      await select.selectOption({ label: value });
+      return;
+    } catch {
+      // Select stayed disabled — fall through to combobox strategies
+    }
+  } catch {
+    // No <select> inside this widget
+  }
+
+  // Fallback: combobox/custom dropdown interaction
+  const comboInput = widget.locator(
+    'input[role="combobox"], input[type="text"], input.form-control'
+  ).first();
+  try {
+    await comboInput.waitFor({ state: "visible", timeout: 3000 });
+    await comboInput.click();
+    await comboInput.fill(value);
+    await page.waitForTimeout(500);
+    const option = page
+      .locator('[role="listbox"] [role="option"], [role="option"]')
+      .filter({ hasText: value })
+      .first();
+    await option.waitFor({ state: "visible", timeout: 5000 });
+    await option.click();
+    return;
+  } catch {
+    // No combobox input
+  }
+
+  // Last resort: click the widget and pick from listbox
+  await widget.click();
+  const option = page
+    .locator('[role="listbox"] [role="option"], [role="option"]')
+    .filter({ hasText: value })
+    .first();
+  await option.waitFor({ state: "visible", timeout: 10000 });
+  await option.click();
+}
+
+/**
+ * Smart select — handles native <select> (including Mendix reference selectors
+ * that start disabled while loading) AND custom combobox/dropdown widgets.
+ *
+ * Strategy:
+ *  1. Wait for Mendix loading to settle
+ *  2. Locate the target element via the provided locator
+ *  3. If it's a native <select>: wait for it to become enabled, then selectOption
+ *  4. If it's a custom combobox/dropdown: click to open, type to filter, pick from listbox
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').Locator} locator  Playwright locator targeting the select/combobox
+ * @param {string} value  The option value or label text to select
+ * @param {{ timeout?: number }} [options]
+ */
+async function smartSelect(page, locator, value, options = {}) {
+  const { timeout = 30000 } = options;
+
+  // Let Mendix finish loading spinners/overlays
+  await waitForMendix(page);
+
+  // Determine what kind of element we're dealing with
+  await locator.first().waitFor({ state: "attached", timeout: 10000 });
+  const tagName = await locator.first().evaluate(el => el.tagName.toLowerCase());
+
+  if (tagName === "select") {
+    // ── Native <select> (Mendix Reference Selector / Dropdown) ──
+    // Mendix disables the <select> while loading options from the server.
+    // Wait for it to become enabled before attempting selectOption.
+    try {
+      await expect(locator.first()).toBeEnabled({ timeout });
+    } catch {
+      // If still disabled, check for a combobox sibling (Mendix 10 pattern:
+      // disabled native <select> + custom combobox overlay)
+      const handled = await _tryComboboxFallback(page, locator.first(), value, timeout);
+      if (handled) return;
+      throw new Error(
+        `smartSelect: <select> remained disabled after ${timeout}ms. ` +
+        "The widget may be conditionally read-only or still loading."
+      );
+    }
+
+    // Try selecting by value first (Mendix GUIDs), then by label
+    try {
+      await locator.first().selectOption(value);
+      return;
+    } catch {
+      // Value didn't match — try as label text
+    }
+    try {
+      await locator.first().selectOption({ label: value });
+      return;
+    } catch {
+      // Label didn't match either — try partial label match
+    }
+    // Last resort: find the option whose text contains the value
+    const optionTexts = await locator.first().locator("option").allTextContents();
+    const match = optionTexts.find(t => t.includes(value));
+    if (match) {
+      await locator.first().selectOption({ label: match });
+      return;
+    }
+    throw new Error(
+      `smartSelect: could not find option matching "${value}" in <select>. ` +
+      `Available options: ${optionTexts.slice(0, 10).join(", ")}`
+    );
+  }
+
+  // ── Custom combobox / dropdown widget ──
+  await _tryComboboxInteraction(page, locator, value, timeout);
+}
+
+/**
+ * Try to interact with a combobox overlay that sits alongside a disabled <select>.
+ * Mendix 10 reference selectors and combobox widgets render a custom dropdown
+ * next to (or instead of) the native <select>.
+ * @returns {boolean} true if the fallback handled the selection
+ */
+async function _tryComboboxFallback(page, selectLocator, value, timeout) {
+  // Walk up to the widget container (parent or grandparent of the <select>)
+  for (const ancestor of ["xpath=..", "xpath=../.."]) {
+    const container = selectLocator.locator(ancestor);
+    try {
+      // Look for a combobox input inside the container
+      const comboInput = container.locator(
+        'input[role="combobox"], input[type="text"], input.form-control'
+      ).first();
+      await comboInput.waitFor({ state: "visible", timeout: 3000 });
+      await comboInput.click();
+      await comboInput.fill(value);
+      await page.waitForTimeout(500); // Let Mendix filter the options
+
+      const option = page
+        .locator('[role="listbox"] [role="option"], .mx-referenceselector-option, .widget-combobox-menu-item')
+        .filter({ hasText: value })
+        .first();
+      await option.waitFor({ state: "visible", timeout: 5000 });
+      await option.click();
+      return true;
+    } catch {
+      // Try next ancestor level
+    }
+  }
+  return false;
+}
+
+/**
+ * Interact with a non-<select> custom dropdown / combobox widget.
+ */
+async function _tryComboboxInteraction(page, locator, value, timeout) {
+  // Click to open the dropdown
+  await locator.first().click();
+
+  // Look for a search/filter input inside or near the element
+  const searchInput = page.locator(
+    '[role="combobox"]:visible, .widget-combobox input:visible, input[aria-autocomplete]:visible'
+  ).first();
+
+  try {
+    await searchInput.waitFor({ state: "visible", timeout: 2000 });
+    await searchInput.fill(value);
+    await page.waitForTimeout(500);
+  } catch {
+    // No search input — the dropdown may show options directly
+  }
+
+  // Click the matching option from the listbox
+  const option = page
+    .locator('[role="listbox"] [role="option"], [role="option"], .widget-combobox-menu-item')
+    .filter({ hasText: value })
+    .first();
+  await option.waitFor({ state: "visible", timeout: timeout });
+  await option.click();
 }
 
 /**
@@ -698,6 +877,7 @@ module.exports = {
   selectReferenceSelector,
   selectComboBox,
   selectAutoComplete,
+  smartSelect,
   fillDatePicker,
   // Dialogs
   waitForPopup,

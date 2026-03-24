@@ -199,6 +199,11 @@ function wrapScript(script, targetUrl, credentials) {
   // Clean fragile Mendix selectors
   scriptBody = cleanMendixSelectors(scriptBody);
 
+  // Transform .selectOption() calls to use mx.smartSelect() which handles
+  // Mendix reference selectors (disabled <select> while loading) and
+  // custom combobox widgets (non-native dropdowns).
+  scriptBody = transformSelectOptionCalls(scriptBody);
+
   // Check if there's still a test() block after stripping
   const hasTestBlock = /\btest\s*\(/.test(scriptBody);
 
@@ -350,6 +355,31 @@ function cleanMendixSelectors(script) {
   );
 
   return cleaned;
+}
+
+/**
+ * Transform bare .selectOption() calls into mx.smartSelect() calls.
+ * Mendix reference selectors render a <select> that starts disabled while
+ * loading options from the server, causing Playwright's selectOption to timeout.
+ * mx.smartSelect waits for the element to become enabled and also handles
+ * custom combobox widgets.
+ *
+ * Transforms patterns like:
+ *   await page.getByLabel('X').selectOption('Y');
+ *   await page.locator('sel').selectOption('Y');
+ *   await page.getByRole('combobox', { name: 'X' }).selectOption('Y');
+ * Into:
+ *   await mx.smartSelect(page, page.getByLabel('X'), 'Y');
+ */
+function transformSelectOptionCalls(script) {
+  // Match: await <locator-expr>.selectOption(<value>);
+  // Capture: the locator expression (page.getBy*/page.locator) and the selectOption argument
+  return script.replace(
+    /await\s+(page\.(?:getByLabel|getByRole|getByText|getByPlaceholder|locator)\s*\([^)]*\)(?:\s*\.(?:first|last|nth)\s*\([^)]*\))*)\s*\.selectOption\s*\(([^)]+)\)\s*;/g,
+    (match, locatorExpr, valueExpr) => {
+      return `await mx.smartSelect(page, ${locatorExpr}, ${valueExpr});`;
+    }
+  );
 }
 
 // ── Playwright execution ─────────────────────────────────
