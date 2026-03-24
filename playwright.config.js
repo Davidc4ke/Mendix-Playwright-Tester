@@ -41,9 +41,9 @@ if (!ffmpegInstalled) {
 }
 
 const useOptions = {
-  // Navigation & action timeouts
-  navigationTimeout: 45_000,
-  actionTimeout: 15_000,
+  // Navigation & action timeouts — step timeout configurable via Settings
+  navigationTimeout: process.env.ZONIQ_STEP_TIMEOUT ? parseInt(process.env.ZONIQ_STEP_TIMEOUT, 10) * 1000 : 45_000,
+  actionTimeout: process.env.ZONIQ_STEP_TIMEOUT ? parseInt(process.env.ZONIQ_STEP_TIMEOUT, 10) * 1000 : 15_000,
 
   // Capture evidence on failure
   screenshot: "only-on-failure",
@@ -83,8 +83,8 @@ module.exports = defineConfig({
 
   use: useOptions,
 
-  // Retry once on failure (Mendix timing issues)
-  retries: 1,
+  // Retry on failure — configurable via Settings (default: off)
+  retries: process.env.ZONIQ_RETRIES ? parseInt(process.env.ZONIQ_RETRIES, 10) : 0,
 
   // JSON reporter for programmatic parsing + HTML for humans
   reporter: [

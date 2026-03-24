@@ -386,9 +386,12 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
 
   return new Promise((resolve) => {
     const channel = getBrowserChannel();
+    const settings = loadSettings();
     const env = getPlaywrightEnv({
       PLAYWRIGHT_JSON_OUTPUT_FILE: reportPath,
       ...(channel ? { ZONIQ_BROWSER_CHANNEL: channel } : {}),
+      ZONIQ_RETRIES: settings.testExecution.retryOnFailure ? "1" : "0",
+      ZONIQ_STEP_TIMEOUT: String(settings.testExecution.stepTimeout || 30),
     });
     const runIdPrefix = path.basename(scriptPath, ".spec.js");
     // Default to headed on desktop; set ZONIQ_HEADED=false to run headless (e.g. on CI)
