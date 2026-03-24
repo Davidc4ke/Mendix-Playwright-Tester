@@ -1429,6 +1429,239 @@ body {
 .mini-bar-seg.pass { background: var(--emerald); }
 .mini-bar-seg.fail { background: var(--rose); }
 .mini-bar-seg.skip { background: var(--text-muted); opacity: 0.3; }
+
+/* ══════════════════════════════════════════════════════════
+   TEST RUN DETAIL VIEW
+   ══════════════════════════════════════════════════════════ */
+.run-detail-panel {
+  display: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  z-index: 1;
+  padding: var(--space-8);
+}
+
+.run-detail-panel.visible {
+  display: block;
+}
+
+/* Stats grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.stat-card {
+  padding: var(--space-4);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.stat-card:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.stat-value.success { color: var(--emerald); }
+.stat-value.danger { color: var(--rose); }
+.stat-value.info { color: var(--cyan); }
+.stat-value.neutral { color: var(--text-primary); }
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Step results timeline */
+.step-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.step-result-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 12px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.step-result-row:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+}
+
+.step-result-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.step-result-icon.pass {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--emerald);
+}
+
+.step-result-icon.fail {
+  background: rgba(244, 63, 94, 0.15);
+  color: var(--rose);
+}
+
+.step-result-icon.skip {
+  background: rgba(74, 73, 96, 0.3);
+  color: var(--text-muted);
+}
+
+.step-result-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-result-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.step-result-target {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.step-result-duration {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* Error block */
+.error-block {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  background: rgba(244, 63, 94, 0.06);
+  border: 1px solid rgba(244, 63, 94, 0.2);
+  border-left: 3px solid var(--rose);
+  border-radius: var(--radius-lg);
+}
+
+.error-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rose);
+  margin-bottom: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.error-message {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  background: rgba(0, 0, 0, 0.3);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+}
+
+.error-stack {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+/* Back button */
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-smooth);
+  margin-bottom: var(--space-4);
+}
+
+.btn-back:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+/* Artifacts row */
+.artifacts-row {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.artifact-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--cyan);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all var(--duration) var(--ease-smooth);
+}
+
+.artifact-link:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-glow-cyan);
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.15);
+}
 </style>
 </head>
 <body>
@@ -1977,6 +2210,136 @@ body {
         </table>
       </div>
     </main>
+
+    <!-- ── TEST RUN DETAIL VIEW (hidden by default, toggled via JS) ── -->
+    <div class="run-detail-panel" id="run-detail">
+      <button class="btn-back" id="btn-back-to-scenario">&#8592; Back to scenario</button>
+
+      <div class="detail-header">
+        <div class="detail-header-top">
+          <div>
+            <div class="detail-title">Run #run-g7h8i9</div>
+            <div class="detail-subtitle">Login Flow - Happy Path &middot; 3h ago &middot; Duration: 2.1s</div>
+          </div>
+          <div class="detail-actions">
+            <button class="btn-action-primary"><span class="btn-icon">&#8635;</span> Re-run</button>
+            <button class="btn-action-ghost"><span class="btn-icon">&#128203;</span> Copy Report</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats grid -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value danger">Failed</div>
+          <div class="stat-label">Status</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value success">5</div>
+          <div class="stat-label">Steps Passed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value danger">1</div>
+          <div class="stat-label">Steps Failed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value info">2.1s</div>
+          <div class="stat-label">Duration</div>
+        </div>
+      </div>
+
+      <!-- Step results -->
+      <div class="section-header">
+        <span class="section-title">Step Results</span>
+      </div>
+
+      <div class="step-results">
+        <div class="step-result-row">
+          <span class="step-result-icon pass">&#10003;</span>
+          <div class="step-result-info">
+            <div class="step-result-name">Navigate - Open application URL</div>
+            <div class="step-result-target">https://myapp.mendixcloud.com/login.html</div>
+          </div>
+          <span class="step-result-duration">0.3s</span>
+        </div>
+        <div class="step-result-row">
+          <span class="step-result-icon pass">&#10003;</span>
+          <div class="step-result-info">
+            <div class="step-result-name">Login - Login as admin user</div>
+            <div class="step-result-target">mx:txtUsername, mx:txtPassword</div>
+          </div>
+          <span class="step-result-duration">0.8s</span>
+        </div>
+        <div class="step-result-row">
+          <span class="step-result-icon pass">&#10003;</span>
+          <div class="step-result-info">
+            <div class="step-result-name">Wait - Wait for Mendix to load</div>
+            <div class="step-result-target">waitForMendix(page)</div>
+          </div>
+          <span class="step-result-duration">0.5s</span>
+        </div>
+        <div class="step-result-row">
+          <span class="step-result-icon pass">&#10003;</span>
+          <div class="step-result-info">
+            <div class="step-result-name">Click - Click "New Order" button</div>
+            <div class="step-result-target">mx:btnNewOrder</div>
+          </div>
+          <span class="step-result-duration">0.2s</span>
+        </div>
+        <div class="step-result-row">
+          <span class="step-result-icon pass">&#10003;</span>
+          <div class="step-result-info">
+            <div class="step-result-name">Wait - Wait for popup dialog</div>
+            <div class="step-result-target">waitForPopup(page)</div>
+          </div>
+          <span class="step-result-duration">0.3s</span>
+        </div>
+        <div class="step-result-row" style="border-color: rgba(244, 63, 94, 0.2);">
+          <span class="step-result-icon fail">&#10007;</span>
+          <div class="step-result-info">
+            <div class="step-result-name" style="color:var(--rose);">Fill - Enter order title</div>
+            <div class="step-result-target">mx:txtTitle &rarr; "Test Order #42"</div>
+          </div>
+          <span class="step-result-duration" style="color:var(--rose);">timeout</span>
+        </div>
+        <div class="step-result-row">
+          <span class="step-result-icon skip">&#8212;</span>
+          <div class="step-result-info">
+            <div class="step-result-name" style="opacity:0.5;">Select - Choose priority level</div>
+            <div class="step-result-target" style="opacity:0.4;">skipped</div>
+          </div>
+          <span class="step-result-duration" style="opacity:0.4;">-</span>
+        </div>
+        <div class="step-result-row">
+          <span class="step-result-icon skip">&#8212;</span>
+          <div class="step-result-info">
+            <div class="step-result-name" style="opacity:0.5;">Assert - Verify success message</div>
+            <div class="step-result-target" style="opacity:0.4;">skipped</div>
+          </div>
+          <span class="step-result-duration" style="opacity:0.4;">-</span>
+        </div>
+      </div>
+
+      <!-- Error block -->
+      <div class="error-block">
+        <div class="error-title">&#9888; Error on Step 6: Fill - Enter order title</div>
+        <div class="error-message">TimeoutError: locator.fill: Timeout 30000ms exceeded.
+=========================== logs ===========================
+waiting for locator('.mx-name-txtTitle input')
+  locator resolved to 0 elements</div>
+        <div class="error-stack">    at fillWidget (/helpers/mendix-helpers.js:42:15)
+    at Object.&lt;anonymous&gt; (login-flow-happy-path.spec.js:15:9)
+    at TestRunner.run (/node_modules/@playwright/test/lib/runner.js:88:22)</div>
+      </div>
+
+      <!-- Artifacts -->
+      <div class="artifacts-row">
+        <a class="artifact-link">&#128247; Screenshot</a>
+        <a class="artifact-link">&#127916; Video Recording</a>
+        <a class="artifact-link">&#128203; Trace Viewer</a>
+        <a class="artifact-link">&#128196; JSON Report</a>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2008,6 +2371,22 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     const indicator = document.getElementById('tabIndicator');
     indicator.classList.toggle('right', target === 'runs');
   });
+});
+
+// Run detail toggle: click table row to show run detail
+const scenarioPanel = document.querySelector('.detail-panel');
+const runDetailPanel = document.getElementById('run-detail');
+
+document.querySelectorAll('.runs-table tbody tr').forEach(row => {
+  row.addEventListener('click', () => {
+    scenarioPanel.style.display = 'none';
+    runDetailPanel.classList.add('visible');
+  });
+});
+
+document.getElementById('btn-back-to-scenario').addEventListener('click', () => {
+  runDetailPanel.classList.remove('visible');
+  scenarioPanel.style.display = '';
 });
 </script>
 </body>
