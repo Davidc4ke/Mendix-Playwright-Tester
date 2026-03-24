@@ -226,14 +226,34 @@ async function selectDropdown(page, widgetName, value) {
 }
 
 /**
+ * Detect whether a value looks like a Mendix internal GUID rather than
+ * human-readable label text.  Mendix GUIDs are typically:
+ *  - Long numeric IDs (e.g. "12345678901234")
+ *  - UUIDs (e.g. "a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+ *  - Hex strings (e.g. "5a3f9c1b2d4e")
+ */
+function _looksLikeGuid(value) {
+  if (!value || typeof value !== "string") return false;
+  const v = value.trim();
+  // Pure numeric ID (10+ digits — short numbers like "1" or "42" could be legit values)
+  if (/^\d{10,}$/.test(v)) return true;
+  // UUID pattern
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) return true;
+  // Long hex string (12+ hex chars, no spaces or readable text)
+  if (/^[0-9a-f]{12,}$/i.test(v)) return true;
+  return false;
+}
+
+/**
  * Smart select — handles native <select> (including Mendix reference selectors
  * that start disabled while loading) AND custom combobox/dropdown widgets.
  *
- * Strategy:
+ * Strategy (label-first, never match on GUIDs):
  *  1. Wait for Mendix loading to settle
  *  2. Locate the target element via the provided locator
- *  3. If it's a native <select>: wait for it to become enabled, then selectOption
- *  4. If it's a custom combobox/dropdown: click to open, type to filter, pick from listbox
+ *  3. If the value looks like a GUID, resolve it to the label of the matching <option>
+ *  4. If it's a native <select>: wait for enabled, then select by label text
+ *  5. If it's a custom combobox/dropdown: click to open, type to filter, pick from listbox
  *
  * @param {import('@playwright/test').Page} page
  * @param {import('@playwright/test').Locator} locator  Playwright locator targeting the select/combobox
@@ -267,28 +287,37 @@ async function smartSelect(page, locator, value, options = {}) {
       );
     }
 
-    // Try selecting by value first (Mendix GUIDs), then by label
+    // Always select by label text — never by GUID/internal value.
+    // This is a UAT tool: users see labels, not GUIDs. Mendix regenerates
+    // GUIDs across environments so they're useless for matching anyway.
+
+    // If the recorded value is actually a GUID (numeric ID or UUID), resolve
+    // it to the label of the <option> that currently has that value attribute.
+    let labelToSelect = value;
+    if (_looksLikeGuid(value)) {
+      const resolved = await locator.first().locator(`option[value="${value}"]`).textContent().catch(() => null);
+      if (resolved && resolved.trim()) {
+        labelToSelect = resolved.trim();
+      }
+      // If we can't resolve it, fall through and try the raw value as label text anyway
+    }
+
+    // Try exact label match
     try {
-      await locator.first().selectOption(value);
+      await locator.first().selectOption({ label: labelToSelect });
       return;
     } catch {
-      // Value didn't match — try as label text
+      // Exact label didn't match — try partial label match
     }
-    try {
-      await locator.first().selectOption({ label: value });
-      return;
-    } catch {
-      // Label didn't match either — try partial label match
-    }
-    // Last resort: find the option whose text contains the value
+    // Partial match: find the option whose text contains the label
     const optionTexts = await locator.first().locator("option").allTextContents();
-    const match = optionTexts.find(t => t.includes(value));
+    const match = optionTexts.find(t => t.trim() && t.includes(labelToSelect));
     if (match) {
       await locator.first().selectOption({ label: match });
       return;
     }
     throw new Error(
-      `smartSelect: could not find option matching "${value}" in <select>. ` +
+      `smartSelect: could not find option matching "${labelToSelect}" in <select>. ` +
       `Available options: ${optionTexts.slice(0, 10).join(", ")}`
     );
   }
