@@ -258,8 +258,14 @@ function generateStepCode(step) {
   switch (step.action) {
     case "Navigate":
       return `  await page.goto('${val}');\n  await mx.waitForMendix(page);`;
-    case "Login":
+    case "Login": {
+      if (step.username && step.password) {
+        const u = escapeJsString(step.username);
+        const p = escapeJsString(step.password);
+        return `  await mx.login(page, TARGET_URL, '${u}', '${p}');`;
+      }
       return `  await mx.login(page, TARGET_URL, CREDENTIALS.username, CREDENTIALS.password);`;
+    }
     case "Click":
       if (step.selector?.startsWith("mx:"))
         return `  await mx.clickWidget(page, '${widgetName(step.selector)}');`;
@@ -296,6 +302,8 @@ function generateStepCode(step) {
       return `  await mx.closePopup(page);`;
     case "WaitForMicroflow":
       return `  await mx.waitForMicroflow(page);`;
+    case "Logout":
+      return `  await page.goto(TARGET_URL + '/logout');\n  await mx.waitForMendix(page);`;
     case "Screenshot":
       return `  await page.screenshot({ path: 'results/${val || "screenshot"}.png', fullPage: true });`;
     default:
@@ -306,7 +314,11 @@ function generateStepCode(step) {
 function generateScriptFromSteps(steps, testName, targetUrl) {
   const lines = steps.map((step, idx) => {
     const code = generateStepCode(step);
-    const desc = escapeJsString(`${step.action}${step.selector ? ' ' + step.selector : ''}${step.value ? ' = ' + step.value : ''}`);
+    const desc = escapeJsString(
+      step.action === 'Login' && step.username
+        ? `Login as ${step.username}`
+        : `${step.action}${step.selector ? ' ' + step.selector : ''}${step.value ? ' = ' + step.value : ''}`
+    );
     // Wrap each step with progress markers so the runner can track execution
     return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
       `  try {\n  ${code}\n` +
