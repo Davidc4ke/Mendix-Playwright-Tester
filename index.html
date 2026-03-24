@@ -1515,7 +1515,6 @@ function showScenarioDetail(sc) {
         <button class="btn btn-primary" onclick="executeSelected()">&#9654; Run Test</button>
         <button class="btn btn-ai" onclick="startPrehealing('${sc.id}')">&#10024; Pre-heal</button>
         <button class="btn" onclick="editScenario('${sc.id}')">&#9998; Edit</button>
-        <button class="btn btn-sm" onclick="toggleStepMode('${sc.id}')" title="${sc.steps?.length && !sc._showRawScript ? 'View generated script' : 'Switch to step editor'}">${sc.steps?.length && !sc._showRawScript ? '&#128196; Script' : '&#9776; Steps'}</button>
         <button class="btn btn-danger btn-sm" onclick="deleteScenario('${sc.id}')">&#128465;</button>
       </div>
     </div>
@@ -1525,11 +1524,11 @@ function showScenarioDetail(sc) {
         <p style="font-size:12px;font-family:var(--font);color:var(--text-secondary);">User: ${esc(sc.credentials.username)}</p>
       ` : ''}
 
-      ${sc.steps?.length && !sc._showRawScript
-        ? renderStepEditor(sc)
-        : `<div class="section-header">Script</div>
-           <pre class="script-area" style="min-height:100px;max-height:300px;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(sc.script || '// No script defined')}</pre>`
-      }
+      <div class="section-header">Steps</div>
+      ${renderStepEditor(sc)}
+
+      <div class="section-header" style="margin-top:16px;">Script</div>
+      <pre class="script-area" style="min-height:60px;max-height:200px;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(sc.script || '// No script defined')}</pre>
 
       ${lastRuns.length ? `
         <div class="section-header">Recent Runs</div>
@@ -1580,7 +1579,6 @@ function renderStepEditor(sc) {
   }).join('');
 
   return `
-    <div class="section-header">Steps</div>
     <div class="step-editor-toolbar">
       <span style="font-size:11px;color:var(--text-muted);">${steps.length} step${steps.length !== 1 ? 's' : ''}</span>
       <button class="btn btn-sm btn-primary" onclick="saveSteps('${sc.id}')">&#128190; Save Steps</button>
@@ -1642,18 +1640,6 @@ async function saveSteps(scenarioId) {
   await loadScenarios();
   selectScenario(saved.id);
   toast('Steps saved', 'success');
-}
-
-function toggleStepMode(scenarioId) {
-  const sc = scenarios.find(s => s.id === scenarioId);
-  if (!sc) return;
-  if (sc.steps && sc.steps.length) {
-    sc._showRawScript = !sc._showRawScript;
-  } else {
-    sc.steps = [{ action: 'Click', selector: '', value: '', order: 0 }];
-    sc._showRawScript = false;
-  }
-  showScenarioDetail(sc);
 }
 
 async function executeSelected() {
