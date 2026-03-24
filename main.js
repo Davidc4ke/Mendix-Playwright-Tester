@@ -194,7 +194,7 @@ test('Recorded Test', async ({ page }) => {
   }
 
   return `
-const { test, expect } = require('@playwright/test');
+const { test, expect, chromium } = require('@playwright/test');
 const mx = require('${MENDIX_HELPERS_PATH}');
 const TARGET_URL = ${JSON.stringify(targetUrl)};
 const CREDENTIALS = ${JSON.stringify(credentials || {})};
