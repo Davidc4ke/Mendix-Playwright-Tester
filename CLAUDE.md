@@ -167,11 +167,11 @@ When implementing new fixes: always solve at the `wrapScript()` / helper layer s
 
 **Mendix GUIDs are internal, ephemeral, environment-specific IDs. They MUST NEVER appear in stored scripts or the step editor.** This is a UAT (User Acceptance Testing) tool — users select by human-readable labels, not internal IDs. GUIDs change between environments, deploys, and even page loads. They are meaningless for test targeting.
 
-**Primary mechanism — prevent GUIDs at recording time:**
-- `recorder.js` uses `context.addInitScript()` to inject a script that replaces `<option>` GUID values with their visible `textContent` BEFORE the user interacts
-- A `MutationObserver` catches dynamically loaded options (Mendix loads these async)
-- Playwright's codegen naturally records `.selectOption('Label Text')` instead of `.selectOption('some-guid')`
-- No post-recording headless browser needed — GUIDs never enter the script in the first place
+**Primary mechanism — runtime GUID resolution (no DOM mutation):**
+- GUIDs may appear in recorded scripts (Playwright codegen records the `<option>` value attribute)
+- `wrapScript()` transforms `.selectOption()` → `mx.smartSelect()` which resolves GUIDs to labels at runtime
+- `smartSelect()` detects GUID values via `looksLikeGuid()`, looks up the matching `<option>` label, and selects by label text
+- The DOM is never mutated during recording — Mendix form handling works normally
 
 **Fallback layers (defense in depth):**
 1. **Step editor UI** — `parseScriptToSteps()` strips any remaining GUID values so the user never sees them

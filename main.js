@@ -382,10 +382,10 @@ function transformSelectOptionCalls(script) {
   );
 }
 
-// GUID resolution is now handled at recording time — recorder.js injects a
-// script that swaps <option> values with their visible text BEFORE the user
-// interacts, so codegen naturally records labels instead of GUIDs.
-// No post-recording headless browser needed.
+// GUID resolution is handled at runtime — wrapScript() transforms
+// .selectOption() calls into mx.smartSelect() which detects GUIDs via
+// looksLikeGuid() and resolves them to visible <option> labels before selecting.
+// No post-recording headless browser or DOM mutation needed.
 
 // ── Playwright execution ─────────────────────────────────
 function extractSpecs(suites) {
