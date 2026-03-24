@@ -1586,16 +1586,24 @@ let _stepSaveTimer = null;
 function _autoSaveScenario(sc) {
   clearTimeout(_stepSaveTimer);
   _stepSaveTimer = setTimeout(async () => {
-    await window.zoniq.saveScenario(sc);
+    // Send only persistent fields — steps are ephemeral (derived from script)
+    const { steps, ...persistent } = sc;
+    await window.zoniq.saveScenario(persistent);
     toast('Script updated', 'success');
   }, 600);
 }
 
 function _updateStepInScript(sc, step) {
   const oldSource = step.sourceText;
+  // Count how many prior steps share the same sourceText (for duplicate handling)
+  let occurrence = 0;
+  for (const s of sc.steps) {
+    if (s === step) break;
+    if (s.sourceText === oldSource) occurrence++;
+  }
   try {
     const newCode = generateStepCode(step).trim();
-    sc.script = replaceInScript(sc.script, oldSource, newCode);
+    sc.script = replaceInScript(sc.script, oldSource, newCode, occurrence);
     step.sourceText = newCode;
   } catch (err) {
     toast(err.message, 'error');

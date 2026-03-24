@@ -849,7 +849,7 @@ function startAPIServer() {
 
   api.post("/api/agent/cancel", (req, res) => {
     if (activeAgent) {
-      activeAgent.agent.cancel();
+      if (activeAgent.agent) activeAgent.agent.cancel();
       activeAgent = null;
       res.json({ ok: true });
     } else {
@@ -1036,19 +1036,18 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
   let stepList = null;
   const stepResults = {}; // { stepIndex: { status, error, startedAt, completedAt } }
 
-  // Derive steps from script for progress tracking
+  // Derive steps from script for progress tracking.
+  // Step indices must match the marker indices injected by injectStepMarkers(),
+  // which are 0-based per statement in the test body.
   const parsedSteps = scenario.script ? ScriptUtils.parseScriptToSteps(scenario.script) : [];
   if (parsedSteps.length) {
-    stepList = [
-      { index: -1, action: "Navigate", description: "Navigate to target URL" },
-      ...parsedSteps.map((s, i) => ({
-        index: i,
-        action: s.action,
-        selector: s.selector || "",
-        value: s.value || "",
-        description: `${s.action}${s.selector ? ' ' + s.selector : ''}${s.value ? ' = ' + s.value : ''}`,
-      })),
-    ];
+    stepList = parsedSteps.map((s, i) => ({
+      index: i,
+      action: s.action,
+      selector: s.selector || "",
+      value: s.value || "",
+      description: `${s.action}${s.selector ? ' ' + s.selector : ''}${s.value ? ' = ' + s.value : ''}`,
+    }));
     mainWindow.webContents.send("step-list", { runId, steps: stepList });
   }
 
@@ -1327,7 +1326,7 @@ ipcMain.handle("agent-heal-apply", async (event, { scenarioId, healedScript }) =
 
 ipcMain.handle("agent-cancel", () => {
   if (activeAgent) {
-    activeAgent.agent.cancel();
+    if (activeAgent.agent) activeAgent.agent.cancel();
     activeAgent = null;
     return { ok: true };
   }
@@ -1371,7 +1370,7 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   // Clean up any running agents
   if (activeAgent) {
-    activeAgent.agent.cancel();
+    if (activeAgent.agent) activeAgent.agent.cancel();
     activeAgent = null;
   }
   if (apiServer) apiServer.close();
