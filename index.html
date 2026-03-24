@@ -1516,9 +1516,25 @@ function parseScriptToSteps(script) {
   if (!body) return [];
   const statements = splitIntoStatements(body);
   const steps = [];
+  // Track visited base URLs to detect redundant navigations
+  const visitedOrigins = new Set();
   for (const stmt of statements) {
     const step = parseStatement(stmt);
     if (step) {
+      // Skip redundant Navigate steps — if we already visited a URL on this
+      // origin and the new goto is just the root or a shorter path, it's almost
+      // certainly a SPA artifact from Playwright's recorder.
+      if (step.action === 'Navigate' && step.value) {
+        try {
+          const url = new URL(step.value);
+          const origin = url.origin;
+          const isRootish = url.pathname === '/' || url.pathname === '';
+          if (isRootish && visitedOrigins.has(origin)) {
+            continue; // skip redundant navigation to app root
+          }
+          visitedOrigins.add(origin);
+        } catch { /* not a valid URL, keep it */ }
+      }
       step.order = steps.length;
       step.selector = step.selector || '';
       step.value = step.value || '';
