@@ -99,19 +99,41 @@ if (!url || !outputPath) {
   }
 
   // _enableRecorder keeps the Playwright Inspector alive even after the user
-  // closes the browser tab. The Inspector may count as a page in context.pages(),
-  // so we can't rely on "all pages closed". Instead, when the main page closes,
-  // force-exit — the script file has already been written by the recorder.
+  // closes the browser tab. Event listeners (page "close", browser "disconnected")
+  // may not fire reliably because the recorder intercepts page lifecycle.
+  // Use multiple strategies to detect shutdown:
+
+  // Strategy 1: page close event
   page.on("close", () => {
     console.log("[recorder] Main page closed, exiting");
     setTimeout(() => process.exit(0), 300);
   });
 
-  // Also handle normal browser disconnect (user closes entire browser window)
+  // Strategy 2: browser disconnect event
   browser.on("disconnected", () => {
     console.log("[recorder] Browser disconnected, exiting");
     setTimeout(() => process.exit(0), 300);
   });
+
+  // Strategy 3: poll — check if the page is still alive every second.
+  // This catches cases where events don't fire (e.g. _enableRecorder
+  // intercepts them, or the browser process is killed externally).
+  const pollInterval = setInterval(async () => {
+    try {
+      // page.isClosed() is synchronous and doesn't need CDP
+      if (page.isClosed()) {
+        console.log("[recorder] Page detected as closed (poll), exiting");
+        clearInterval(pollInterval);
+        process.exit(0);
+      }
+      // Also try a lightweight CDP call to verify the connection is alive
+      await page.evaluate("1").catch(() => null);
+    } catch {
+      console.log("[recorder] Browser connection lost (poll), exiting");
+      clearInterval(pollInterval);
+      process.exit(0);
+    }
+  }, 1000);
 
   // Keep the process alive until one of the above fires
   await new Promise(() => {});
