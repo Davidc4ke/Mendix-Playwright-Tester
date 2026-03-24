@@ -178,6 +178,24 @@ function wrapScript(script, targetUrl, credentials) {
     .replace(/test\.use\s*\(\s*\{[\s\S]*?\}\s*\)\s*;/g, '')
     .trim();
 
+  // Unwrap IIFE pattern from Playwright codegen: (async () => { ... })();
+  const iifeMatch = scriptBody.match(/^\(\s*async\s*\(\s*\)\s*=>\s*\{([\s\S]*)\}\s*\)\s*\(\s*\)\s*;?\s*$/);
+  if (iifeMatch) {
+    scriptBody = iifeMatch[1].trim();
+  }
+
+  // Strip codegen boilerplate (browser/context/page lifecycle)
+  scriptBody = scriptBody
+    .replace(/const\s+browser\s*=\s*await\s+chromium\.launch\s*\(\s*\{[\s\S]*?\}\s*\)\s*;/g, '')
+    .replace(/const\s+context\s*=\s*await\s+browser\.newContext\s*\(\s*\{[\s\S]*?\}\s*\)\s*;/g, '')
+    .replace(/const\s+context\s*=\s*await\s+browser\.newContext\s*\(\s*\)\s*;/g, '')
+    .replace(/const\s+page\s*=\s*await\s+context\.newPage\s*\(\s*\)\s*;/g, '')
+    .replace(/await\s+page\.close\s*\(\s*\)\s*;/g, '')
+    .replace(/await\s+context\.close\s*\(\s*\)\s*;/g, '')
+    .replace(/await\s+browser\.close\s*\(\s*\)\s*;/g, '')
+    .replace(/\/\/\s*-{3,}\s*$/gm, '')
+    .trim();
+
   // Clean fragile Mendix selectors
   scriptBody = cleanMendixSelectors(scriptBody);
 
@@ -185,12 +203,15 @@ function wrapScript(script, targetUrl, credentials) {
   const hasTestBlock = /\btest\s*\(/.test(scriptBody);
 
   if (!hasTestBlock) {
+    // Only inject goto(TARGET_URL) + waitForMendix if the script doesn't already
+    // have its own page.goto (e.g. from a Codegen recording that was unwrapped above)
+    const hasOwnGoto = /await\s+page\.goto\s*\(/.test(scriptBody);
+    const preamble = hasOwnGoto
+      ? ''
+      : '  await page.goto(TARGET_URL);\n  await mx.waitForMendix(page);\n\n  ';
     scriptBody = `
 test('Recorded Test', async ({ page }) => {
-  await page.goto(TARGET_URL);
-  await mx.waitForMendix(page);
-
-  ${scriptBody}
+${preamble}${hasOwnGoto ? '  ' : ''}${scriptBody}
 });
 `;
   }
@@ -219,23 +240,58 @@ function injectStepMarkers(scriptBody) {
   const statements = ScriptUtils.splitIntoStatements(body);
   if (!statements.length) return scriptBody;
 
-  // Build wrapped version of each statement
-  const wrapped = statements.map((stmt, idx) => {
+  // Build wrapped version of each statement.
+  // Marker indices must match the step indices from parseScriptToSteps().
+  // We apply the same filtering (skip boilerplate, skip redundant navigates)
+  // and assign index -1 to filtered statements so they don't affect step tracking.
+  const visitedOrigins = new Set();
+  let realIdx = 0;
+
+  const wrapped = statements.map((stmt, stmtIdx) => {
     const desc = ScriptUtils.describeStatement(stmt.text);
-    // Raw / multi-statement blocks should not be wrapped in try/catch to avoid
-    // scoping issues with const/let declarations.
+
+    // Check if this statement would be filtered by parseScriptToSteps
+    let isFiltered = false;
+
+    // Skip codegen boilerplate (browser/context/page lifecycle)
+    if (/const\s+browser\s*=\s*await\s+\S+\.launch\s*\(/.test(stmt.text)) isFiltered = true;
+    if (/const\s+context\s*=\s*await\s+browser\.newContext\s*\(/.test(stmt.text)) isFiltered = true;
+    if (/const\s+page\s*=\s*await\s+context\.newPage\s*\(/.test(stmt.text)) isFiltered = true;
+    if (/await\s+page\.close\s*\(\s*\)/.test(stmt.text)) isFiltered = true;
+    if (/await\s+context\.close\s*\(\s*\)/.test(stmt.text)) isFiltered = true;
+    if (/await\s+browser\.close\s*\(\s*\)/.test(stmt.text)) isFiltered = true;
+
+    // Skip injected helpers that don't appear in the original script's step list
+    if (/await\s+page\.goto\s*\(\s*TARGET_URL\s*\)/.test(stmt.text)) isFiltered = true;
+    if (/await\s+mx\.waitForMendix\s*\(/.test(stmt.text)) isFiltered = true;
+
+    // Skip redundant navigates (same logic as parseScriptToSteps)
+    if (!isFiltered) {
+      const navMatch = stmt.text.match(/await\s+page\.goto\s*\(\s*['"]([^'"]+)['"]\s*\)/);
+      if (navMatch) {
+        try {
+          const url = new URL(navMatch[1]);
+          const isRootish = url.pathname === '/' || url.pathname === '';
+          if (isRootish && visitedOrigins.has(url.origin)) isFiltered = true;
+          visitedOrigins.add(url.origin);
+        } catch { /* not a valid URL, keep it */ }
+      }
+    }
+
+    const idx = isFiltered ? -1 : realIdx++;
     const isRaw = /^(?:const|let|var)\s/.test(stmt.text);
     if (isRaw) {
       return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
         `  ${stmt.text}\n` +
         `  console.log('[ZONIQ_STEP:DONE:${idx}]');`;
     }
+    const errVar = `_stepErr_${stmtIdx}`;
     return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
       `  try {\n    ${stmt.text}\n` +
       `    console.log('[ZONIQ_STEP:DONE:${idx}]');\n` +
-      `  } catch (_stepErr_${idx}) {\n` +
-      `    console.log('[ZONIQ_STEP:FAIL:${idx}:' + _stepErr_${idx}.message.replace(/\\n/g, ' ') + ']');\n` +
-      `    throw _stepErr_${idx};\n` +
+      `  } catch (${errVar}) {\n` +
+      `    console.log('[ZONIQ_STEP:FAIL:${idx}:' + ${errVar}.message.replace(/\\n/g, ' ') + ']');\n` +
+      `    throw ${errVar};\n` +
       `  }`;
   });
 
