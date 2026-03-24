@@ -15,6 +15,7 @@ const cors = require("cors");
 const { loadSettings, saveSettings, getDefaultModel } = require("./settings");
 const { LLMClient } = require("./agents/llm-client");
 const { HealerAgent } = require("./agents/healer-agent");
+const ScriptUtils = require("./lib/script-utils");
 
 // ── Paths ────────────────────────────────────────────────
 const USER_DATA = app.getPath("userData");
@@ -157,15 +158,6 @@ function validateRunId(id) {
   return id;
 }
 
-/** Escape a value for safe embedding inside a single-quoted JS string literal. */
-function escapeJsString(str) {
-  return String(str ?? "")
-    .replace(/\\/g, "\\\\")
-    .replace(/'/g, "\\'")
-    .replace(/\r/g, "\\r")
-    .replace(/\n/g, "\\n");
-}
-
 function wrapScript(script, targetUrl, credentials) {
   let scriptBody = script.trim();
 
@@ -203,6 +195,9 @@ test('Recorded Test', async ({ page }) => {
 `;
   }
 
+  // Inject per-statement progress markers into the test body
+  scriptBody = injectStepMarkers(scriptBody);
+
   return `
 const { test, expect, chromium } = require('@playwright/test');
 const mx = require('${MENDIX_HELPERS_PATH}');
@@ -211,6 +206,48 @@ const CREDENTIALS = ${JSON.stringify(credentials || {})};
 
 ${scriptBody}
 `;
+}
+
+/**
+ * Inject [ZONIQ_STEP:START/DONE/FAIL] markers around each statement in the
+ * test body so the runner can report per-step progress.
+ */
+function injectStepMarkers(scriptBody) {
+  const body = ScriptUtils.extractTestBody(scriptBody);
+  if (!body) return scriptBody;
+
+  const statements = ScriptUtils.splitIntoStatements(body);
+  if (!statements.length) return scriptBody;
+
+  // Build wrapped version of each statement
+  const wrapped = statements.map((stmt, idx) => {
+    const desc = ScriptUtils.describeStatement(stmt.text);
+    // Raw / multi-statement blocks should not be wrapped in try/catch to avoid
+    // scoping issues with const/let declarations.
+    const isRaw = /^(?:const|let|var)\s/.test(stmt.text);
+    if (isRaw) {
+      return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
+        `  ${stmt.text}\n` +
+        `  console.log('[ZONIQ_STEP:DONE:${idx}]');`;
+    }
+    return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
+      `  try {\n    ${stmt.text}\n` +
+      `    console.log('[ZONIQ_STEP:DONE:${idx}]');\n` +
+      `  } catch (_stepErr_${idx}) {\n` +
+      `    console.log('[ZONIQ_STEP:FAIL:${idx}:' + _stepErr_${idx}.message.replace(/\\n/g, ' ') + ']');\n` +
+      `    throw _stepErr_${idx};\n` +
+      `  }`;
+  });
+
+  // Replace the test body with the wrapped version
+  // Find the test body boundaries in scriptBody and splice in the wrapped code
+  const testBodyMatch = scriptBody.match(
+    /(\btest\s*\(\s*['"][^'"]*['"]\s*,\s*async\s*\(\s*\{\s*page\s*\}\s*\)\s*=>\s*\{)([\s\S]*)(\}\s*\)\s*;?\s*$)/
+  );
+  if (testBodyMatch) {
+    return testBodyMatch[1] + '\n' + wrapped.join('\n\n') + '\n' + testBodyMatch[3];
+  }
+  return scriptBody;
 }
 
 function cleanMendixSelectors(script) {
@@ -257,156 +294,6 @@ function cleanMendixSelectors(script) {
   );
 
   return cleaned;
-}
-
-// Valid ARIA roles that Playwright supports via getByRole()
-const ARIA_ROLES = new Set([
-  'alert','alertdialog','application','article','banner','blockquote','button',
-  'caption','cell','checkbox','code','columnheader','combobox','complementary',
-  'contentinfo','definition','deletion','dialog','directory','document',
-  'emphasis','feed','figure','form','generic','grid','gridcell','group',
-  'heading','img','insertion','link','list','listbox','listitem','log','main',
-  'marquee','math','meter','menu','menubar','menuitem','menuitemcheckbox',
-  'menuitemradio','navigation','none','note','option','paragraph','presentation',
-  'progressbar','radio','radiogroup','region','row','rowgroup','rowheader',
-  'scrollbar','search','searchbox','separator','slider','spinbutton','status',
-  'strong','subscript','superscript','switch','tab','table','tablist','tabpanel',
-  'term','textbox','time','timer','toolbar','tooltip','tree','treegrid','treeitem',
-]);
-
-function resolveLocator(selector) {
-  if (!selector) return null;
-  // Handle special prefixes: label:, text:, placeholder:, keyboard:
-  if (selector.startsWith('label:'))
-    return `page.getByLabel('${escapeJsString(selector.slice(6))}')`;
-  if (selector.startsWith('text:'))
-    return `page.getByText('${escapeJsString(selector.slice(5))}')`;
-  if (selector.startsWith('placeholder:'))
-    return `page.getByPlaceholder('${escapeJsString(selector.slice(12))}')`;
-  if (selector.startsWith('keyboard:'))
-    return null; // Handled separately in Click case
-  // Handle role:Name pattern (e.g. "textbox:Username" → getByRole('textbox', { name: 'Username' }))
-  const colonIdx = selector.indexOf(':');
-  if (colonIdx > 0) {
-    const role = selector.slice(0, colonIdx).toLowerCase();
-    const name = selector.slice(colonIdx + 1);
-    if (ARIA_ROLES.has(role)) {
-      const escapedName = escapeJsString(name);
-      return `page.getByRole('${role}', { name: '${escapedName}' })`;
-    }
-  }
-  return `page.locator('${escapeJsString(selector)}')`;
-}
-
-function generateStepCode(step) {
-  const widgetName = (sel) =>
-    escapeJsString(String(sel || "").replace(/^mx:/, ""));
-  const val = escapeJsString(step.value);
-  const sel = escapeJsString(step.selector);
-
-  // Actions that require a non-empty selector
-  const SELECTOR_REQUIRED = ['Click', 'Fill', 'SelectDropdown', 'AssertText', 'AssertVisible', 'AssertEnabled', 'AssertDisabled'];
-  if (SELECTOR_REQUIRED.includes(step.action) && !step.selector?.trim()) {
-    throw new Error(`Step ${(step.order ?? 0) + 1} ("${step.action}") is missing a selector. Please provide a CSS selector or mx:widgetName.`);
-  }
-
-  switch (step.action) {
-    case "Navigate":
-      return `  await page.goto('${val}');\n  await mx.waitForMendix(page);`;
-    case "Login": {
-      if (step.username && step.password) {
-        const u = escapeJsString(step.username);
-        const p = escapeJsString(step.password);
-        return `  await mx.login(page, TARGET_URL, '${u}', '${p}');`;
-      }
-      return `  await mx.login(page, TARGET_URL, CREDENTIALS.username, CREDENTIALS.password);`;
-    }
-    case "Click":
-      if (step.selector?.startsWith("mx:"))
-        return `  await mx.clickWidget(page, '${widgetName(step.selector)}');`;
-      if (step.selector?.startsWith("keyboard:"))
-        return `  await page.keyboard.press('${escapeJsString(step.selector.replace(/^keyboard:/, ''))}');`;
-      return `  await ${resolveLocator(step.selector)}.click();`;
-    case "Fill":
-      if (step.selector?.startsWith("mx:"))
-        return `  await mx.fillWidget(page, '${widgetName(step.selector)}', '${val}');`;
-      return `  await ${resolveLocator(step.selector)}.fill('${val}');`;
-    case "SelectDropdown":
-      if (step.selector?.startsWith("mx:"))
-        return `  await mx.selectDropdown(page, '${widgetName(step.selector)}', '${val}');`;
-      return `  await ${resolveLocator(step.selector)}.selectOption('${val}');`;
-    case "AssertText":
-      if (step.selector?.startsWith("mx:"))
-        return `  await mx.assertWidgetText(page, '${widgetName(step.selector)}', '${val}', { soft: true });`;
-      return `  await expect.soft(${resolveLocator(step.selector)}, 'Step ${step.order}: "${sel}" should contain "${val}"').toContainText('${val}');`;
-    case "AssertVisible":
-      if (step.selector?.startsWith("mx:"))
-        return `  await expect.soft(page.locator('.mx-name-${widgetName(step.selector)}').first(), 'Step ${step.order}: "${widgetName(step.selector)}" should be visible').toBeVisible();`;
-      return `  await expect.soft(${resolveLocator(step.selector)}, 'Step ${step.order}: "${sel}" should be visible').toBeVisible();`;
-    case "AssertEnabled":
-      if (step.selector?.startsWith("mx:"))
-        return `  await mx.assertWidgetEnabled(page, '${widgetName(step.selector)}');`;
-      return `  await expect.soft(${resolveLocator(step.selector)}, 'Step ${step.order}: "${sel}" should be enabled').toBeEnabled();`;
-    case "AssertDisabled":
-      if (step.selector?.startsWith("mx:"))
-        return `  await mx.assertWidgetDisabled(page, '${widgetName(step.selector)}');`;
-      return `  await expect.soft(${resolveLocator(step.selector)}, 'Step ${step.order}: "${sel}" should be disabled').toBeDisabled();`;
-    case "Wait":
-      return `  await page.waitForTimeout(${parseInt(step.value, 10) || 1000}); // WARNING: Hard wait — prefer mx.waitForMendix() or a specific condition`;
-    case "WaitForMendix":
-      return `  await mx.waitForMendix(page);`;
-    case "WaitForPopup":
-      return `  await mx.waitForPopup(page);`;
-    case "ClosePopup":
-      return `  await mx.closePopup(page);`;
-    case "WaitForMicroflow":
-      return `  await mx.waitForMicroflow(page);`;
-    case "Logout":
-      return `  await page.goto(TARGET_URL + '/logout');\n  await mx.waitForMendix(page);`;
-    case "Screenshot":
-      return `  await page.screenshot({ path: 'results/${val || "screenshot"}.png', fullPage: true });`;
-    case "Raw":
-      return `  ${step.value}`;
-    default:
-      return `  // Unknown action: ${escapeJsString(step.action)}`;
-  }
-}
-
-function generateScriptFromSteps(steps, testName, targetUrl) {
-  const lines = steps.map((step, idx) => {
-    const code = generateStepCode(step);
-    const desc = escapeJsString(
-      step.action === 'Login' && step.username
-        ? `Login as ${step.username}`
-        : `${step.action}${step.selector ? ' ' + step.selector : ''}${step.value ? ' = ' + step.value : ''}`
-    );
-    // Raw steps must NOT be wrapped in try/catch: const/let declarations inside
-    // a try block are block-scoped and would be invisible to subsequent steps.
-    if (step.action === 'Raw') {
-      return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
-        `${code}\n` +
-        `  console.log('[ZONIQ_STEP:DONE:${idx}]');`;
-    }
-    // Wrap each step with progress markers so the runner can track execution
-    return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
-      `  try {\n  ${code}\n` +
-      `  console.log('[ZONIQ_STEP:DONE:${idx}]');\n` +
-      `  } catch (_stepErr_${idx}) {\n` +
-      `    console.log('[ZONIQ_STEP:FAIL:${idx}:' + _stepErr_${idx}.message.replace(/\\n/g, ' ') + ']');\n` +
-      `    throw _stepErr_${idx};\n` +
-      `  }`;
-  });
-
-  return `
-test('${escapeJsString(testName)}', async ({ page }) => {
-  console.log('[ZONIQ_STEP:START:-1:Navigate to target URL]');
-  await page.goto(TARGET_URL);
-  await mx.waitForMendix(page);
-  console.log('[ZONIQ_STEP:DONE:-1]');
-
-${lines.join("\n\n")}
-});
-`;
 }
 
 // ── Playwright execution ─────────────────────────────────
@@ -702,12 +589,19 @@ function startAPIServer() {
       return res.status(400).json({ error: "Invalid testRunId — must be a UUID" });
     }
     const name = testName || "Step Test";
-    let scriptBody;
+    // Build a script from the step definitions
+    let stepLines;
     try {
-      scriptBody = generateScriptFromSteps(steps, name, targetUrl);
+      stepLines = steps.map((step, idx) => {
+        step.order = idx;
+        return ScriptUtils.generateStepCode(step);
+      });
     } catch (validationErr) {
       return res.status(400).json({ error: validationErr.message });
     }
+    const scriptBody = `test('${ScriptUtils.escapeJsString(name)}', async ({ page }) => {\n` +
+      `  await page.goto(TARGET_URL);\n  await mx.waitForMendix(page);\n\n` +
+      stepLines.join('\n') + '\n});';
     const scriptPath = path.join(TEMP_DIR, `run-${runId}.spec.js`);
     fs.writeFileSync(scriptPath, wrapScript(scriptBody, targetUrl, credentials));
 
@@ -781,7 +675,7 @@ function startAPIServer() {
     const { scenarioId, runId, script, errors, targetUrl, credentials } = req.body;
 
     // Support both by-ID and inline mode
-    let healScript, healErrors, healUrl, healCreds, healSteps;
+    let healScript, healErrors, healUrl, healCreds;
 
     if (scenarioId && runId) {
       const db = loadDB();
@@ -793,13 +687,11 @@ function startAPIServer() {
       healErrors = run.results?.errors || [];
       healUrl = scenario.targetUrl;
       healCreds = scenario.credentials;
-      healSteps = scenario.steps || null;
     } else if (script && targetUrl) {
       healScript = script;
       healErrors = errors || [];
       healUrl = targetUrl;
       healCreds = credentials;
-      healSteps = req.body.steps || null;
     } else {
       return res.status(400).json({ error: "Provide (scenarioId + runId) or (script + targetUrl + errors)" });
     }
@@ -836,7 +728,6 @@ function startAPIServer() {
     try {
       const result = await healer.heal({
         script: healScript,
-        steps: healSteps,
         errors: healErrors,
         targetUrl: healUrl,
         credentials: healCreds,
@@ -864,19 +755,17 @@ function startAPIServer() {
 
     const { scenarioId, script, targetUrl, credentials } = req.body;
 
-    let healScript, healUrl, healCreds, healSteps;
+    let healScript, healUrl, healCreds;
 
     if (scenarioId) {
       const db = loadDB();
       const scenario = db.scenarios.find((s) => s.id === scenarioId);
       if (!scenario) return res.status(404).json({ error: "Scenario not found" });
       healScript = scenario.script;
-      healSteps = scenario.steps;
       healUrl = scenario.targetUrl;
       healCreds = scenario.credentials;
     } else if (script && targetUrl) {
       healScript = script;
-      healSteps = null;
       healUrl = targetUrl;
       healCreds = credentials;
     } else {
@@ -886,20 +775,10 @@ function startAPIServer() {
     const settings = loadSettings();
     if (!settings.llm.apiKey) return res.status(400).json({ error: "No LLM API key configured" });
 
-    // Generate wrapped script for execution
-    let scriptContent;
-    if (healSteps && healSteps.length > 0) {
-      try {
-        const body = generateScriptFromSteps(healSteps, "Preheal Test", healUrl);
-        scriptContent = wrapScript(body, healUrl, healCreds);
-      } catch (validationErr) {
-        return res.status(400).json({ error: validationErr.message });
-      }
-    } else if (healScript) {
-      scriptContent = wrapScript(healScript, healUrl, healCreds);
-    } else {
-      return res.status(400).json({ error: "No script or steps defined" });
+    if (!healScript) {
+      return res.status(400).json({ error: "No script defined" });
     }
+    const scriptContent = wrapScript(healScript, healUrl, healCreds);
 
     activeAgent = { type: "prehealer", agent: null };
     res.json({ status: "running" });
@@ -940,7 +819,6 @@ function startAPIServer() {
 
       const result = await healer.heal({
         script: healScript || "",
-        steps: healSteps || null,
         errors: results.errors,
         targetUrl: healUrl,
         credentials: healCreds,
@@ -953,9 +831,6 @@ function startAPIServer() {
         const idx = db.scenarios.findIndex((s) => s.id === scenarioId);
         if (idx >= 0) {
           db.scenarios[idx].script = result.healedScript;
-          if (db.scenarios[idx].steps?.length) {
-            db.scenarios[idx].steps = [];
-          }
           db.scenarios[idx].updatedAt = new Date().toISOString();
           saveDB(db);
         }
@@ -974,7 +849,7 @@ function startAPIServer() {
 
   api.post("/api/agent/cancel", (req, res) => {
     if (activeAgent) {
-      activeAgent.agent.cancel();
+      if (activeAgent.agent) activeAgent.agent.cancel();
       activeAgent = null;
       res.json({ ok: true });
     } else {
@@ -1013,10 +888,14 @@ ipcMain.handle("get-scenarios", () => {
 
 // Save a scenario
 ipcMain.handle("save-scenario", (event, scenario) => {
+  // Steps are ephemeral (derived from script) — never persist them
+  delete scenario.steps;
   const db = loadDB();
   const existing = db.scenarios.findIndex((s) => s.id === scenario.id);
   if (existing >= 0) {
     db.scenarios[existing] = { ...db.scenarios[existing], ...scenario, updatedAt: new Date().toISOString() };
+    // Clean any legacy stored steps
+    delete db.scenarios[existing].steps;
   } else {
     scenario.id = scenario.id || uuidv4();
     scenario.createdAt = new Date().toISOString();
@@ -1129,19 +1008,10 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
   const runId = uuidv4();
   const scriptPath = path.join(TEMP_DIR, `run-${runId}.spec.js`);
 
-  let scriptContent;
-  if (scenario.steps && scenario.steps.length > 0) {
-    try {
-      const body = generateScriptFromSteps(scenario.steps, scenario.name, scenario.targetUrl);
-      scriptContent = wrapScript(body, scenario.targetUrl, scenario.credentials);
-    } catch (validationErr) {
-      return { runId, status: "error", errors: [{ message: validationErr.message }] };
-    }
-  } else if (scenario.script) {
-    scriptContent = wrapScript(scenario.script, scenario.targetUrl, scenario.credentials);
-  } else {
-    return { runId, status: "error", errors: [{ message: "No script or steps defined" }] };
+  if (!scenario.script) {
+    return { runId, status: "error", errors: [{ message: "No script defined" }] };
   }
+  const scriptContent = wrapScript(scenario.script, scenario.targetUrl, scenario.credentials);
 
   fs.writeFileSync(scriptPath, scriptContent);
 
@@ -1166,17 +1036,18 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
   let stepList = null;
   const stepResults = {}; // { stepIndex: { status, error, startedAt, completedAt } }
 
-  if (scenario.steps?.length) {
-    stepList = [
-      { index: -1, action: "Navigate", description: "Navigate to target URL" },
-      ...scenario.steps.map((s, i) => ({
-        index: i,
-        action: s.action,
-        selector: s.selector || "",
-        value: s.value || "",
-        description: `${s.action}${s.selector ? ' ' + s.selector : ''}${s.value ? ' = ' + s.value : ''}`,
-      })),
-    ];
+  // Derive steps from script for progress tracking.
+  // Step indices must match the marker indices injected by injectStepMarkers(),
+  // which are 0-based per statement in the test body.
+  const parsedSteps = scenario.script ? ScriptUtils.parseScriptToSteps(scenario.script) : [];
+  if (parsedSteps.length) {
+    stepList = parsedSteps.map((s, i) => ({
+      index: i,
+      action: s.action,
+      selector: s.selector || "",
+      value: s.value || "",
+      description: `${s.action}${s.selector ? ' ' + s.selector : ''}${s.value ? ' = ' + s.value : ''}`,
+    }));
     mainWindow.webContents.send("step-list", { runId, steps: stepList });
   }
 
@@ -1321,7 +1192,6 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
   try {
     const result = await healer.heal({
       script: scenario.script || "",
-      steps: scenario.steps || null,
       errors: run.results.errors,
       targetUrl: scenario.targetUrl,
       credentials: scenario.credentials,
@@ -1358,19 +1228,10 @@ ipcMain.handle("agent-preheal", async (event, { scenarioId }) => {
   }
 
   // Generate the script to test
-  let scriptContent;
-  if (scenario.steps && scenario.steps.length > 0) {
-    try {
-      const body = generateScriptFromSteps(scenario.steps, scenario.name, scenario.targetUrl);
-      scriptContent = wrapScript(body, scenario.targetUrl, scenario.credentials);
-    } catch (validationErr) {
-      return { error: validationErr.message };
-    }
-  } else if (scenario.script) {
-    scriptContent = wrapScript(scenario.script, scenario.targetUrl, scenario.credentials);
-  } else {
-    return { error: "No script or steps defined in this scenario" };
+  if (!scenario.script) {
+    return { error: "No script defined in this scenario" };
   }
+  const scriptContent = wrapScript(scenario.script, scenario.targetUrl, scenario.credentials);
 
   activeAgent = { type: "prehealer", agent: null };
 
@@ -1428,7 +1289,6 @@ ipcMain.handle("agent-preheal", async (event, { scenarioId }) => {
 
     const result = await healer.heal({
       script: scenario.script || "",
-      steps: scenario.steps || null,
       errors: results.errors,
       targetUrl: scenario.targetUrl,
       credentials: scenario.credentials,
@@ -1459,11 +1319,6 @@ ipcMain.handle("agent-heal-apply", async (event, { scenarioId, healedScript }) =
   if (idx < 0) return { error: "Scenario not found" };
 
   db.scenarios[idx].script = healedScript;
-  // Clear steps so the healed script takes priority on next execution
-  // (execute-scenario uses steps over script when both exist)
-  if (db.scenarios[idx].steps?.length) {
-    db.scenarios[idx].steps = [];
-  }
   db.scenarios[idx].updatedAt = new Date().toISOString();
   saveDB(db);
   return { ok: true };
@@ -1471,7 +1326,7 @@ ipcMain.handle("agent-heal-apply", async (event, { scenarioId, healedScript }) =
 
 ipcMain.handle("agent-cancel", () => {
   if (activeAgent) {
-    activeAgent.agent.cancel();
+    if (activeAgent.agent) activeAgent.agent.cancel();
     activeAgent = null;
     return { ok: true };
   }
@@ -1515,7 +1370,7 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   // Clean up any running agents
   if (activeAgent) {
-    activeAgent.agent.cancel();
+    if (activeAgent.agent) activeAgent.agent.cancel();
     activeAgent = null;
   }
   if (apiServer) apiServer.close();

@@ -1294,6 +1294,7 @@
 <!-- ── Toast Container ────────────────────────────── -->
 <div class="toast-container" id="toastContainer"></div>
 
+<script src="lib/script-utils.js"></script>
 <script>
 // ════════════════════════════════════════════════════
 //  State
@@ -1305,296 +1306,13 @@ let selectedRun = null;
 let currentView = null; // 'scenario' | 'run' | 'health'
 let activeStepRun = null; // { runId, steps: [...] } — tracks live step execution
 
-const STEP_ACTION_CONFIG = {
-  Navigate:         { selector: false, value: true,  valuePlaceholder: "URL" },
-  Login:            { selector: false, value: false },
-  Click:            { selector: true,  value: false, selectorPlaceholder: "mx:widgetName or CSS selector" },
-  Fill:             { selector: true,  value: true,  selectorPlaceholder: "mx:widgetName or CSS selector", valuePlaceholder: "Text to fill" },
-  SelectDropdown:   { selector: true,  value: true,  selectorPlaceholder: "mx:widgetName", valuePlaceholder: "Option text" },
-  AssertText:       { selector: true,  value: true,  selectorPlaceholder: "mx:widgetName or CSS selector", valuePlaceholder: "Expected text" },
-  AssertVisible:    { selector: true,  value: false, selectorPlaceholder: "mx:widgetName or CSS selector" },
-  AssertEnabled:    { selector: true,  value: false, selectorPlaceholder: "mx:widgetName or CSS selector" },
-  AssertDisabled:   { selector: true,  value: false, selectorPlaceholder: "mx:widgetName or CSS selector" },
-  Wait:             { selector: false, value: true,  valuePlaceholder: "Milliseconds" },
-  WaitForMendix:    { selector: false, value: false },
-  WaitForPopup:     { selector: false, value: false },
-  ClosePopup:       { selector: false, value: false },
-  WaitForMicroflow: { selector: false, value: false },
-  Screenshot:       { selector: false, value: true,  valuePlaceholder: "Filename (no extension)" },
-  Raw:              { selector: false, value: true,  valuePlaceholder: "Raw Playwright statement" },
-};
+const STEP_ACTION_CONFIG = ScriptUtils.STEP_ACTION_CONFIG;
 
-// ── Script-to-Steps Parser ────────────────────────────
-function extractTestBody(script) {
-  let cleaned = script
-    .replace(/^import\s+\{[^}]*\}\s+from\s+['"][^'"]*['"];\s*$/gm, '')
-    .replace(/^import\s+\*\s+as\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, '')
-    .replace(/^import\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, '')
-    .replace(/^const\s+\{[^}]*\}\s*=\s*require\s*\([^)]*\);\s*$/gm, '')
-    .replace(/^const\s+\w+\s*=\s*require\s*\([^)]*\);\s*$/gm, '')
-    .replace(/^const\s+TARGET_URL\s*=\s*.*;\s*$/gm, '')
-    .replace(/^const\s+CREDENTIALS\s*=\s*\{[\s\S]*?\}\s*;\s*$/gm, '')
-    .trim();
-  cleaned = cleaned.replace(/test\.use\s*\(\s*\{[\s\S]*?\}\s*\)\s*;/g, '').trim();
+// ── Script-to-Steps Parser (delegated to shared ScriptUtils) ──
+const { extractTestBody, splitIntoStatements, parseStatement, parseScriptToSteps,
+        generateStepCode, replaceInScript, escapeJsString: escJsStr } = ScriptUtils;
 
-  // Extract body inside test('...', async ({ page }) => { ... });
-  const testMatch = cleaned.match(/test\s*\(\s*['"][^'"]*['"]\s*,\s*async\s*\(\s*\{\s*page\s*\}\s*\)\s*=>\s*\{([\s\S]*)\}\s*\)\s*;?\s*$/);
-  if (testMatch) return testMatch[1].trim();
 
-  // Fallback: extract body from async IIFE — (async () => { ... })();
-  const iifeMatch = cleaned.match(/\(\s*async\s*\(\s*\)\s*=>\s*\{([\s\S]*)\}\s*\)\s*\(\s*\)\s*;?\s*$/);
-  if (iifeMatch) return iifeMatch[1].trim();
-
-  // Bare code with await page.*
-  if (/await\s+page\./.test(cleaned) || /await\s+mx\./.test(cleaned)) return cleaned;
-  return null;
-}
-
-function splitIntoStatements(body) {
-  const statements = [];
-  const lines = body.split('\n');
-  let current = '';
-  let braceDepth = 0;
-  let parenDepth = 0;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('console.log')) continue;
-    // Skip ZONIQ step tracking wrappers
-    if (/^\}\s*catch\s*\(/.test(trimmed) || /^try\s*\{/.test(trimmed) || /^throw\s+/.test(trimmed)) continue;
-    if (/^\[ZONIQ_STEP/.test(trimmed)) continue;
-
-    current += (current ? '\n' : '') + trimmed;
-    for (const ch of trimmed) {
-      if (ch === '{') braceDepth++;
-      else if (ch === '}') braceDepth--;
-      else if (ch === '(') parenDepth++;
-      else if (ch === ')') parenDepth--;
-    }
-
-    if (braceDepth <= 0 && parenDepth <= 0 && (trimmed.endsWith(';') || trimmed.endsWith(')'))) {
-      const stmt = current.trim();
-      if (stmt.startsWith('await ') || (stmt.startsWith('const ') && stmt.includes('await '))) {
-        statements.push(stmt);
-      }
-      current = '';
-      braceDepth = 0;
-      parenDepth = 0;
-    }
-  }
-  if (current.trim()) {
-    const stmt = current.trim();
-    if (stmt.startsWith('await ') || (stmt.startsWith('const ') && stmt.includes('await '))) {
-      statements.push(stmt);
-    }
-  }
-  return statements;
-}
-
-function selectorToMx(sel) {
-  // Convert .mx-name-X selectors back to mx:X
-  const mxMatch = sel.match(/^\.mx-name-(\w+)/);
-  if (mxMatch) return 'mx:' + mxMatch[1];
-  return sel;
-}
-
-function parseStatement(stmt) {
-  let m;
-
-  // ── Mendix helpers ──
-  if (/mx\.login\s*\(/.test(stmt)) return { action: 'Login' };
-  if (/mx\.waitForMendix\s*\(/.test(stmt)) return { action: 'WaitForMendix' };
-  if (/mx\.waitForPopup\s*\(/.test(stmt)) return { action: 'WaitForPopup' };
-  if (/mx\.closePopup\s*\(/.test(stmt)) return { action: 'ClosePopup' };
-  if (/mx\.waitForMicroflow\s*\(/.test(stmt)) return { action: 'WaitForMicroflow' };
-
-  m = stmt.match(/mx\.clickWidget\s*\(\s*page\s*,\s*['"]([^'"]+)['"]/);
-  if (m) return { action: 'Click', selector: 'mx:' + m[1] };
-
-  m = stmt.match(/mx\.fillWidget\s*\(\s*page\s*,\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'Fill', selector: 'mx:' + m[1], value: m[2] };
-
-  m = stmt.match(/mx\.selectDropdown\s*\(\s*page\s*,\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'SelectDropdown', selector: 'mx:' + m[1], value: m[2] };
-
-  m = stmt.match(/mx\.assertWidgetText\s*\(\s*page\s*,\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'AssertText', selector: 'mx:' + m[1], value: m[2] };
-
-  m = stmt.match(/mx\.assertWidgetEnabled\s*\(\s*page\s*,\s*['"]([^'"]+)['"]/);
-  if (m) return { action: 'AssertEnabled', selector: 'mx:' + m[1] };
-
-  m = stmt.match(/mx\.assertWidgetDisabled\s*\(\s*page\s*,\s*['"]([^'"]+)['"]/);
-  if (m) return { action: 'AssertDisabled', selector: 'mx:' + m[1] };
-
-  m = stmt.match(/mx\.assertWidgetVisible\s*\(\s*page\s*,\s*['"]([^'"]+)['"]/);
-  if (m) return { action: 'AssertVisible', selector: 'mx:' + m[1] };
-
-  // ── Navigation ──
-  m = stmt.match(/page\.goto\s*\(\s*['"]([^'"]+)['"]/);
-  if (m) return { action: 'Navigate', value: m[1] };
-
-  // ── page.locator(...).action(...) — supports .filter() and other chains ──
-  m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.click\s*\(/);
-  if (m) return { action: 'Click', selector: selectorToMx(m[1]) };
-
-  m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.fill\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'Fill', selector: selectorToMx(m[1]), value: m[2] };
-
-  m = stmt.match(/page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'SelectDropdown', selector: selectorToMx(m[1]), value: m[2] };
-
-  // ── getByRole(...).click/fill (supports extra options like exact: true, .nth(), .filter()) ──
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)[^;]*\.click\s*\(/);
-  if (m) return { action: 'Click', selector: m[1] + ':' + m[2] };
-
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)[^;]*\.fill\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'Fill', selector: m[1] + ':' + m[2], value: m[3] };
-
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)[^;]*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'SelectDropdown', selector: m[1] + ':' + m[2], value: m[3] };
-
-  // ── getByRole without name (supports .nth(), .filter()) ──
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.click\s*\(/);
-  if (m) return { action: 'Click', selector: m[1] };
-
-  m = stmt.match(/page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.fill\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'Fill', selector: m[1], value: m[2] };
-
-  // ── getByText(...).click/fill/selectOption (supports .nth(), .filter()) ──
-  m = stmt.match(/page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.click\s*\(/);
-  if (m) return { action: 'Click', selector: 'text:' + m[1] };
-
-  m = stmt.match(/page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.fill\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'Fill', selector: 'text:' + m[1], value: m[2] };
-
-  m = stmt.match(/page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)[^;]*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'SelectDropdown', selector: 'text:' + m[1], value: m[2] };
-
-  // ── getByLabel(...).fill/click/selectOption (supports .nth()) ──
-  m = stmt.match(/page\.getByLabel\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'Fill', selector: 'label:' + m[1], value: m[2] };
-
-  m = stmt.match(/page\.getByLabel\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.selectOption\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'SelectDropdown', selector: 'label:' + m[1], value: m[2] };
-
-  m = stmt.match(/page\.getByLabel\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.nth\s*\(\s*\d+\s*\))?\s*\.click\s*\(/);
-  if (m) return { action: 'Click', selector: 'label:' + m[1] };
-
-  // ── getByPlaceholder(...).fill/click ──
-  m = stmt.match(/page\.getByPlaceholder\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.fill\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'Fill', selector: 'placeholder:' + m[1], value: m[2] };
-
-  m = stmt.match(/page\.getByPlaceholder\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\.click\s*\(/);
-  if (m) return { action: 'Click', selector: 'placeholder:' + m[1] };
-
-  // ── Assertions: expect / expect.soft ──
-  // toContainText / toHaveText with page.locator
-  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\).*?\)\s*\.toContainText\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'AssertText', selector: selectorToMx(m[1]), value: m[2] };
-  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\).*?\)\s*\.toHaveText\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'AssertText', selector: selectorToMx(m[1]), value: m[2] };
-
-  // toBeVisible / toBeEnabled / toBeDisabled with page.locator
-  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.locator\s*\(\s*['"]([^'"]+)['"]\s*\)/);
-  if (m && /\.toBeVisible\s*\(/.test(stmt)) return { action: 'AssertVisible', selector: selectorToMx(m[1]) };
-  if (m && /\.toBeEnabled\s*\(/.test(stmt)) return { action: 'AssertEnabled', selector: selectorToMx(m[1]) };
-  if (m && /\.toBeDisabled\s*\(/.test(stmt)) return { action: 'AssertDisabled', selector: selectorToMx(m[1]) };
-
-  // toContainText / toHaveText with getByRole
-  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)[^)]*\).*?\.to(?:Contain|Have)Text\s*\(\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'AssertText', selector: m[1] + ':' + m[2], value: m[3] };
-
-  // toBeVisible / toBeEnabled / toBeDisabled with getByRole
-  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.getByRole\s*\(\s*['"]([^'"]+)['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"][^}]*\}\s*\)/);
-  if (m && /\.toBeVisible\s*\(/.test(stmt)) return { action: 'AssertVisible', selector: m[1] + ':' + m[2] };
-  if (m && /\.toBeEnabled\s*\(/.test(stmt)) return { action: 'AssertEnabled', selector: m[1] + ':' + m[2] };
-  if (m && /\.toBeDisabled\s*\(/.test(stmt)) return { action: 'AssertDisabled', selector: m[1] + ':' + m[2] };
-
-  // toBeVisible / toContainText with getByText
-  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.getByText\s*\(\s*['"]([^'"]+)['"]/);
-  if (m && /\.toBeVisible\s*\(/.test(stmt)) return { action: 'AssertVisible', selector: 'text:' + m[1] };
-  if (m && /\.toContainText\s*\(/.test(stmt)) {
-    const vm = stmt.match(/\.toContainText\s*\(\s*['"]([^'"]*)['"]/);
-    return { action: 'AssertText', selector: 'text:' + m[1], value: vm ? vm[1] : '' };
-  }
-
-  // toBeVisible with getByLabel
-  m = stmt.match(/expect(?:\.soft)?\s*\(\s*page\.getByLabel\s*\(\s*['"]([^'"]+)['"]/);
-  if (m && /\.toBeVisible\s*\(/.test(stmt)) return { action: 'AssertVisible', selector: 'label:' + m[1] };
-
-  // ── Waits ──
-  m = stmt.match(/page\.waitForTimeout\s*\(\s*(\d+)/);
-  if (m) return { action: 'Wait', value: m[1] };
-
-  // waitForLoadState / waitForURL → WaitForMendix (navigation waits)
-  if (/page\.waitForLoadState\s*\(/.test(stmt) || /page\.waitForURL\s*\(/.test(stmt))
-    return { action: 'WaitForMendix' };
-
-  // ── Screenshot ──
-  m = stmt.match(/page\.screenshot\s*\(\s*\{[^}]*path:\s*['"](?:results\/)?([^'"]+?)(?:\.png)?['"]/);
-  if (m) return { action: 'Screenshot', value: m[1] };
-
-  // ── Keyboard press (common in recordings) ──
-  m = stmt.match(/page\.keyboard\.press\s*\(\s*['"]([^'"]+)['"]/);
-  if (m) return { action: 'Click', selector: 'keyboard:' + m[1] };
-
-  // ── Old Playwright API (page.click / page.fill / page.type) ──
-  m = stmt.match(/page\.fill\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'Fill', selector: selectorToMx(m[1]), value: m[2] };
-
-  m = stmt.match(/page\.type\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]/);
-  if (m) return { action: 'Fill', selector: selectorToMx(m[1]), value: m[2] };
-
-  m = stmt.match(/page\.(?:check|uncheck|dblclick|click)\s*\(\s*['"]([^'"]+)['"]/);
-  if (m) return { action: 'Click', selector: selectorToMx(m[1]) };
-
-  return null; // Unrecognized — caller will create a Raw step
-}
-
-function parseScriptToSteps(script) {
-  if (!script) return [];
-  const body = extractTestBody(script);
-  if (!body) return [];
-  const statements = splitIntoStatements(body);
-  const steps = [];
-  // Track visited base URLs to detect redundant navigations
-  const visitedOrigins = new Set();
-  for (const stmt of statements) {
-    // Skip Playwright Codegen browser/context/page lifecycle boilerplate.
-    // These are generated by Codegen's IIFE wrapper but are redundant (and
-    // harmful) when the script is re-executed via generateScriptFromSteps,
-    // which already provides a managed `page` via Playwright's test runner.
-    // Keeping them would cause a SyntaxError: `const page` redeclares the
-    // `page` parameter, and the extra browser launch would conflict.
-    if (/const\s+browser\s*=\s*await\s+\S+\.launch\s*\(/.test(stmt)) continue;
-    if (/const\s+context\s*=\s*await\s+browser\.newContext\s*\(/.test(stmt)) continue;
-    if (/const\s+page\s*=\s*await\s+context\.newPage\s*\(/.test(stmt)) continue;
-    if (/await\s+page\.close\s*\(\s*\)/.test(stmt)) continue;
-    if (/await\s+context\.close\s*\(\s*\)/.test(stmt)) continue;
-    if (/await\s+browser\.close\s*\(\s*\)/.test(stmt)) continue;
-
-    const step = parseStatement(stmt) ?? { action: 'Raw', value: stmt.trim() };
-    // Skip redundant Navigate steps — if we already visited a URL on this
-    // origin and the new goto is just the root or a shorter path, it's almost
-    // certainly a SPA artifact from Playwright's recorder.
-    if (step.action === 'Navigate' && step.value) {
-      try {
-        const url = new URL(step.value);
-        const origin = url.origin;
-        const isRootish = url.pathname === '/' || url.pathname === '';
-        if (isRootish && visitedOrigins.has(origin)) {
-          continue; // skip redundant navigation to app root
-        }
-        visitedOrigins.add(origin);
-      } catch { /* not a valid URL, keep it */ }
-    }
-    step.order = steps.length;
-    step.selector = step.selector || '';
-    step.value = step.value || '';
-    steps.push(step);
-  }
-  return steps;
-}
 //  Init
 // ════════════════════════════════════════════════════
 document.addEventListener("DOMContentLoaded", async () => {
@@ -1777,10 +1495,8 @@ function showScenarioDetail(sc) {
   empty.style.display = "none";
   el.style.display = "flex";
 
-  // Auto-parse steps from script if no steps exist yet
-  if (!sc.steps?.length && sc.script) {
-    sc.steps = parseScriptToSteps(sc.script);
-  }
+  // Always derive steps from the script (script is the source of truth)
+  sc.steps = sc.script ? parseScriptToSteps(sc.script) : [];
 
   const lastRuns = runs.filter((r) => r.scenarioId === sc.id).slice(0, 5);
 
@@ -1806,7 +1522,7 @@ function showScenarioDetail(sc) {
       <div class="section-header">Steps</div>
       ${renderStepEditor(sc)}
 
-      <div class="section-header" style="margin-top:16px;">Script${sc.steps?.length ? ` <span style="font-size:10px;color:var(--text-muted);font-weight:normal;">(original recording — steps are used at runtime)</span>` : ''}</div>
+      <div class="section-header" style="margin-top:16px;">Script</div>
       <pre class="script-area" style="min-height:60px;max-height:200px;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(sc.script || '// No script defined')}</pre>
 
       ${lastRuns.length ? `
@@ -1849,85 +1565,73 @@ function renderStepEditor(sc) {
                    onchange="onStepFieldChange('${sc.id}', ${idx}, 'value', this.value)" />
           ` : ''}
         </div>
-        <div class="step-editor-actions">
-          <button onclick="moveStep('${sc.id}', ${idx}, -1)" title="Move up" ${idx === 0 ? 'disabled' : ''}>&#9650;</button>
-          <button onclick="moveStep('${sc.id}', ${idx}, 1)" title="Move down" ${idx === steps.length - 1 ? 'disabled' : ''}>&#9660;</button>
-          <button class="step-remove-btn" onclick="removeStep('${sc.id}', ${idx})" title="Remove step">&#10005;</button>
-        </div>
       </div>`;
   }).join('');
 
   return `
     <div class="step-editor-toolbar">
-      <span style="font-size:11px;color:var(--text-muted);">${steps.length} step${steps.length !== 1 ? 's' : ''}</span>
-      ${sc.script ? `<button class="btn btn-sm" onclick="regenerateSteps('${sc.id}')" title="Re-parse the original recording script into steps">&#8635; Regenerate from Script</button>` : ''}
-      <button class="btn btn-sm btn-primary" onclick="saveSteps('${sc.id}')">&#128190; Save Steps</button>
+      <span style="font-size:11px;color:var(--text-muted);">${steps.length} step${steps.length !== 1 ? 's' : ''} &mdash; edits update the script directly</span>
     </div>
     <div class="step-editor">
       ${cards}
-      <button class="step-editor-add" onclick="addStep('${sc.id}')">+ Add Step</button>
     </div>
   `;
+}
+
+// ── Step editing → modifies script directly ──────────
+
+/** Debounce timer for auto-saving after step edits */
+let _stepSaveTimer = null;
+
+function _autoSaveScenario(sc) {
+  clearTimeout(_stepSaveTimer);
+  _stepSaveTimer = setTimeout(async () => {
+    // Send only persistent fields — steps are ephemeral (derived from script)
+    const { steps, ...persistent } = sc;
+    await window.zoniq.saveScenario(persistent);
+    toast('Script updated', 'success');
+  }, 600);
+}
+
+function _updateStepInScript(sc, step) {
+  const oldSource = step.sourceText;
+  // Count how many prior steps share the same sourceText (for duplicate handling)
+  let occurrence = 0;
+  for (const s of sc.steps) {
+    if (s === step) break;
+    if (s.sourceText === oldSource) occurrence++;
+  }
+  try {
+    const newCode = generateStepCode(step).trim();
+    sc.script = replaceInScript(sc.script, oldSource, newCode, occurrence);
+    step.sourceText = newCode;
+  } catch (err) {
+    toast(err.message, 'error');
+  }
 }
 
 function onStepActionChange(scenarioId, stepIndex, newAction) {
   const sc = scenarios.find(s => s.id === scenarioId);
   if (!sc?.steps?.[stepIndex]) return;
+  const step = sc.steps[stepIndex];
   const config = STEP_ACTION_CONFIG[newAction] || {};
-  sc.steps[stepIndex].action = newAction;
-  if (!config.selector) sc.steps[stepIndex].selector = '';
-  if (!config.value) sc.steps[stepIndex].value = '';
+  step.action = newAction;
+  if (!config.selector) step.selector = '';
+  if (!config.value) step.value = '';
+  _updateStepInScript(sc, step);
+  // Re-parse steps from the updated script and refresh the view
+  sc.steps = parseScriptToSteps(sc.script);
   showScenarioDetail(sc);
+  _autoSaveScenario(sc);
 }
 
 function onStepFieldChange(scenarioId, stepIndex, field, value) {
   const sc = scenarios.find(s => s.id === scenarioId);
   if (!sc?.steps?.[stepIndex]) return;
-  sc.steps[stepIndex][field] = value;
-}
-
-function moveStep(scenarioId, stepIndex, direction) {
-  const sc = scenarios.find(s => s.id === scenarioId);
-  if (!sc?.steps) return;
-  const newIndex = stepIndex + direction;
-  if (newIndex < 0 || newIndex >= sc.steps.length) return;
-  [sc.steps[stepIndex], sc.steps[newIndex]] = [sc.steps[newIndex], sc.steps[stepIndex]];
-  sc.steps.forEach((s, i) => s.order = i);
-  showScenarioDetail(sc);
-}
-
-function addStep(scenarioId) {
-  const sc = scenarios.find(s => s.id === scenarioId);
-  if (!sc) return;
-  if (!sc.steps) sc.steps = [];
-  sc.steps.push({ action: 'Click', selector: '', value: '', order: sc.steps.length });
-  showScenarioDetail(sc);
-}
-
-function removeStep(scenarioId, stepIndex) {
-  const sc = scenarios.find(s => s.id === scenarioId);
-  if (!sc?.steps) return;
-  sc.steps.splice(stepIndex, 1);
-  sc.steps.forEach((s, i) => s.order = i);
-  showScenarioDetail(sc);
-}
-
-async function saveSteps(scenarioId) {
-  const sc = scenarios.find(s => s.id === scenarioId);
-  if (!sc) return;
-  sc.steps.forEach((s, i) => s.order = i);
-  const saved = await window.zoniq.saveScenario(sc);
-  await loadScenarios();
-  selectScenario(saved.id);
-  toast('Steps saved', 'success');
-}
-
-function regenerateSteps(scenarioId) {
-  const sc = scenarios.find(s => s.id === scenarioId);
-  if (!sc?.script) return;
-  sc.steps = parseScriptToSteps(sc.script);
-  showScenarioDetail(sc);
-  toast('Steps regenerated from script — click Save Steps to persist', 'info');
+  const step = sc.steps[stepIndex];
+  step[field] = value;
+  _updateStepInScript(sc, step);
+  _autoSaveScenario(sc);
 }
 
 async function executeSelected() {
