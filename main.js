@@ -936,29 +936,35 @@ ipcMain.handle("get-runs", () => {
 });
 
 // Launch Codegen recorder
-ipcMain.handle("launch-recorder", async (event, targetUrl) => {
+ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
   return new Promise((resolve, reject) => {
     const outputFile = `recording-${Date.now()}.js`;
     const outputPath = path.join(SCRIPTS_DIR, outputFile);
 
-    const codegenArgs = [
-      "codegen",
+    // Determine highlight preference from options or settings
+    const settings = loadSettings();
+    const showHighlights = options.showHighlights !== undefined
+      ? options.showHighlights
+      : settings.recorder.showHighlights;
+
+    const recorderScript = path.join(__dirname, "helpers", "recorder.js");
+    const recorderArgs = [
+      recorderScript,
       targetUrl,
-      "--output",
       outputPath,
-      "--viewport-size=1920,1080",
+      String(!!showHighlights),
     ];
     const channel = getBrowserChannel();
     if (channel) {
-      codegenArgs.push(`--channel=${channel}`);
+      recorderArgs.push(channel);
     }
 
-    console.log(`[recorder] CMD: ${PLAYWRIGHT_CLI} ${codegenArgs.join(" ")}`);
+    console.log(`[recorder] CMD: node ${recorderArgs.join(" ")}`);
 
     const proc = spawn(
-      PLAYWRIGHT_CLI,
-      codegenArgs,
-      { env: getPlaywrightEnv(), shell: true }
+      process.execPath,
+      recorderArgs,
+      { env: getPlaywrightEnv(), shell: false }
     );
 
     proc.stdout.on("data", (chunk) => {

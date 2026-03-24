@@ -22,13 +22,16 @@ const DEFAULT_SETTINGS = {
     maxIterations: 20,
     headless: false,
   },
+  recorder: {
+    showHighlights: false,
+  },
 };
 
 function loadSettings() {
   try {
     if (fs.existsSync(SETTINGS_PATH)) {
       const data = JSON.parse(fs.readFileSync(SETTINGS_PATH, "utf-8"));
-      return { ...DEFAULT_SETTINGS, ...data, llm: { ...DEFAULT_SETTINGS.llm, ...data.llm }, agent: { ...DEFAULT_SETTINGS.agent, ...data.agent } };
+      return { ...DEFAULT_SETTINGS, ...data, llm: { ...DEFAULT_SETTINGS.llm, ...data.llm }, agent: { ...DEFAULT_SETTINGS.agent, ...data.agent }, recorder: { ...DEFAULT_SETTINGS.recorder, ...data.recorder } };
     }
   } catch {}
   return { ...DEFAULT_SETTINGS };
@@ -38,6 +41,7 @@ function saveSettings(settings) {
   const merged = {
     llm: { ...DEFAULT_SETTINGS.llm, ...settings.llm },
     agent: { ...DEFAULT_SETTINGS.agent, ...settings.agent },
+    recorder: { ...DEFAULT_SETTINGS.recorder, ...settings.recorder },
   };
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(merged, null, 2));
   return merged;
