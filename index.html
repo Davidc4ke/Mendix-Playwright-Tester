@@ -2292,7 +2292,12 @@ function selectRunById(runId) {
   document.querySelector('[data-panel="runs"]').classList.add("active");
   document.getElementById("panel-runs").classList.add("active");
   renderRunList();
-  showRunDetail(selectedRun);
+  // If there's an active live step tracker for this run, show it instead of the static detail
+  if (activeStepRun && activeStepRun.runId === runId) {
+    showLiveStepTracker();
+  } else {
+    showRunDetail(selectedRun);
+  }
 }
 
 function showRunDetail(run) {
