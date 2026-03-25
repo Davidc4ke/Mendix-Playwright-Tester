@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("zoniq", {
   updateApp: (app) => ipcRenderer.invoke("update-app", app),
   deleteApp: (id) => ipcRenderer.invoke("delete-app", id),
   getElementDB: (appId) => ipcRenderer.invoke("get-element-db", appId),
+  scanElements: (appId) => ipcRenderer.invoke("scan-elements", appId),
   generateScript: (opts) => ipcRenderer.invoke("generate-script", opts),
 
   // Settings
