@@ -1866,7 +1866,7 @@ function _renderStepCard(sc, step, idx) {
         ` : ''}
       </div>
       <div class="step-editor-actions">
-        <button class="step-screenshot-btn ${step.screenshot ? 'active' : ''}" title="Capture screenshot after this step" onclick="onStepScreenshotToggle('${sc.id}', ${idx})">&#128247;</button>
+        <button class="step-screenshot-btn ${step.screenshot ? 'active' : ''}" title="Capture screenshot after this step" onclick="onStepScreenshotToggle('${sc.id}', ${idx}, event)">&#128247;</button>
         <button class="step-remove-btn" title="Delete step" onclick="onStepDelete('${sc.id}', ${idx})">&#x2715;</button>
       </div>
     </div>`;
@@ -1992,13 +1992,15 @@ function onStepFieldChange(scenarioId, stepIndex, field, value) {
   _autoSaveScenario(sc);
 }
 
-function onStepScreenshotToggle(scenarioId, stepIndex) {
+function onStepScreenshotToggle(scenarioId, stepIndex, event) {
   const sc = scenarios.find(s => s.id === scenarioId);
   if (!sc?.steps?.[stepIndex]) return;
   const step = sc.steps[stepIndex];
   step.screenshot = !step.screenshot;
   _updateStepInScript(sc, step);
-  _refreshStepEditor(sc);
+  // Toggle the button class in-place instead of re-rendering (avoids scroll reset)
+  const btn = event ? event.currentTarget : document.querySelectorAll('.step-screenshot-btn')[stepIndex];
+  if (btn) btn.classList.toggle('active', step.screenshot);
   _autoSaveScenario(sc);
 }
 
