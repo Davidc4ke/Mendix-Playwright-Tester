@@ -749,6 +749,77 @@
     word-break: break-word;
   }
 
+  .step-config-details {
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: rgba(239,68,68,0.06);
+    border: 1px solid rgba(239,68,68,0.15);
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--font);
+    color: var(--text-secondary);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .step-config-details span {
+    display: block;
+  }
+
+  .step-config-details .step-config-label {
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .step-goto-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    padding: 3px 10px;
+    font-size: 10px;
+    font-family: var(--font);
+    background: var(--bg-surface);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    color: var(--accent);
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+
+  .step-goto-btn:hover {
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface));
+    border-color: var(--accent);
+  }
+
+  .step-editor-card.step-highlight {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-surface));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+    animation: step-highlight-pulse 2s ease-out;
+  }
+
+  @keyframes step-highlight-pulse {
+    0% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 40%, transparent); }
+    100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+  }
+
+  .step-editor-card.step-highlight-error {
+    border-color: var(--red);
+    background: var(--red-dim);
+    box-shadow: 0 0 0 2px rgba(239,68,68,0.25);
+    animation: step-highlight-error-pulse 2s ease-out;
+  }
+
+  @keyframes step-highlight-error-pulse {
+    0% { box-shadow: 0 0 0 4px rgba(239,68,68,0.4); }
+    100% { box-shadow: 0 0 0 2px rgba(239,68,68,0.25); }
+  }
+
   .step-artifact-list {
     margin-top: 8px;
     display: flex;
@@ -2346,12 +2417,31 @@ function showRunDetail(run) {
           // Find matching error for this step
           const stepError = isFailed && sr.error ? sr.error : "";
 
+          // Build config details for failed steps
+          let configHtml = "";
+          if (isFailed) {
+            const configParts = [];
+            if (step.action) configParts.push(`<span><span class="step-config-label">Action:</span> ${esc(step.action)}</span>`);
+            if (step.selector) configParts.push(`<span><span class="step-config-label">Selector:</span> ${esc(step.selector)}</span>`);
+            if (step.value) configParts.push(`<span><span class="step-config-label">Value:</span> ${esc(step.value)}</span>`);
+            if (configParts.length) {
+              configHtml = `<div class="step-config-details">${configParts.join("")}</div>`;
+            }
+          }
+
+          // "Go to Step" button for failed steps that belong to a scenario
+          const gotoHtml = isFailed && run.scenarioId
+            ? `<button class="step-goto-btn" onclick="navigateToStep('${run.scenarioId}', ${step.index})">&#9998; Edit Step in Scenario</button>`
+            : "";
+
           return `
             <div class="step-tracker-item ${statusClass}">
               <div class="step-indicator">${indicator}</div>
               <div class="step-content">
                 <div class="step-description">${esc(step.description || step.action)}</div>
                 ${stepError ? `<div class="step-error-msg">${esc(stepError)}</div>` : ""}
+                ${configHtml}
+                ${gotoHtml}
                 ${stepFailArtifacts.length ? `
                   <div class="step-artifact-list">
                     ${stepFailArtifacts.map(a => `
@@ -2490,6 +2580,39 @@ function copyRunStepToClipboard(runId, stepIndex) {
     toast("Step details copied to clipboard", "info");
   }).catch(() => {
     toast("Could not copy to clipboard", "error");
+  });
+}
+
+// ════════════════════════════════════════════════════
+//  Navigate to Step in Scenario Editor
+// ════════════════════════════════════════════════════
+function navigateToStep(scenarioId, stepIndex) {
+  const sc = scenarios.find(s => s.id === scenarioId);
+  if (!sc) { toast("Scenario not found", "error"); return; }
+
+  // Switch to scenarios tab
+  document.querySelectorAll(".sidebar-tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".sidebar-panel").forEach(p => p.classList.remove("active"));
+  document.querySelector('[data-panel="scenarios"]').classList.add("active");
+  document.getElementById("panel-scenarios").classList.add("active");
+
+  // Select the scenario
+  selectedScenario = sc;
+  selectedRun = null;
+  renderScenarioList();
+  showScenarioDetail(sc);
+
+  // After render, scroll to and highlight the target step
+  requestAnimationFrame(() => {
+    const stepCards = document.querySelectorAll('.step-editor-card');
+    // stepIndex from run may be the parsed step index — match by data-step-index
+    const targetCard = document.querySelector(`.step-editor-card[data-step-index="${stepIndex}"]`);
+    if (targetCard) {
+      targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      targetCard.classList.add('step-highlight-error');
+      // Remove highlight class after animation
+      setTimeout(() => targetCard.classList.remove('step-highlight-error'), 5000);
+    }
   });
 }
 
