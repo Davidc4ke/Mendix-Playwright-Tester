@@ -2009,6 +2009,23 @@ function onStepDelete(scenarioId, stepIndex) {
   _autoSaveScenario(sc);
 }
 
+async function rerunTest(scenarioId) {
+  const sc = scenarios.find(s => s.id === scenarioId);
+  if (!sc) {
+    // Scenario may not be loaded yet, reload and retry
+    await loadScenarios();
+    const reloaded = scenarios.find(s => s.id === scenarioId);
+    if (!reloaded) {
+      toast("Scenario not found — it may have been deleted.", "error");
+      return;
+    }
+    return rerunTest(scenarioId);
+  }
+  toast("Rerunning test...", "info");
+  await window.zoniq.executeScenario(sc);
+  await loadRuns();
+}
+
 async function executeSelected() {
   if (!selectedScenario) return;
 
@@ -2138,10 +2155,28 @@ async function showAppDetail(app) {
         ${app.credentials?.username ? `<span>Default user: ${esc(app.credentials.username)}</span>` : ''}
       </div>
 
-      <div class="section-header">Element Database</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="section-header" style="margin-bottom:0;">Element Database</div>
+        <button class="btn btn-sm" onclick="generateElements('${app.id}')">Generate</button>
+      </div>
       ${renderElementBrowser(elements)}
     </div>
   `;
+}
+
+async function generateElements(appId) {
+  try {
+    const result = await window.zoniq.scanElements(appId);
+    if (result.error) {
+      toast(result.error, "error");
+    } else {
+      toast(`${result.count} element${result.count !== 1 ? "s" : ""} catalogued from ${result.scenariosScanned} scenario${result.scenariosScanned !== 1 ? "s" : ""}`, "success");
+      const app = apps.find(a => a.id === appId);
+      if (app) showAppDetail(app);
+    }
+  } catch (err) {
+    toast("Failed to generate elements: " + err.message, "error");
+  }
 }
 
 function renderElementBrowser(elements) {
@@ -2478,6 +2513,7 @@ function showRunDetail(run) {
       <div class="btn-group">
         <span class="badge badge-${run.status}" style="font-size:12px;padding:4px 12px;">${run.status.toUpperCase()}</span>
         ${run.status === "failed" && run.scenarioId ? `<button class="btn btn-sm btn-ai" onclick="startHealing('${run.scenarioId}', '${run.runId}')">&#10024; AI Heal</button>` : ""}
+        ${run.scenarioId ? `<button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--primary);color:var(--primary);" onclick="rerunTest('${run.scenarioId}')">&#9654; Rerun</button>` : ""}
         <button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--amber);color:var(--amber);" onclick="copyLogForAI('${run.runId}')">&#128203; Copy Log For AI</button>
         <button class="btn btn-sm" onclick="window.zoniq.openResultsFolder('${run.runId}')">&#128193; Open Folder</button>
       </div>

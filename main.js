@@ -356,12 +356,24 @@ function injectStepMarkers(scriptBody) {
           const url = new URL(navMatch[1]);
           const isRootish = url.pathname === '/' || url.pathname === '';
           if (isRootish && visitedOrigins.has(url.origin)) isFiltered = true;
+          // Click → goto(root) pattern: Mendix client-side navigation causes
+          // codegen to emit spurious root-URL gotos after button clicks
+          if (isRootish && !isFiltered && stmtIdx > 0) {
+            const prevStmt = statements[stmtIdx - 1];
+            if (/\.(click|dblclick|press|check|uncheck|selectOption)\s*\(/.test(prevStmt.text) ||
+                /mx\.(clickWidget|selectDropdown|smartSelect)\s*\(/.test(prevStmt.text)) {
+              isFiltered = true;
+            }
+          }
           visitedOrigins.add(url.origin);
         } catch { /* not a valid URL, keep it */ }
       }
     }
 
-    const idx = isFiltered ? -1 : realIdx++;
+    // Actually remove filtered statements from the executed script
+    if (isFiltered) return null;
+
+    const idx = realIdx++;
     // Detect screenshot marker and strip it from the executed statement
     const wantsScreenshot = /\/\/\s*@zoniq:screenshot/.test(stmt.text);
     const cleanStmt = wantsScreenshot ? stmt.text.replace(/\s*\/\/\s*@zoniq:screenshot\s*$/, '') : stmt.text;
@@ -390,7 +402,7 @@ function injectStepMarkers(scriptBody) {
     /(\btest\s*\(\s*['"][^'"]*['"]\s*,\s*async\s*\(\s*\{\s*page\s*\}\s*\)\s*=>\s*\{)([\s\S]*)(\}\s*\)\s*;?\s*$)/
   );
   if (testBodyMatch) {
-    return testBodyMatch[1] + '\n' + wrapped.join('\n\n') + '\n' + testBodyMatch[3];
+    return testBodyMatch[1] + '\n' + wrapped.filter(Boolean).join('\n\n') + '\n' + testBodyMatch[3];
   }
   return scriptBody;
 }
@@ -1181,6 +1193,35 @@ ipcMain.handle("delete-app", (event, appId) => {
 ipcMain.handle("get-element-db", (event, appId) => {
   if (!appId) return { elements: {} };
   return loadElementDBForApp(appId);
+});
+
+ipcMain.handle("scan-elements", (event, appId) => {
+  const apps = loadAppsDB();
+  const app = apps.find(a => a.id === appId);
+  if (!app) return { error: "App not found" };
+
+  const db = loadDB();
+  const appScenarios = db.scenarios.filter(s => s.appId === appId && s.script);
+  if (!appScenarios.length) return { error: "No scenarios with scripts found for this app" };
+
+  let elDB = loadElementDBForApp(appId);
+  let totalElements = 0;
+
+  for (const sc of appScenarios) {
+    try {
+      const steps = ScriptUtils.parseScriptToSteps(sc.script);
+      if (steps.length) {
+        elDB = ElementDB.enrichFromSteps(elDB, steps);
+        totalElements += steps.filter(s => s.selector).length;
+      }
+    } catch (err) {
+      console.log(`[scan-elements] Skipped scenario "${sc.name}": ${err.message}`);
+    }
+  }
+
+  saveElementDBForApp(appId, elDB);
+  const count = Object.keys(elDB.elements || {}).length;
+  return { success: true, count, scenariosScanned: appScenarios.length };
 });
 
 ipcMain.handle("generate-script", async (event, { appId, description }) => {
