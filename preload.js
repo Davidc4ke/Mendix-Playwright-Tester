@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("zoniq", {
   getScenarios: () => ipcRenderer.invoke("get-scenarios"),
   saveScenario: (s) => ipcRenderer.invoke("save-scenario", s),
   deleteScenario: (id) => ipcRenderer.invoke("delete-scenario", id),
+  duplicateScenario: (id) => ipcRenderer.invoke("duplicate-scenario", id),
   getRuns: () => ipcRenderer.invoke("get-runs"),
   getSavedUrls: () => ipcRenderer.invoke("get-saved-urls"),
   launchRecorder: (url, options) => ipcRenderer.invoke("launch-recorder", url, options),
@@ -31,7 +32,6 @@ contextBridge.exposeInMainWorld("zoniq", {
   // Agent operations
   agentHeal: (opts) => ipcRenderer.invoke("agent-heal", opts),
   agentAnalyze: (opts) => ipcRenderer.invoke("agent-analyze", opts),
-  agentPreheal: (opts) => ipcRenderer.invoke("agent-preheal", opts),
   agentHealApply: (opts) => ipcRenderer.invoke("agent-heal-apply", opts),
   agentCancel: () => ipcRenderer.invoke("agent-cancel"),
 
