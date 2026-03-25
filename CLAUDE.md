@@ -63,6 +63,7 @@ Key functions:
 - `generateStepCode(step)` — converts a step object back to Playwright code
 - `replaceInScript(script, sourceText, newCode, occurrence)` — finds and replaces a statement in the script by text matching, supports occurrence index for duplicate statements
 - `resolveLocator(selector)` — converts selector strings (mx:, label:, text:, role:Name) to Playwright locator code
+- `resolveValue(rawValue)` — handles `{{varName}}` references in step values, returns `{ expr, isDynamic }` for code generation
 - `describeStatement(stmtText)` — short human-readable description for progress markers
 
 ### IPC Bridge (`preload.js`)
@@ -154,6 +155,39 @@ Other supported selector formats:
 - `button:Save` (role:name) → `page.getByRole('button', { name: 'Save' })`
 - `keyboard:Enter` → `page.keyboard.press('Enter')`
 - Raw CSS selectors are passed through to `page.locator()`
+
+## Dynamic Value Capture & Variable References
+
+For multi-user workflows (e.g., ticket escalation across multiple roles), use the **Capture** action to extract dynamic values from the page and **`{{varName}}`** syntax to reference them in later steps.
+
+### Capture Action
+Extracts visible text from a page element into a named JavaScript variable:
+- Step: `{ action: 'Capture', selector: 'mx:txtTicketId', value: 'ticketId' }`
+- Generated code: `const ticketId = (await page.locator('.mx-name-txtTicketId').textContent()).trim();`
+- The `value` field is the variable name (must be a valid JS identifier: letters, numbers, underscores)
+
+### Variable References (`{{varName}}`)
+Use `{{varName}}` in any step's value field to reference a previously captured variable:
+- Exact reference: `{{ticketId}}` → generates bare variable `ticketId` (no quotes)
+- Mixed with text: `Ticket: {{ticketId}}` → generates template literal `` `Ticket: ${ticketId}` ``
+- Works in Fill, SelectDropdown, AssertText, and Navigate steps
+
+### Example: Ticket Escalation Flow
+```
+1. Login (requestor credentials)
+2. Fill form fields, submit ticket
+3. Capture mx:txtTicketId → "ticketId"
+4. Logout
+5. Login (approver credentials)
+6. Fill mx:searchBox with {{ticketId}}
+7. Click ticket, escalate
+8. Logout
+9. Login (next-level approver)
+10. Fill mx:searchBox with {{ticketId}}
+11. Click ticket, escalate further
+```
+
+The UI groups steps into phases by login events, making multi-user flows easy to read.
 
 ## Zero Manual Editing Principle
 
