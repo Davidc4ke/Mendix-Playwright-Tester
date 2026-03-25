@@ -1247,6 +1247,17 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
   }
 });
 
+// Get absolute path for a run artifact (for displaying images in the renderer)
+ipcMain.handle("get-artifact-path", (event, runId, filename) => {
+  if (!runId || !filename) return null;
+  // Security: prevent directory traversal
+  if (filename.includes('/') || filename.includes('\\')) return null;
+  const filePath = path.join(RESULTS_DIR, runId, filename);
+  if (!filePath.startsWith(path.resolve(RESULTS_DIR) + path.sep)) return null;
+  if (fs.existsSync(filePath)) return filePath;
+  return null;
+});
+
 // Open results folder
 ipcMain.handle("open-results-folder", (event, runId) => {
   const dir = path.join(RESULTS_DIR, runId);

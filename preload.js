@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("zoniq", {
   importScript: () => ipcRenderer.invoke("import-script"),
   executeScenario: (s) => ipcRenderer.invoke("execute-scenario", s),
   openResultsFolder: (runId) => ipcRenderer.invoke("open-results-folder", runId),
+  getArtifactPath: (runId, filename) => ipcRenderer.invoke("get-artifact-path", runId, filename),
 
   // Settings
   getSettings: () => ipcRenderer.invoke("get-settings"),

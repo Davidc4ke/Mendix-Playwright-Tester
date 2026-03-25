@@ -804,6 +804,25 @@
     border-color: var(--amber);
   }
 
+  .step-proof-image-wrap {
+    margin-top: 6px;
+  }
+
+  .step-proof-img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all var(--transition);
+    object-fit: contain;
+  }
+
+  .step-proof-img:hover {
+    border-color: var(--amber);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+
   .step-copy-btn {
     opacity: 0;
     flex-shrink: 0;
@@ -1853,8 +1872,9 @@ function showRunDetail(run) {
                   </div>
                 ` : ""}
                 ${stepProof ? `
-                  <div class="step-proof-screenshot" onclick="window.zoniq.openResultsFolder('${run.runId}')">
-                    <div class="step-proof-badge">&#128247; Proof screenshot captured</div>
+                  <div class="step-proof-screenshot">
+                    <div class="step-proof-badge" onclick="toggleProofImage(this)" data-run-id="${run.runId}" data-artifact="${esc(stepProof)}">&#128247; Proof screenshot captured &mdash; click to view</div>
+                    <div class="step-proof-image-wrap" style="display:none;"></div>
                   </div>
                 ` : ""}
               </div>
@@ -1933,6 +1953,27 @@ function showRunDetail(run) {
       ` : ''}
     </div>
   `;
+}
+
+async function toggleProofImage(badgeEl) {
+  const wrap = badgeEl.parentElement.querySelector('.step-proof-image-wrap');
+  if (wrap.style.display !== 'none') {
+    wrap.style.display = 'none';
+    return;
+  }
+  // Load image if not already loaded
+  if (!wrap.dataset.loaded) {
+    const runId = badgeEl.dataset.runId;
+    const artifact = badgeEl.dataset.artifact;
+    const filePath = await window.zoniq.getArtifactPath(runId, artifact);
+    if (filePath) {
+      wrap.innerHTML = `<img class="step-proof-img" src="file://${filePath}" alt="Step proof screenshot" onclick="window.zoniq.openResultsFolder('${runId}')" title="Click to open results folder" />`;
+    } else {
+      wrap.innerHTML = `<div style="font-size:11px;color:var(--text-muted);padding:8px;">Screenshot file not found</div>`;
+    }
+    wrap.dataset.loaded = '1';
+  }
+  wrap.style.display = 'block';
 }
 
 function copyRunStepToClipboard(runId, stepIndex) {
