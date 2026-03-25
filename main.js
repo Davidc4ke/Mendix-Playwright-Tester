@@ -1176,6 +1176,32 @@ ipcMain.handle("get-element-db", (event, appId) => {
   return loadElementDBForApp(appId);
 });
 
+ipcMain.handle("populate-element-db", (event, appId) => {
+  if (!appId) return { error: "No appId" };
+  const db = loadDB();
+  const appScenarios = db.scenarios.filter(s => s.appId === appId && s.script);
+  if (!appScenarios.length) return { error: "No scenarios with scripts found for this app" };
+
+  let elDB = loadElementDBForApp(appId);
+  let totalNew = 0;
+  const beforeCount = Object.keys(elDB.elements || {}).length;
+
+  for (const sc of appScenarios) {
+    try {
+      const steps = ScriptUtils.parseScriptToSteps(sc.script);
+      if (steps.length) {
+        elDB = ElementDB.enrichFromSteps(elDB, steps);
+      }
+    } catch {}
+  }
+
+  const afterCount = Object.keys(elDB.elements || {}).length;
+  totalNew = afterCount - beforeCount;
+  saveElementDBForApp(appId, elDB);
+
+  return { ok: true, total: afterCount, added: totalNew, fromScenarios: appScenarios.length };
+});
+
 ipcMain.handle("generate-script", async (event, { appId, description }) => {
   const settings = loadSettings();
   if (!settings.llm.apiKey) return { error: "No LLM API key configured. Go to Settings to add one." };

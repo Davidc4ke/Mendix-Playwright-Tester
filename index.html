@@ -1915,7 +1915,10 @@ async function showAppDetail(app) {
         ${app.credentials?.username ? `<span>Default user: ${esc(app.credentials.username)}</span>` : ''}
       </div>
 
-      <div class="section-header">Element Database</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="section-header" style="margin-bottom:0;">Element Database</div>
+        ${scCount > 0 ? `<button class="btn btn-sm" onclick="populateElementsFromScripts('${app.id}')" style="font-size:11px;">Extract from Scripts</button>` : ''}
+      </div>
       ${renderElementBrowser(elements)}
     </div>
   `;
@@ -2028,6 +2031,19 @@ async function deleteApp(appId) {
   document.getElementById("detailContent").style.display = "none";
   document.getElementById("detailEmpty").style.display = "flex";
   toast("App deleted", "info");
+}
+
+async function populateElementsFromScripts(appId) {
+  toast("Extracting elements from scripts...", "info");
+  const result = await window.zoniq.populateElementDB(appId);
+  if (result.error) {
+    toast(result.error, "error");
+    return;
+  }
+  toast(`Found ${result.total} elements (${result.added} new) from ${result.fromScenarios} scenario${result.fromScenarios !== 1 ? 's' : ''}`, "success");
+  // Refresh the app detail view
+  const app = apps.find(a => a.id === appId);
+  if (app) showAppDetail(app);
 }
 
 // ════════════════════════════════════════════════════
