@@ -273,14 +273,18 @@ async function smartSelect(page, locator, value, options = {}) {
     // This is a UAT tool: users see labels, not GUIDs. Mendix regenerates
     // GUIDs across environments so they're useless for matching anyway.
 
-    // If the recorded value is actually a GUID (numeric ID or UUID), resolve
-    // it to the label of the <option> that currently has that value attribute.
+    // If the recorded value doesn't match any visible option label, resolve
+    // it by looking up the <option> with that value attribute and using its text.
+    // This covers GUIDs, prefixed values like "_04" → "04", and any other
+    // internal value that differs from the display text.
     let labelToSelect = value;
-    if (looksLikeGuid(value)) {
-      const resolved = await locator.first().locator(`option[value="${value}"]`).textContent().catch(() => null);
+    const optionLabelsAll = await locator.first().locator("option").allTextContents().catch(() => []);
+    const isAlreadyLabel = optionLabelsAll.some(t => t.trim() === value);
+    if (!isAlreadyLabel) {
+      const resolved = await locator.first().locator(`option[value="${CSS.escape(value)}"]`).textContent().catch(() => null);
       if (resolved && resolved.trim()) {
         labelToSelect = resolved.trim();
-        // Emit marker so the runner can replace this GUID in the stored script
+        // Emit marker so the runner can replace this value in the stored script
         console.log(`[ZONIQ_GUID_RESOLVED:${value}:${labelToSelect}]`);
       }
       // If we can't resolve it, fall through and try the raw value as label text anyway
