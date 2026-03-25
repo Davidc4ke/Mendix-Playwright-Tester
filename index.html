@@ -2207,12 +2207,7 @@ async function startRecording() {
 function openModal(id) { document.getElementById(id).classList.add("active"); }
 function closeModal(id) { document.getElementById(id).classList.remove("active"); }
 
-// Close modals on overlay click
-document.querySelectorAll(".modal-overlay").forEach((overlay) => {
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) overlay.classList.remove("active");
-  });
-});
+// Modals must be explicitly dismissed via buttons — no outside-click closing
 
 // Close modals on Escape
 document.addEventListener("keydown", (e) => {
