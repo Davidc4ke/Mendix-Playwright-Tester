@@ -1543,6 +1543,7 @@ function showScenarioDetail(sc) {
       <div class="btn-group">
         <button class="btn btn-primary" onclick="executeSelected()">&#9654; Run Test</button>
         <button class="btn btn-ai" onclick="startPrehealing('${sc.id}')">&#10024; Pre-heal</button>
+        <button class="btn" onclick="startCleanup('${sc.id}')">&#128268; Clean Up</button>
         <button class="btn" onclick="editScenario('${sc.id}')">&#9998; Edit</button>
         <button class="btn btn-danger btn-sm" onclick="deleteScenario('${sc.id}')">&#128465;</button>
       </div>
@@ -2610,6 +2611,106 @@ async function applyHealedScript(scenarioId) {
   if (res.error) { toast(res.error, "error"); return; }
   window._healedScript = null;
   toast("Healed script applied to scenario", "success");
+  await loadScenarios();
+  if (selectedScenario) {
+    selectedScenario = scenarios.find((s) => s.id === scenarioId) || selectedScenario;
+    showScenarioDetail(selectedScenario);
+  }
+}
+
+// ── Script Cleanup ──────────────────────────────────────
+
+async function startCleanup(scenarioId) {
+  toast("Analyzing script for redundancies...", "info");
+  const result = await window.zoniq.cleanupScript(scenarioId);
+
+  if (result.error) { toast(result.error, "error"); return; }
+  if (result.removedCount === 0) { toast("Script is already clean — no redundancies found", "success"); return; }
+
+  showCleanupResult(result, scenarioId);
+}
+
+function showCleanupResult(result, scenarioId) {
+  currentView = "cleanup-result";
+  const el = document.getElementById("detailContent");
+  const empty = document.getElementById("detailEmpty");
+  empty.style.display = "none";
+  el.style.display = "flex";
+
+  const allChanges = [
+    ...(result.ruleChanges || result.changes || []).map(c => ({ ...c, source: "rule" })),
+    ...(result.aiChanges || []).map(c => ({ ...c, source: "ai" })),
+  ];
+
+  el.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">Cleanup Results</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
+          ${result.removedCount} redundant statement${result.removedCount !== 1 ? 's' : ''} found
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-ai" onclick="applyCleanedScript('${scenarioId}')">Apply Cleanup</button>
+        <button class="btn" onclick="startAICleanup('${scenarioId}')" id="btnAICleanup">&#10024; AI Cleanup</button>
+        <button class="btn" onclick="showScenarioDetail(selectedScenario)">Discard</button>
+      </div>
+    </div>
+    <div class="detail-body">
+      ${result.analysis ? `
+        <div class="section-header">AI Analysis</div>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:16px;">${esc(result.analysis)}</p>
+      ` : ""}
+
+      ${allChanges.length ? `
+        <div class="section-header">Changes</div>
+        <div class="heal-diff">
+          ${allChanges.map(c => `
+            <div class="heal-change">
+              <div class="heal-change-reason">${esc(c.reason || "")}</div>
+              <div><del>${esc(c.original || "")}</del></div>
+              ${c.replacement ? `<div><ins>${esc(c.replacement)}</ins></div>` : ""}
+            </div>
+          `).join("")}
+        </div>
+      ` : ""}
+
+      <div class="section-header">Cleaned Script</div>
+      <pre class="script-area" style="min-height:100px;max-height:400px;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(result.cleanedScript || "No changes")}</pre>
+    </div>
+  `;
+
+  window._cleanedScript = result.cleanedScript;
+}
+
+async function startAICleanup(scenarioId) {
+  const btn = document.getElementById("btnAICleanup");
+  if (btn) { btn.disabled = true; btn.textContent = "Analyzing..."; }
+
+  toast("Running AI cleanup...", "info");
+  const result = await window.zoniq.cleanupScriptAI(scenarioId);
+
+  if (result.error) {
+    toast(result.error, "error");
+    if (btn) { btn.disabled = false; btn.textContent = "\u2728 AI Cleanup"; }
+    return;
+  }
+
+  if ((result.aiChanges?.length || 0) === 0 && (result.ruleChanges?.length || 0) === 0) {
+    toast("AI found no additional improvements", "info");
+    if (btn) { btn.disabled = false; btn.textContent = "\u2728 AI Cleanup"; }
+    return;
+  }
+
+  showCleanupResult(result, scenarioId);
+}
+
+async function applyCleanedScript(scenarioId) {
+  if (!window._cleanedScript) { toast("No cleaned script to apply", "error"); return; }
+  const res = await window.zoniq.agentHealApply({ scenarioId, healedScript: window._cleanedScript });
+  if (res.error) { toast(res.error, "error"); return; }
+  window._cleanedScript = null;
+  toast("Cleaned script applied to scenario", "success");
   await loadScenarios();
   if (selectedScenario) {
     selectedScenario = scenarios.find((s) => s.id === scenarioId) || selectedScenario;
