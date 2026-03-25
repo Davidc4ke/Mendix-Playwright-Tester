@@ -277,6 +277,97 @@
   .detail-body::-webkit-scrollbar-track { background: transparent; }
   .detail-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
+  /* ── Detail Tabs ─────────────────────────────────────── */
+  .detail-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    flex-shrink: 0;
+  }
+  .detail-tab {
+    padding: 10px 16px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all var(--transition);
+    background: none;
+    border-top: none; border-left: none; border-right: none;
+    font-family: var(--font);
+  }
+  .detail-tab:hover { color: var(--text-secondary); }
+  .detail-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .detail-tab .tab-count {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: 4px;
+  }
+
+  .detail-tab-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: none;
+  }
+  .detail-tab-panel.active { display: block; }
+  .detail-tab-panel::-webkit-scrollbar { width: 6px; }
+  .detail-tab-panel::-webkit-scrollbar-track { background: transparent; }
+  .detail-tab-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── Last Run Indicator ──────────────────────────────── */
+  .last-run-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 12px;
+    font-size: 11px;
+    font-family: var(--font);
+    color: var(--text-muted);
+    vertical-align: middle;
+  }
+
+  /* ── Step Code Accordion ─────────────────────────────── */
+  .step-card-wrapper {
+    display: flex;
+    flex-direction: column;
+  }
+  .step-code-toggle {
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    font-family: var(--font);
+    transition: border-color var(--transition), color var(--transition);
+    padding: 0;
+  }
+  .step-code-toggle:hover { color: var(--text-secondary); border-color: var(--border-focus); }
+  .step-code-toggle.active { color: var(--accent); border-color: var(--accent); }
+  .step-code-block {
+    display: none;
+    margin: 2px 0 4px 32px;
+    padding: 6px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.5;
+  }
+  .step-code-block.open { display: block; }
+
   /* ── Empty State ────────────────────────────────────── */
   .empty-state {
     flex: 1;
@@ -1593,6 +1684,27 @@ const { extractTestBody, splitIntoStatements, parseStatement, parseScriptToSteps
         generateStepCode, replaceInScript, removeFromScript, escapeJsString: escJsStr } = ScriptUtils;
 
 
+// ════════════════════════════════════════════════════
+//  Detail Tabs & Step Code Accordion
+// ════════════════════════════════════════════════════
+function _initDetailTabs() {
+  document.querySelectorAll('.detail-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.detail-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.detail-tab-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById(`dtab-${tab.dataset.dtab}`).classList.add('active');
+    });
+  });
+}
+
+function toggleStepCode(codeId, btn) {
+  const block = document.getElementById(codeId);
+  if (!block) return;
+  block.classList.toggle('open');
+  btn.classList.toggle('active', block.classList.contains('open'));
+}
+
 //  Init
 // ════════════════════════════════════════════════════
 document.addEventListener("DOMContentLoaded", async () => {
@@ -1799,10 +1911,18 @@ function showScenarioDetail(sc) {
 
   const lastRuns = runs.filter((r) => r.scenarioId === sc.id).slice(0, 5);
 
+  const lastRun = lastRuns[0];
+
   el.innerHTML = `
     <div class="detail-header">
       <div>
-        <div class="detail-title">${esc(sc.name)}</div>
+        <div class="detail-title">
+          ${esc(sc.name)}
+          ${lastRun ? `<span class="last-run-indicator">
+            <span class="badge badge-${lastRun.status}">${lastRun.status.toUpperCase()}</span>
+            <span>${timeAgo(lastRun.completedAt || lastRun.startedAt)}</span>
+          </span>` : ''}
+        </div>
         <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
           ${sc.appId ? `<span style="color:var(--accent);cursor:pointer;" onclick="selectApp('${sc.appId}')">${esc(apps.find(a=>a.id===sc.appId)?.name || '')}</span> &middot; ` : ''}${esc(sc.targetUrl || '')}
         </div>
@@ -1815,60 +1935,70 @@ function showScenarioDetail(sc) {
         <button class="btn btn-danger btn-sm" onclick="deleteScenario('${sc.id}')">&#128465;</button>
       </div>
     </div>
-    <div class="detail-body">
-      ${sc.credentials?.username ? `
+    ${sc.credentials?.username ? `
+      <div style="padding:8px 24px 0;flex-shrink:0;">
         <div class="section-header">Credentials</div>
-        <p style="font-size:12px;font-family:var(--font);color:var(--text-secondary);">User: ${esc(sc.credentials.username)}</p>
-      ` : ''}
-
-      <div class="section-header">Steps</div>
+        <p style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin:0 0 8px;">User: ${esc(sc.credentials.username)}</p>
+      </div>
+    ` : ''}
+    <div class="detail-tabs">
+      <button class="detail-tab active" data-dtab="steps">Steps<span class="tab-count">(${(sc.steps || []).length})</span></button>
+      <button class="detail-tab" data-dtab="script">Script</button>
+      <button class="detail-tab" data-dtab="runs">Recent Runs<span class="tab-count">(${lastRuns.length})</span></button>
+    </div>
+    <div class="detail-tab-panel active" id="dtab-steps">
       <div id="stepEditorContainer">${renderStepEditor(sc)}</div>
-
-      <div class="section-header" style="margin-top:16px;">Script</div>
-      <pre class="script-area" style="min-height:60px;max-height:200px;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(sc.script || '// No script defined')}</pre>
-
-      ${lastRuns.length ? `
-        <div class="section-header">Recent Runs</div>
-        ${lastRuns.map((r) => `
-          <div class="run-card" onclick="selectRunById('${r.runId}')" style="display:flex;align-items:center;justify-content:space-between;">
-            <div>
-              <span class="badge badge-${r.status}">${r.status}</span>
-              <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">${timeAgo(r.completedAt || r.startedAt)}</span>
-            </div>
-            ${r.results?.summary ? `<span style="font-size:11px;font-family:var(--font);color:var(--text-secondary);">${r.results.summary.passed}/${r.results.summary.total} passed</span>` : ''}
+    </div>
+    <div class="detail-tab-panel" id="dtab-script">
+      <pre class="script-area" style="min-height:60px;max-height:none;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(sc.script || '// No script defined')}</pre>
+    </div>
+    <div class="detail-tab-panel" id="dtab-runs">
+      ${lastRuns.length ? lastRuns.map((r) => `
+        <div class="run-card" onclick="selectRunById('${r.runId}')" style="display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <span class="badge badge-${r.status}">${r.status.toUpperCase()}</span>
+            <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">${timeAgo(r.completedAt || r.startedAt)}</span>
           </div>
-        `).join("")}
-      ` : ''}
+          ${r.results?.summary ? `<span style="font-size:11px;font-family:var(--font);color:var(--text-secondary);">${r.results.summary.passed}/${r.results.summary.total} passed</span>` : ''}
+        </div>
+      `).join("") : '<p style="color:var(--text-muted);font-size:12px;">No runs yet</p>'}
     </div>
   `;
+
+  _initDetailTabs();
 }
 
 function _renderStepCard(sc, step, idx) {
   const config = STEP_ACTION_CONFIG[step.action] || { selector: false, value: false };
+  const codeId = `step-code-${idx}`;
   return `
-    <div class="step-editor-card" data-step-index="${idx}">
-      <div class="step-editor-order">${idx + 1}</div>
-      <div class="step-editor-fields">
-        <select class="form-input" onchange="onStepActionChange('${sc.id}', ${idx}, this.value)">
-          ${Object.keys(STEP_ACTION_CONFIG).map(a =>
-            `<option value="${a}" ${a === step.action ? 'selected' : ''}>${a}</option>`
-          ).join('')}
-        </select>
-        ${config.selector ? `
-          <input type="text" class="form-input" placeholder="${config.selectorPlaceholder || 'Selector'}"
-                 value="${esc(step.selector || '')}"
-                 onchange="onStepFieldChange('${sc.id}', ${idx}, 'selector', this.value)" />
-        ` : ''}
-        ${config.value ? `
-          <input type="text" class="form-input" placeholder="${config.valuePlaceholder || 'Value'}"
-                 value="${esc(step.value || '')}"
-                 onchange="onStepFieldChange('${sc.id}', ${idx}, 'value', this.value)" />
-        ` : ''}
+    <div class="step-card-wrapper">
+      <div class="step-editor-card" data-step-index="${idx}">
+        <div class="step-editor-order">${idx + 1}</div>
+        <div class="step-editor-fields">
+          <select class="form-input" onchange="onStepActionChange('${sc.id}', ${idx}, this.value)">
+            ${Object.keys(STEP_ACTION_CONFIG).map(a =>
+              `<option value="${a}" ${a === step.action ? 'selected' : ''}>${a}</option>`
+            ).join('')}
+          </select>
+          ${config.selector ? `
+            <input type="text" class="form-input" placeholder="${config.selectorPlaceholder || 'Selector'}"
+                   value="${esc(step.selector || '')}"
+                   onchange="onStepFieldChange('${sc.id}', ${idx}, 'selector', this.value)" />
+          ` : ''}
+          ${config.value ? `
+            <input type="text" class="form-input" placeholder="${config.valuePlaceholder || 'Value'}"
+                   value="${esc(step.value || '')}"
+                   onchange="onStepFieldChange('${sc.id}', ${idx}, 'value', this.value)" />
+          ` : ''}
+        </div>
+        <div class="step-editor-actions">
+          <button class="step-code-toggle" title="Show raw code" onclick="toggleStepCode('${codeId}', this)">&lt;/&gt;</button>
+          <button class="step-screenshot-btn ${step.screenshot ? 'active' : ''}" title="Capture screenshot after this step" onclick="onStepScreenshotToggle('${sc.id}', ${idx}, event)">&#128247;</button>
+          <button class="step-remove-btn" title="Delete step" onclick="onStepDelete('${sc.id}', ${idx})">&#x2715;</button>
+        </div>
       </div>
-      <div class="step-editor-actions">
-        <button class="step-screenshot-btn ${step.screenshot ? 'active' : ''}" title="Capture screenshot after this step" onclick="onStepScreenshotToggle('${sc.id}', ${idx}, event)">&#128247;</button>
-        <button class="step-remove-btn" title="Delete step" onclick="onStepDelete('${sc.id}', ${idx})">&#x2715;</button>
-      </div>
+      <div class="step-code-block" id="${codeId}">${esc(step.sourceText || '')}</div>
     </div>`;
 }
 
@@ -1932,7 +2062,7 @@ function _refreshStepEditor(sc) {
   sc.steps = parseScriptToSteps(sc.script);
   const container = document.getElementById('stepEditorContainer');
   if (!container) return;
-  const scrollParent = container.closest('.detail-body');
+  const scrollParent = container.closest('.detail-tab-panel');
   const scrollTop = scrollParent ? scrollParent.scrollTop : 0;
   container.innerHTML = renderStepEditor(sc);
   if (scrollParent) scrollParent.scrollTop = scrollTop;
