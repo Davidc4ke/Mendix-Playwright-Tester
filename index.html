@@ -1928,7 +1928,11 @@ function renderStepEditor(sc) {
 function _refreshStepEditor(sc) {
   sc.steps = parseScriptToSteps(sc.script);
   const container = document.getElementById('stepEditorContainer');
-  if (container) container.innerHTML = renderStepEditor(sc);
+  if (!container) return;
+  const scrollParent = container.closest('.detail-body');
+  const scrollTop = scrollParent ? scrollParent.scrollTop : 0;
+  container.innerHTML = renderStepEditor(sc);
+  if (scrollParent) scrollParent.scrollTop = scrollTop;
 }
 
 // ── Step editing → modifies script directly ──────────
