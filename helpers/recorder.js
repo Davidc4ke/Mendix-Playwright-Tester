@@ -199,13 +199,71 @@ function replaceGuidsInScript(guidToLabel) {
     });
   }
 
+  // ── Capture all visible Mendix elements for the element DB ──────
+  async function captureElements() {
+    try {
+      if (page.isClosed()) return;
+      const elements = await page.evaluate(() => {
+        const widgets = [];
+        const els = document.querySelectorAll("[class*='mx-name-']");
+        for (const el of els) {
+          const classes = Array.from(el.classList);
+          const mxClass = classes.find(c => c.startsWith("mx-name-"));
+          if (!mxClass) continue;
+          const name = mxClass.replace("mx-name-", "");
+          const rect = el.getBoundingClientRect();
+          const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== "hidden";
+          if (!visible) continue;
+
+          const input = el.querySelector("input, textarea, select");
+          const testId = el.getAttribute("data-testid") || el.querySelector("[data-testid]")?.getAttribute("data-testid") || null;
+
+          widgets.push({
+            name,
+            type: (() => {
+              if (classes.some(c => /button|btn/i.test(c)) || el.tagName === "BUTTON") return "button";
+              if (el.querySelector("textarea")) return "textarea";
+              if (el.querySelector("select")) return "dropdown";
+              if (el.querySelector("input[type='checkbox']")) return "checkbox";
+              if (el.querySelector("input[type='radio']")) return "radio";
+              if (el.querySelector("input[type='date'], input[type='datetime-local']")) return "datepicker";
+              if (classes.some(c => /datagrid/i.test(c))) return "datagrid";
+              if (classes.some(c => /listview/i.test(c))) return "listview";
+              if (el.querySelector("input[type='text'], input:not([type])")) return "textbox";
+              if (el.tagName === "A" || el.querySelector("a")) return "link";
+              if (el.querySelector("img")) return "image";
+              return "container";
+            })(),
+            selectors: { mx: `mx:${name}`, ...(testId ? { testId: `testid:${testId}` } : {}) },
+            text: el.textContent?.trim().substring(0, 100) || "",
+            value: input?.value || null,
+            enabled: !el.hasAttribute("disabled") && !el.classList.contains("disabled"),
+          });
+        }
+        return widgets;
+      });
+
+      if (elements.length) {
+        const elementsPath = path.resolve(outputPath) + ".elements.json";
+        fs.writeFileSync(elementsPath, JSON.stringify(elements, null, 2));
+        console.log(`[recorder] Captured ${elements.length} elements for element DB`);
+      }
+    } catch (err) {
+      console.log(`[recorder] Element capture skipped: ${err.message}`);
+    }
+  }
+
   // ── Detect browser/page closure ─────────────────────────────────
   // In Chromium headful mode, closing the last tab does NOT terminate
   // the browser process (known Playwright behaviour), so
   // browser.on("disconnected") may never fire. We use multiple
   // strategies to detect when the user is done recording.
 
-  function shutdown() {
+  let _shutdownCalled = false;
+  async function shutdown() {
+    if (_shutdownCalled) return;
+    _shutdownCalled = true;
+    await captureElements();
     replaceGuidsInScript(guidToLabel);
     process.exit(0);
   }

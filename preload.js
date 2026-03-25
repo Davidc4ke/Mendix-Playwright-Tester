@@ -13,6 +13,14 @@ contextBridge.exposeInMainWorld("zoniq", {
   openResultsFolder: (runId) => ipcRenderer.invoke("open-results-folder", runId),
   getArtifactPath: (runId, filename) => ipcRenderer.invoke("get-artifact-path", runId, filename),
 
+  // Apps & Element DB
+  getApps: () => ipcRenderer.invoke("get-apps"),
+  createApp: (app) => ipcRenderer.invoke("create-app", app),
+  updateApp: (app) => ipcRenderer.invoke("update-app", app),
+  deleteApp: (id) => ipcRenderer.invoke("delete-app", id),
+  getElementDB: (appId) => ipcRenderer.invoke("get-element-db", appId),
+  generateScript: (opts) => ipcRenderer.invoke("generate-script", opts),
+
   // Settings
   getSettings: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (s) => ipcRenderer.invoke("save-settings", s),
