@@ -70,7 +70,7 @@ Exposes `window.zoniq` API to renderer:
 - Scenario CRUD: `getScenarios`, `saveScenario`, `deleteScenario`
 - Execution: `executeScenario`, `launchRecorder`, `importScript`
 - Settings: `getSettings`, `saveSettings`, `testLLMConnection`
-- Agent operations: `agentHeal`, `agentPreheal`, `agentHealApply`, `agentCancel`
+- Agent operations: `agentHeal`, `agentHealApply`, `agentCancel`
 - Events: `onRunStarted`, `onRunCompleted`, `onRunsUpdated`, `onStepList`, `onStepProgress`, `onAgentProgress`
 
 ### Renderer (`index.html`)
@@ -112,7 +112,6 @@ Utility functions for Mendix-specific testing:
 - `GET /api/runs/:runId/artifacts/:filename` — Download test artifact
 - `GET /api/health` — Health check
 - `POST /api/agent/heal` — Run AI healer on a failed test
-- `POST /api/agent/preheal` — Run test then auto-heal if it fails
 - `GET /api/agent/status` — Check if an agent is running
 - `POST /api/agent/cancel` — Cancel running agent
 
@@ -186,7 +185,6 @@ When implementing new fixes: always solve at the `wrapScript()` / helper layer s
 
 - `wrapScript()` auto-transforms `.selectOption()` calls into `mx.smartSelect()` calls. `smartSelect` is label-first: it never matches by GUID value
 - `looksLikeGuid()` in `lib/script-utils.js` is the shared GUID detector used by `parseScriptToSteps()`, `smartSelect`, and the auto-heal logic. Detects: numeric IDs 10+ digits, UUIDs, and long hex strings
-- `activeAgent.agent` can be `null` during prehealer phase (before the healer is created) — always guard with `if (activeAgent.agent)` before calling `.cancel()`
 - `replaceInScript()` takes an `occurrence` parameter (0-indexed) to handle duplicate statements — the caller must count prior steps with matching `sourceText`
 - `splitIntoStatements()` peeks ahead for `.` continuation lines to handle multi-line method chaining
 - Codegen boilerplate (`browser.launch()`, `context.newPage()`, `page.close()`, etc.) is filtered out during `parseScriptToSteps()`
