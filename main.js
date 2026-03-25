@@ -1882,6 +1882,7 @@ ipcMain.handle("cleanup-script", async (event, scenarioId) => {
     if (!scenario.script) return { error: "Scenario has no script" };
 
     const result = ScriptUtils.cleanupScript(scenario.script);
+    result.originalScript = scenario.script;
     return result;
   } catch (err) {
     return { error: err.message };
@@ -1913,6 +1914,7 @@ ipcMain.handle("cleanup-script-ai", async (event, scenarioId) => {
     });
 
     return {
+      originalScript: scenario.script,
       cleanedScript: aiResult.cleanedScript || scriptForAI,
       ruleChanges: ruleResult.changes,
       aiChanges: aiResult.changes || [],

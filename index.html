@@ -3428,12 +3428,17 @@ function showCleanupResult(result, scenarioId) {
     ...(result.aiChanges || []).map(c => ({ ...c, source: "ai" })),
   ];
 
+  // Store cleanup data for selective apply
+  window._cleanupOriginalScript = result.originalScript || null;
+  window._cleanupChanges = allChanges;
+  window._cleanupFullScript = result.cleanedScript;
+
   el.innerHTML = `
     <div class="detail-header">
       <div>
         <div class="detail-title">Cleanup Results</div>
         <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
-          ${result.removedCount} redundant statement${result.removedCount !== 1 ? 's' : ''} found
+          <span id="cleanupSelectedCount">${result.removedCount}</span> of ${result.removedCount} change${result.removedCount !== 1 ? 's' : ''} selected
         </div>
       </div>
       <div class="btn-group">
@@ -3449,24 +3454,129 @@ function showCleanupResult(result, scenarioId) {
       ` : ""}
 
       ${allChanges.length ? `
-        <div class="section-header">Changes</div>
+        <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>Changes</span>
+          <label style="font-size:12px;font-weight:400;color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" checked onchange="toggleAllCleanupChanges(this.checked)" style="cursor:pointer;">
+            Select all
+          </label>
+        </div>
         <div class="heal-diff">
-          ${allChanges.map(c => `
-            <div class="heal-change">
-              <div class="heal-change-reason">${esc(c.reason || "")}</div>
-              <div><del>${esc(c.original || "")}</del></div>
-              ${c.replacement ? `<div><ins>${esc(c.replacement)}</ins></div>` : ""}
+          ${allChanges.map((c, i) => `
+            <div class="heal-change" id="cleanupChange${i}" style="display:flex;gap:10px;align-items:flex-start;">
+              <input type="checkbox" checked data-cleanup-idx="${i}" onchange="onCleanupCheckChange()" style="cursor:pointer;margin-top:4px;flex-shrink:0;">
+              <div style="flex:1;min-width:0;">
+                <div class="heal-change-reason">${esc(c.reason || "")}</div>
+                <div><del>${esc(c.original || "")}</del></div>
+                ${c.replacement ? `<div><ins>${esc(c.replacement)}</ins></div>` : ""}
+              </div>
             </div>
           `).join("")}
         </div>
       ` : ""}
 
       <div class="section-header">Cleaned Script</div>
-      <pre class="script-area" style="min-height:100px;max-height:400px;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(result.cleanedScript || "No changes")}</pre>
+      <pre class="script-area" id="cleanupPreview" style="min-height:100px;max-height:400px;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(result.cleanedScript || "No changes")}</pre>
     </div>
   `;
 
   window._cleanedScript = result.cleanedScript;
+}
+
+function toggleAllCleanupChanges(checked) {
+  document.querySelectorAll('[data-cleanup-idx]').forEach(cb => { cb.checked = checked; });
+  onCleanupCheckChange();
+}
+
+function onCleanupCheckChange() {
+  const checkboxes = document.querySelectorAll('[data-cleanup-idx]');
+  const checkedIndices = new Set();
+  checkboxes.forEach(cb => { if (cb.checked) checkedIndices.add(parseInt(cb.dataset.cleanupIdx)); });
+
+  // Update selected count
+  const countEl = document.getElementById("cleanupSelectedCount");
+  if (countEl) countEl.textContent = checkedIndices.size;
+
+  // Update select-all checkbox state
+  const selectAllCb = document.querySelector('[onchange*="toggleAllCleanupChanges"]');
+  if (selectAllCb) {
+    selectAllCb.checked = checkedIndices.size === checkboxes.length;
+    selectAllCb.indeterminate = checkedIndices.size > 0 && checkedIndices.size < checkboxes.length;
+  }
+
+  // Dim unchecked changes visually
+  checkboxes.forEach(cb => {
+    const card = cb.closest('.heal-change');
+    if (card) card.style.opacity = cb.checked ? '1' : '0.4';
+  });
+
+  // Rebuild cleaned script from selected changes only
+  rebuildCleanedScript(checkedIndices);
+}
+
+function rebuildCleanedScript(checkedIndices) {
+  const changes = window._cleanupChanges || [];
+  const originalScript = window._cleanupOriginalScript;
+
+  // If all are checked, use the pre-computed full script
+  if (checkedIndices.size === changes.length) {
+    window._cleanedScript = window._cleanupFullScript;
+    const preview = document.getElementById("cleanupPreview");
+    if (preview) preview.textContent = window._cleanedScript || "No changes";
+    return;
+  }
+
+  // If none are checked, use original
+  if (checkedIndices.size === 0) {
+    window._cleanedScript = originalScript;
+    const preview = document.getElementById("cleanupPreview");
+    if (preview) preview.textContent = originalScript || "No changes";
+    return;
+  }
+
+  // Separate rule-based removals and AI replacements
+  const ruleRemovals = [];
+  const aiReplacements = [];
+  changes.forEach((c, i) => {
+    if (!checkedIndices.has(i)) return;
+    if (c.source === "ai") {
+      aiReplacements.push(c);
+    } else {
+      ruleRemovals.push(c);
+    }
+  });
+
+  // Apply selected rule removals to original script
+  // Process higher occurrence indices first so earlier occurrences stay stable
+  let script = originalScript || window._cleanupFullScript;
+  const grouped = new Map();
+  ruleRemovals.forEach(c => {
+    const key = c.original;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(c.occurrence ?? 0);
+  });
+  // Process all removals: for each unique text, remove occurrences from highest to lowest
+  const allRemovals = [];
+  grouped.forEach((occurrences, text) => {
+    occurrences.sort((a, b) => b - a); // highest first
+    occurrences.forEach(occ => allRemovals.push({ original: text, occurrence: occ }));
+  });
+  for (const rem of allRemovals) {
+    script = removeFromScript(script, rem.original, rem.occurrence);
+  }
+
+  // Apply selected AI replacements on the result
+  for (const rep of aiReplacements) {
+    if (rep.original && rep.replacement) {
+      script = script.replace(rep.original, rep.replacement);
+    } else if (rep.original && !rep.replacement) {
+      script = removeFromScript(script, rep.original, 0);
+    }
+  }
+
+  window._cleanedScript = script;
+  const preview = document.getElementById("cleanupPreview");
+  if (preview) preview.textContent = script || "No changes";
 }
 
 async function startAICleanup(scenarioId) {
@@ -3494,6 +3604,9 @@ async function applyCleanedScript(scenarioId) {
   const res = await window.zoniq.agentHealApply({ scenarioId, healedScript: window._cleanedScript });
   if (res.error) { toast(res.error, "error"); return; }
   window._cleanedScript = null;
+  window._cleanupOriginalScript = null;
+  window._cleanupChanges = null;
+  window._cleanupFullScript = null;
   toast("Cleaned script applied to scenario", "success");
   await loadScenarios();
   if (selectedScenario) {
