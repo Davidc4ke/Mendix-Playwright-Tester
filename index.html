@@ -1544,7 +1544,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Listen for run events
   window.zoniq.onRunStarted((run) => {
     toast(`Test started: ${run.testName}`, "info");
-    loadRuns();
+    loadRuns().then(() => selectRunById(run.runId));
   });
 
   window.zoniq.onRunCompleted((run) => {
@@ -1563,10 +1563,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
       renderStepTracker();
       // After a short delay, show the full run detail
-      selectedRun = run;
       setTimeout(() => {
-        showRunDetail(run);
-        activeStepRun = null;
+        loadRuns().then(() => {
+          selectRunById(run.runId);
+          activeStepRun = null;
+        });
       }, 1500);
     } else if (selectedRun?.runId === run.runId) {
       showRunDetail(run);
@@ -1578,6 +1579,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Step tracking events
   window.zoniq.onStepList(({ runId, steps }) => {
     activeStepRun = { runId, steps: steps.map(s => ({ ...s, status: "pending", startedAt: null, error: null })) };
+    // Switch to runs tab so the live step tracker is visible
+    document.querySelectorAll(".sidebar-tab").forEach((t) => t.classList.remove("active"));
+    document.querySelectorAll(".sidebar-panel").forEach((p) => p.classList.remove("active"));
+    document.querySelector('[data-panel="runs"]').classList.add("active");
+    document.getElementById("panel-runs").classList.add("active");
     showLiveStepTracker();
   });
 
