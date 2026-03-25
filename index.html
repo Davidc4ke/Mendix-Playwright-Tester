@@ -2009,6 +2009,23 @@ function onStepDelete(scenarioId, stepIndex) {
   _autoSaveScenario(sc);
 }
 
+async function rerunTest(scenarioId) {
+  const sc = scenarios.find(s => s.id === scenarioId);
+  if (!sc) {
+    // Scenario may not be loaded yet, reload and retry
+    await loadScenarios();
+    const reloaded = scenarios.find(s => s.id === scenarioId);
+    if (!reloaded) {
+      toast("Scenario not found — it may have been deleted.", "error");
+      return;
+    }
+    return rerunTest(scenarioId);
+  }
+  toast("Rerunning test...", "info");
+  await window.zoniq.executeScenario(sc);
+  await loadRuns();
+}
+
 async function executeSelected() {
   if (!selectedScenario) return;
 
@@ -2478,6 +2495,7 @@ function showRunDetail(run) {
       <div class="btn-group">
         <span class="badge badge-${run.status}" style="font-size:12px;padding:4px 12px;">${run.status.toUpperCase()}</span>
         ${run.status === "failed" && run.scenarioId ? `<button class="btn btn-sm btn-ai" onclick="startHealing('${run.scenarioId}', '${run.runId}')">&#10024; AI Heal</button>` : ""}
+        ${run.scenarioId ? `<button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--primary);color:var(--primary);" onclick="rerunTest('${run.scenarioId}')">&#9654; Rerun</button>` : ""}
         <button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--amber);color:var(--amber);" onclick="copyLogForAI('${run.runId}')">&#128203; Copy Log For AI</button>
         <button class="btn btn-sm" onclick="window.zoniq.openResultsFolder('${run.runId}')">&#128193; Open Folder</button>
       </div>
