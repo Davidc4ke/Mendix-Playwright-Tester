@@ -1214,6 +1214,11 @@
     color: var(--amber);
   }
 
+  .step-editor-actions button.step-record-from-btn:hover {
+    border-color: var(--red);
+    color: var(--red);
+  }
+
   .step-phase-group {
     border-left: 3px solid var(--accent);
     border-radius: 4px;
@@ -2075,6 +2080,7 @@ function _renderStepCard(sc, step, idx) {
           ` : ''}
         </div>
         <div class="step-editor-actions">
+          <button class="step-record-from-btn" title="Record from this step" onclick="recordFromStep('${sc.id}', ${idx})">&#9210;</button>
           <button class="step-code-toggle" title="Show raw code" onclick="toggleStepCode('${codeId}', this)">&lt;/&gt;</button>
           <button class="step-screenshot-btn ${step.screenshot ? 'active' : ''}" title="Capture screenshot after this step" onclick="onStepScreenshotToggle('${sc.id}', ${idx}, event)">&#128247;</button>
           <button class="step-remove-btn" title="Delete step" onclick="onStepDelete('${sc.id}', ${idx})">&#x2715;</button>
@@ -3258,6 +3264,72 @@ async function startRecording() {
     document.getElementById("scScript").value = result.script;
     openModal("scenarioModal");
     toast("Recording captured! Review and save.", "success");
+  }
+}
+
+// ── Record from step ────────────────────────────────
+async function recordFromStep(scenarioId, stepIndex) {
+  const sc = scenarios.find(s => s.id === scenarioId);
+  if (!sc) { toast("Scenario not found", "error"); return; }
+  if (!sc.targetUrl) { toast("Scenario has no target URL", "error"); return; }
+  if (!sc.script) { toast("Scenario has no script to record from", "error"); return; }
+
+  const steps = parseScriptToSteps(sc.script);
+  const stepLabel = stepIndex > 0
+    ? `Replaying steps 1–${stepIndex}, then recording from step ${stepIndex + 1}...`
+    : `Recording from the beginning...`;
+
+  toast(stepLabel, "info");
+
+  // Show a replay progress indicator
+  const statusEl = document.getElementById("recordFromStepStatus");
+  if (statusEl) statusEl.remove();
+  const banner = document.createElement("div");
+  banner.id = "recordFromStepStatus";
+  banner.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:10000;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:8px;padding:10px 20px;font-size:13px;font-family:var(--font);color:var(--text-primary);box-shadow:0 4px 12px rgba(0,0,0,.3);";
+  banner.innerHTML = stepIndex > 0
+    ? `<span style="color:var(--accent);">&#9210;</span> Replaying ${stepIndex} step(s) before recording...`
+    : `<span style="color:var(--accent);">&#9210;</span> Starting recorder...`;
+  document.body.appendChild(banner);
+
+  // Listen for replay progress
+  const unsub1 = window.zoniq.onRecorderFromStepProgress?.((data) => {
+    if (banner && banner.parentNode) {
+      banner.innerHTML = `<span style="color:var(--accent);">&#9210;</span> Replaying step ${data.index + 1}/${data.total}: ${esc(data.desc || '')}`;
+    }
+  });
+  const unsub2 = window.zoniq.onRecorderFromStepStatus?.((data) => {
+    if (banner && banner.parentNode) {
+      if (data.status === "done") {
+        banner.innerHTML = `<span style="color:var(--green);">&#9210;</span> Replay complete! Record new actions in the browser. Close browser when done.`;
+      } else if (data.status === "failed") {
+        banner.innerHTML = `<span style="color:var(--red);">&#9210;</span> Replay failed at step ${(data.failedAt || 0) + 1}: ${esc(data.error || 'Unknown error')}. You can still record from the current state.`;
+      }
+    }
+  });
+
+  try {
+    const result = await window.zoniq.launchRecorderFromStep(sc, stepIndex);
+
+    // Clean up banner and listeners
+    if (banner.parentNode) banner.remove();
+    if (unsub1) unsub1();
+    if (unsub2) unsub2();
+
+    if (result?.mergedScript) {
+      // Update the scenario's script
+      sc.script = result.mergedScript;
+      await window.zoniq.saveScenario(sc);
+      toast("Recording merged into scenario!", "success");
+      showScenarioDetail(sc);
+    } else {
+      toast("No new actions were recorded.", "info");
+    }
+  } catch (err) {
+    if (banner.parentNode) banner.remove();
+    if (unsub1) unsub1();
+    if (unsub2) unsub2();
+    toast(`Recording failed: ${err.message}`, "error");
   }
 }
 
