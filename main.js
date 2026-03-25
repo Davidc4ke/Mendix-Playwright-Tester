@@ -1477,6 +1477,58 @@ ipcMain.handle("agent-cancel", () => {
   return { ok: false, error: "No agent running" };
 });
 
+// ── Script Cleanup ─────────────────────────────────────────
+
+ipcMain.handle("cleanup-script", async (event, scenarioId) => {
+  try {
+    const db = loadDB();
+    const scenario = db.scenarios.find((s) => s.id === scenarioId);
+    if (!scenario) return { error: "Scenario not found" };
+    if (!scenario.script) return { error: "Scenario has no script" };
+
+    const result = ScriptUtils.cleanupScript(scenario.script);
+    return result;
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle("cleanup-script-ai", async (event, scenarioId) => {
+  try {
+    const db = loadDB();
+    const scenario = db.scenarios.find((s) => s.id === scenarioId);
+    if (!scenario) return { error: "Scenario not found" };
+    if (!scenario.script) return { error: "Scenario has no script" };
+
+    const settings = loadSettings();
+    if (!settings.llm?.apiKey) return { error: "LLM API key not configured. Go to Settings to add one." };
+
+    // Run rule-based cleanup first
+    const ruleResult = ScriptUtils.cleanupScript(scenario.script);
+
+    // Run AI cleanup on the (possibly rule-cleaned) script
+    const { CleanupAgent } = require("./agents/cleanup-agent");
+    const llmClient = new LLMClient(settings);
+    const agent = new CleanupAgent(llmClient);
+
+    const scriptForAI = ruleResult.removedCount > 0 ? ruleResult.cleanedScript : scenario.script;
+    const aiResult = await agent.cleanup({
+      script: scriptForAI,
+      ruleChanges: ruleResult.changes,
+    });
+
+    return {
+      cleanedScript: aiResult.cleanedScript || scriptForAI,
+      ruleChanges: ruleResult.changes,
+      aiChanges: aiResult.changes || [],
+      analysis: aiResult.analysis || "",
+      removedCount: ruleResult.removedCount + (aiResult.changes?.length || 0),
+    };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 // ── Window ───────────────────────────────────────────────
 let mainWindow;
 

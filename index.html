@@ -986,6 +986,40 @@
     color: var(--amber);
   }
 
+  .step-phase-group {
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    margin-bottom: 4px;
+    background: var(--bg-elevated);
+  }
+
+  .step-phase-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+  }
+
+  .step-phase-label {
+    font-weight: 700;
+    color: var(--text-secondary);
+  }
+
+  .step-phase-count {
+    font-size: 10px;
+  }
+
+  .step-phase-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px;
+  }
+
   .step-editor-add {
     width: 100%;
     padding: 8px;
@@ -1563,6 +1597,7 @@ function showScenarioDetail(sc) {
       <div class="btn-group">
         <button class="btn btn-primary" onclick="executeSelected()">&#9654; Run Test</button>
         <button class="btn btn-ai" onclick="startPrehealing('${sc.id}')">&#10024; Pre-heal</button>
+        <button class="btn" onclick="startCleanup('${sc.id}')">&#128268; Clean Up</button>
         <button class="btn" onclick="editScenario('${sc.id}')">&#9998; Edit</button>
         <button class="btn btn-danger btn-sm" onclick="deleteScenario('${sc.id}')">&#128465;</button>
       </div>
@@ -1595,43 +1630,87 @@ function showScenarioDetail(sc) {
   `;
 }
 
+function _renderStepCard(sc, step, idx) {
+  const config = STEP_ACTION_CONFIG[step.action] || { selector: false, value: false };
+  return `
+    <div class="step-editor-card" data-step-index="${idx}">
+      <div class="step-editor-order">${idx + 1}</div>
+      <div class="step-editor-fields">
+        <select class="form-input" onchange="onStepActionChange('${sc.id}', ${idx}, this.value)">
+          ${Object.keys(STEP_ACTION_CONFIG).map(a =>
+            `<option value="${a}" ${a === step.action ? 'selected' : ''}>${a}</option>`
+          ).join('')}
+        </select>
+        ${config.selector ? `
+          <input type="text" class="form-input" placeholder="${config.selectorPlaceholder || 'Selector'}"
+                 value="${esc(step.selector || '')}"
+                 onchange="onStepFieldChange('${sc.id}', ${idx}, 'selector', this.value)" />
+        ` : ''}
+        ${config.value ? `
+          <input type="text" class="form-input" placeholder="${config.valuePlaceholder || 'Value'}"
+                 value="${esc(step.value || '')}"
+                 onchange="onStepFieldChange('${sc.id}', ${idx}, 'value', this.value)" />
+        ` : ''}
+      </div>
+      <div class="step-editor-actions">
+        <button class="step-screenshot-btn ${step.screenshot ? 'active' : ''}" title="Capture screenshot after this step" onclick="onStepScreenshotToggle('${sc.id}', ${idx})">&#128247;</button>
+        <button class="step-remove-btn" title="Delete step" onclick="onStepDelete('${sc.id}', ${idx})">&#x2715;</button>
+      </div>
+    </div>`;
+}
+
 function renderStepEditor(sc) {
   const steps = sc.steps || [];
-  const cards = steps.map((step, idx) => {
-    const config = STEP_ACTION_CONFIG[step.action] || { selector: false, value: false };
-    return `
-      <div class="step-editor-card" data-step-index="${idx}">
-        <div class="step-editor-order">${idx + 1}</div>
-        <div class="step-editor-fields">
-          <select class="form-input" onchange="onStepActionChange('${sc.id}', ${idx}, this.value)">
-            ${Object.keys(STEP_ACTION_CONFIG).map(a =>
-              `<option value="${a}" ${a === step.action ? 'selected' : ''}>${a}</option>`
-            ).join('')}
-          </select>
-          ${config.selector ? `
-            <input type="text" class="form-input" placeholder="${config.selectorPlaceholder || 'Selector'}"
-                   value="${esc(step.selector || '')}"
-                   onchange="onStepFieldChange('${sc.id}', ${idx}, 'selector', this.value)" />
-          ` : ''}
-          ${config.value ? `
-            <input type="text" class="form-input" placeholder="${config.valuePlaceholder || 'Value'}"
-                   value="${esc(step.value || '')}"
-                   onchange="onStepFieldChange('${sc.id}', ${idx}, 'value', this.value)" />
-          ` : ''}
-        </div>
-        <div class="step-editor-actions">
-          <button class="step-screenshot-btn ${step.screenshot ? 'active' : ''}" title="Capture screenshot after this step" onclick="onStepScreenshotToggle('${sc.id}', ${idx})">&#128247;</button>
-          <button class="step-remove-btn" title="Delete step" onclick="onStepDelete('${sc.id}', ${idx})">&#x2715;</button>
-        </div>
-      </div>`;
-  }).join('');
+
+  // Count Login steps to decide whether to show phase grouping
+  const loginCount = steps.filter(s => s.action === 'Login').length;
+  const showPhases = loginCount >= 2;
+
+  let body;
+  if (!showPhases) {
+    // Simple flat list — no phase headers
+    body = steps.map((step, idx) => _renderStepCard(sc, step, idx)).join('');
+  } else {
+    // Group steps into phases split by Login steps
+    const phases = [];
+    let current = null;
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      if (step.action === 'Login') {
+        // Start a new phase
+        const label = step.username ? esc(step.username) : 'Scenario credentials';
+        current = { label, startIdx: i, steps: [] };
+        phases.push(current);
+      } else if (!current) {
+        // Steps before first Login — "Setup" phase
+        current = { label: 'Setup', startIdx: i, steps: [] };
+        phases.push(current);
+      }
+      current.steps.push({ step, idx: i });
+    }
+
+    body = phases.map((phase, pi) => {
+      const cards = phase.steps.map(s => _renderStepCard(sc, s.step, s.idx)).join('');
+      const count = phase.steps.length;
+      return `
+        <div class="step-phase-group">
+          <div class="step-phase-header">
+            <span class="step-phase-label">Phase ${pi + 1}: ${phase.label}</span>
+            <span class="step-phase-count">${count} step${count !== 1 ? 's' : ''}</span>
+          </div>
+          <div class="step-phase-body">
+            ${cards}
+          </div>
+        </div>`;
+    }).join('');
+  }
 
   return `
     <div class="step-editor-toolbar">
       <span style="font-size:11px;color:var(--text-muted);">${steps.length} step${steps.length !== 1 ? 's' : ''} &mdash; edits update the script directly</span>
     </div>
     <div class="step-editor">
-      ${cards}
+      ${body}
     </div>
   `;
 }
@@ -2629,6 +2708,106 @@ async function applyHealedScript(scenarioId) {
   if (res.error) { toast(res.error, "error"); return; }
   window._healedScript = null;
   toast("Healed script applied to scenario", "success");
+  await loadScenarios();
+  if (selectedScenario) {
+    selectedScenario = scenarios.find((s) => s.id === scenarioId) || selectedScenario;
+    showScenarioDetail(selectedScenario);
+  }
+}
+
+// ── Script Cleanup ──────────────────────────────────────
+
+async function startCleanup(scenarioId) {
+  toast("Analyzing script for redundancies...", "info");
+  const result = await window.zoniq.cleanupScript(scenarioId);
+
+  if (result.error) { toast(result.error, "error"); return; }
+  if (result.removedCount === 0) { toast("Script is already clean — no redundancies found", "success"); return; }
+
+  showCleanupResult(result, scenarioId);
+}
+
+function showCleanupResult(result, scenarioId) {
+  currentView = "cleanup-result";
+  const el = document.getElementById("detailContent");
+  const empty = document.getElementById("detailEmpty");
+  empty.style.display = "none";
+  el.style.display = "flex";
+
+  const allChanges = [
+    ...(result.ruleChanges || result.changes || []).map(c => ({ ...c, source: "rule" })),
+    ...(result.aiChanges || []).map(c => ({ ...c, source: "ai" })),
+  ];
+
+  el.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">Cleanup Results</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
+          ${result.removedCount} redundant statement${result.removedCount !== 1 ? 's' : ''} found
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-ai" onclick="applyCleanedScript('${scenarioId}')">Apply Cleanup</button>
+        <button class="btn" onclick="startAICleanup('${scenarioId}')" id="btnAICleanup">&#10024; AI Cleanup</button>
+        <button class="btn" onclick="showScenarioDetail(selectedScenario)">Discard</button>
+      </div>
+    </div>
+    <div class="detail-body">
+      ${result.analysis ? `
+        <div class="section-header">AI Analysis</div>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:16px;">${esc(result.analysis)}</p>
+      ` : ""}
+
+      ${allChanges.length ? `
+        <div class="section-header">Changes</div>
+        <div class="heal-diff">
+          ${allChanges.map(c => `
+            <div class="heal-change">
+              <div class="heal-change-reason">${esc(c.reason || "")}</div>
+              <div><del>${esc(c.original || "")}</del></div>
+              ${c.replacement ? `<div><ins>${esc(c.replacement)}</ins></div>` : ""}
+            </div>
+          `).join("")}
+        </div>
+      ` : ""}
+
+      <div class="section-header">Cleaned Script</div>
+      <pre class="script-area" style="min-height:100px;max-height:400px;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(result.cleanedScript || "No changes")}</pre>
+    </div>
+  `;
+
+  window._cleanedScript = result.cleanedScript;
+}
+
+async function startAICleanup(scenarioId) {
+  const btn = document.getElementById("btnAICleanup");
+  if (btn) { btn.disabled = true; btn.textContent = "Analyzing..."; }
+
+  toast("Running AI cleanup...", "info");
+  const result = await window.zoniq.cleanupScriptAI(scenarioId);
+
+  if (result.error) {
+    toast(result.error, "error");
+    if (btn) { btn.disabled = false; btn.textContent = "\u2728 AI Cleanup"; }
+    return;
+  }
+
+  if ((result.aiChanges?.length || 0) === 0 && (result.ruleChanges?.length || 0) === 0) {
+    toast("AI found no additional improvements", "info");
+    if (btn) { btn.disabled = false; btn.textContent = "\u2728 AI Cleanup"; }
+    return;
+  }
+
+  showCleanupResult(result, scenarioId);
+}
+
+async function applyCleanedScript(scenarioId) {
+  if (!window._cleanedScript) { toast("No cleaned script to apply", "error"); return; }
+  const res = await window.zoniq.agentHealApply({ scenarioId, healedScript: window._cleanedScript });
+  if (res.error) { toast(res.error, "error"); return; }
+  window._cleanedScript = null;
+  toast("Cleaned script applied to scenario", "success");
   await loadScenarios();
   if (selectedScenario) {
     selectedScenario = scenarios.find((s) => s.id === scenarioId) || selectedScenario;

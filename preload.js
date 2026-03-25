@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld("zoniq", {
   agentHealApply: (opts) => ipcRenderer.invoke("agent-heal-apply", opts),
   agentCancel: () => ipcRenderer.invoke("agent-cancel"),
 
+  // Script cleanup
+  cleanupScript: (scenarioId) => ipcRenderer.invoke("cleanup-script", scenarioId),
+  cleanupScriptAI: (scenarioId) => ipcRenderer.invoke("cleanup-script-ai", scenarioId),
+
   // Event listeners — each returns an unsubscribe function to prevent memory leaks
   onRunStarted: (cb) => {
     const handler = (_, data) => cb(data);
