@@ -1742,7 +1742,7 @@ function showScenarioDetail(sc) {
       ` : ''}
 
       <div class="section-header">Steps</div>
-      ${renderStepEditor(sc)}
+      <div id="stepEditorContainer">${renderStepEditor(sc)}</div>
 
       <div class="section-header" style="margin-top:16px;">Script</div>
       <pre class="script-area" style="min-height:60px;max-height:200px;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(sc.script || '// No script defined')}</pre>
@@ -1848,6 +1848,12 @@ function renderStepEditor(sc) {
   `;
 }
 
+function _refreshStepEditor(sc) {
+  sc.steps = parseScriptToSteps(sc.script);
+  const container = document.getElementById('stepEditorContainer');
+  if (container) container.innerHTML = renderStepEditor(sc);
+}
+
 // ── Step editing → modifies script directly ──────────
 
 /** Debounce timer for auto-saving after step edits */
@@ -1889,9 +1895,7 @@ function onStepActionChange(scenarioId, stepIndex, newAction) {
   if (!config.selector) step.selector = '';
   if (!config.value) step.value = '';
   _updateStepInScript(sc, step);
-  // Re-parse steps from the updated script and refresh the view
-  sc.steps = parseScriptToSteps(sc.script);
-  showScenarioDetail(sc);
+  _refreshStepEditor(sc);
   _autoSaveScenario(sc);
 }
 
@@ -1910,9 +1914,7 @@ function onStepScreenshotToggle(scenarioId, stepIndex) {
   const step = sc.steps[stepIndex];
   step.screenshot = !step.screenshot;
   _updateStepInScript(sc, step);
-  // Re-parse steps from the updated script and refresh the view
-  sc.steps = parseScriptToSteps(sc.script);
-  showScenarioDetail(sc);
+  _refreshStepEditor(sc);
   _autoSaveScenario(sc);
 }
 
@@ -1926,9 +1928,7 @@ function onStepDelete(scenarioId, stepIndex) {
     if (sc.steps[i].sourceText === step.sourceText) occurrence++;
   }
   sc.script = removeFromScript(sc.script, step.sourceText, occurrence);
-  // Re-parse steps from updated script and refresh view
-  sc.steps = parseScriptToSteps(sc.script);
-  showScenarioDetail(sc);
+  _refreshStepEditor(sc);
   _autoSaveScenario(sc);
 }
 
