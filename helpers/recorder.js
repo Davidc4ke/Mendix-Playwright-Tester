@@ -81,7 +81,7 @@ function replaceGuidsInScript(guidToLabel) {
   // Each page in the context gets the exposed function
   context.on("page", (newPage) => {
     newPage.exposeFunction("__zoniqReportOption", (value, label) => {
-      if (looksLikeGuid(value) && label) {
+      if (label && value && value !== label) {
         guidToLabel.set(value, label);
       }
     }).catch(() => {}); // Ignore if page is already closed
@@ -90,7 +90,7 @@ function replaceGuidsInScript(guidToLabel) {
   // Also expose on any existing pages
   for (const p of context.pages()) {
     await p.exposeFunction("__zoniqReportOption", (value, label) => {
-      if (looksLikeGuid(value) && label) {
+      if (label && value && value !== label) {
         guidToLabel.set(value, label);
       }
     }).catch(() => {});
