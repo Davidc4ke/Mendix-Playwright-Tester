@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Self-Maintenance Rule
+
+After completing any task that changes the project's architecture, APIs, data models, commands, conventions, or key implementation details, check whether CLAUDE.md needs to be updated to reflect those changes. If it does, update it as part of the same commit. This ensures CLAUDE.md stays accurate and useful as the codebase evolves.
+
 ## Project Overview
 
 Zoniq Test Runner is an Electron desktop application for recording and running Playwright UAT tests against Mendix applications. It provides a GUI for test management and an embedded REST API for remote test execution.
