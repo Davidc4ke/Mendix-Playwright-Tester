@@ -1255,8 +1255,25 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
       env: getPlaywrightEnv({ ELECTRON_RUN_AS_NODE: "1" }),
     });
 
+    // Collect GUID→label map emitted by the recorder for fallback replacement
+    const recorderGuidMap = new Map();
     proc.stdout.on("data", (chunk) => {
-      console.log(`[recorder stdout] ${chunk}`);
+      const text = chunk.toString();
+      console.log(`[recorder stdout] ${text}`);
+      // Parse GUID map line (emitted just before recorder exits)
+      for (const line of text.split("\n")) {
+        const idx = line.indexOf("[ZONIQ_GUID_MAP]");
+        if (idx !== -1) {
+          try {
+            const obj = JSON.parse(line.slice(idx + "[ZONIQ_GUID_MAP]".length));
+            for (const [guid, label] of Object.entries(obj)) {
+              recorderGuidMap.set(guid, label);
+            }
+          } catch (e) {
+            console.error("[recorder] Failed to parse GUID map:", e.message);
+          }
+        }
+      }
     });
     proc.stderr.on("data", (chunk) => {
       console.error(`[recorder stderr] ${chunk}`);
@@ -1266,7 +1283,24 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
       console.log(`[recorder] exited with code ${code}`);
       try {
         if (fs.existsSync(outputPath)) {
-          const script = fs.readFileSync(outputPath, "utf-8");
+          let script = fs.readFileSync(outputPath, "utf-8");
+
+          // Fallback: if the recorder's own replacement missed any GUIDs
+          // (race with codegen file write), apply them here.
+          if (recorderGuidMap.size > 0) {
+            let patched = 0;
+            for (const [guid, label] of recorderGuidMap) {
+              const escaped = label.replace(/'/g, "\\'");
+              const before = script;
+              script = script.split(`'${guid}'`).join(`'${escaped}'`);
+              script = script.split(`"${guid}"`).join(`"${escaped}"`);
+              if (script !== before) patched++;
+            }
+            if (patched > 0) {
+              fs.writeFileSync(outputPath, script);
+              console.log(`[recorder] Fallback: replaced ${patched} remaining GUID(s) with labels`);
+            }
+          }
 
           // Process captured elements from sidecar file
           const elementsPath = outputPath + ".elements.json";

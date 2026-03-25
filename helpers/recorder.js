@@ -112,11 +112,23 @@ function replaceGuidsInScript(guidToLabel) {
       }
     }
 
-    // Report on initial load
+    // Deferred scan — polls until __zoniqReportOption is available
+    // (exposeFunction's page-level init script runs AFTER context-level
+    // init scripts, so the function may not exist on the first tick).
+    // Continues periodic scanning to catch late-loaded Mendix options.
+    let _scanCount = 0;
+    function _deferredScan() {
+      if (window.__zoniqReportOption) {
+        reportOptions();
+      }
+      if (++_scanCount < 30) {            // 30 × 200 ms = 6 s
+        setTimeout(_deferredScan, 200);
+      }
+    }
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", () => reportOptions());
+      document.addEventListener("DOMContentLoaded", () => _deferredScan());
     } else {
-      reportOptions();
+      _deferredScan();
     }
 
     // Watch for dynamically added/changed <option> elements (Mendix loads these async)
@@ -189,6 +201,15 @@ function replaceGuidsInScript(guidToLabel) {
 
   // Navigate to the target URL
   const page = context.pages()[0] || (await context.newPage());
+
+  // Ensure __zoniqReportOption is bound before the first navigation so
+  // the context-level addInitScript can call it on DOMContentLoaded.
+  await page.exposeFunction("__zoniqReportOption", (value, label) => {
+    if (looksLikeGuid(value) && label) {
+      guidToLabel.set(value, label);
+    }
+  }).catch(() => {}); // Ignore if already exposed by context "page" handler
+
   if (url) {
     let targetUrl = url;
     if (!targetUrl.startsWith("http") && !targetUrl.startsWith("file://") && !targetUrl.startsWith("about:")) {
@@ -264,6 +285,11 @@ function replaceGuidsInScript(guidToLabel) {
     if (_shutdownCalled) return;
     _shutdownCalled = true;
     await captureElements();
+    // Output the GUID map so the main process can apply a fallback
+    // replacement after the recorder exits (defense in depth).
+    if (guidToLabel.size > 0) {
+      console.log(`[ZONIQ_GUID_MAP]${JSON.stringify(Object.fromEntries(guidToLabel))}`);
+    }
     replaceGuidsInScript(guidToLabel);
     process.exit(0);
   }
