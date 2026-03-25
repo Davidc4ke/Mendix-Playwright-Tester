@@ -2037,6 +2037,7 @@ function showScenarioDetail(sc) {
         <button class="btn btn-primary" onclick="executeSelected()">&#9654; Run Test</button>
         <button class="btn" onclick="startCleanup('${sc.id}')">&#128268; Clean Up</button>
         <button class="btn" onclick="editScenario('${sc.id}')">&#9998; Edit</button>
+        <button class="btn btn-sm" onclick="duplicateScenario('${sc.id}')" title="Duplicate">&#128203;</button>
         <button class="btn btn-danger btn-sm" onclick="deleteScenario('${sc.id}')">&#128465;</button>
       </div>
     </div>
@@ -2338,6 +2339,14 @@ function editScenario(id) {
   document.getElementById("scPass").value = sc.credentials?.password || "";
   document.getElementById("scScript").value = sc.script || "";
   openModal("scenarioModal");
+}
+
+async function duplicateScenario(id) {
+  const duplicate = await window.zoniq.duplicateScenario(id);
+  if (!duplicate) { toast("Scenario not found", "error"); return; }
+  await loadScenarios();
+  selectScenario(duplicate.id);
+  toast("Scenario duplicated", "success");
 }
 
 async function deleteScenario(id) {
