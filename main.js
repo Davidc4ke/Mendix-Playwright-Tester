@@ -1195,6 +1195,35 @@ ipcMain.handle("get-element-db", (event, appId) => {
   return loadElementDBForApp(appId);
 });
 
+ipcMain.handle("scan-elements", (event, appId) => {
+  const apps = loadAppsDB();
+  const app = apps.find(a => a.id === appId);
+  if (!app) return { error: "App not found" };
+
+  const db = loadDB();
+  const appScenarios = db.scenarios.filter(s => s.appId === appId && s.script);
+  if (!appScenarios.length) return { error: "No scenarios with scripts found for this app" };
+
+  let elDB = loadElementDBForApp(appId);
+  let totalElements = 0;
+
+  for (const sc of appScenarios) {
+    try {
+      const steps = ScriptUtils.parseScriptToSteps(sc.script);
+      if (steps.length) {
+        elDB = ElementDB.enrichFromSteps(elDB, steps);
+        totalElements += steps.filter(s => s.selector).length;
+      }
+    } catch (err) {
+      console.log(`[scan-elements] Skipped scenario "${sc.name}": ${err.message}`);
+    }
+  }
+
+  saveElementDBForApp(appId, elDB);
+  const count = Object.keys(elDB.elements || {}).length;
+  return { success: true, count, scenariosScanned: appScenarios.length };
+});
+
 ipcMain.handle("generate-script", async (event, { appId, description }) => {
   const settings = loadSettings();
   if (!settings.llm.apiKey) return { error: "No LLM API key configured. Go to Settings to add one." };

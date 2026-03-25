@@ -2155,10 +2155,28 @@ async function showAppDetail(app) {
         ${app.credentials?.username ? `<span>Default user: ${esc(app.credentials.username)}</span>` : ''}
       </div>
 
-      <div class="section-header">Element Database</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="section-header" style="margin-bottom:0;">Element Database</div>
+        <button class="btn btn-sm" onclick="generateElements('${app.id}')">Generate</button>
+      </div>
       ${renderElementBrowser(elements)}
     </div>
   `;
+}
+
+async function generateElements(appId) {
+  try {
+    const result = await window.zoniq.scanElements(appId);
+    if (result.error) {
+      toast(result.error, "error");
+    } else {
+      toast(`${result.count} element${result.count !== 1 ? "s" : ""} catalogued from ${result.scenariosScanned} scenario${result.scenariosScanned !== 1 ? "s" : ""}`, "success");
+      const app = apps.find(a => a.id === appId);
+      if (app) showAppDetail(app);
+    }
+  } catch (err) {
+    toast("Failed to generate elements: " + err.message, "error");
+  }
 }
 
 function renderElementBrowser(elements) {
