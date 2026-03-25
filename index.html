@@ -1928,6 +1928,7 @@ function showScenarioDetail(sc) {
       </div>
       <div class="btn-group">
         <button class="btn btn-primary" onclick="executeSelected()">&#9654; Run Test</button>
+        <button class="btn btn-ai" onclick="startPrehealing('${sc.id}')">&#10024; Pre-heal</button>
         <button class="btn" onclick="startCleanup('${sc.id}')">&#128268; Clean Up</button>
         <button class="btn" onclick="editScenario('${sc.id}')">&#9998; Edit</button>
         <button class="btn btn-danger btn-sm" onclick="deleteScenario('${sc.id}')">&#128465;</button>
@@ -2687,6 +2688,7 @@ function showRunDetail(run) {
       <div class="btn-group">
         <span class="badge badge-${run.status}" style="font-size:12px;padding:4px 12px;">${run.status.toUpperCase()}</span>
         ${run.status === "failed" && run.scenarioId ? `<button class="btn btn-sm btn-ai" onclick="startAnalysis('${run.scenarioId}', '${run.runId}')">&#128269; AI Analysis</button>` : ""}
+        ${run.scenarioId ? `<button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--primary);color:var(--primary);" onclick="rerunTest('${run.scenarioId}')">&#9654; Rerun</button>` : ""}
         <button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--amber);color:var(--amber);" onclick="copyLogForAI('${run.runId}')">&#128203; Copy Log For AI</button>
         ${run.scenarioId ? `<button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--text-secondary);color:var(--text-secondary);" onclick="navigateToStep('${run.scenarioId}', 0)">&#128196; View Scenario</button>` : ""}
         <button class="btn btn-sm" onclick="window.zoniq.openResultsFolder('${run.runId}')">&#128193; Open Folder</button>
