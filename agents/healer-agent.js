@@ -97,7 +97,8 @@ class HealerAgent {
         });
       } catch (err) {
         if (err.message === "Cancelled") throw err;
-        // Static healing failed — fall through to replay
+        // Static healing threw an error — log it and fall through to replay
+        console.error("[healer] Static healing error:", err.message);
         if (onProgress) onProgress({
           status: "replaying",
           message: "Falling back to browser-based healing...",
@@ -698,7 +699,12 @@ class HealerAgent {
           analysis: parsed.analysis || "",
           confidence: parsed.confidence || "medium",
         };
-      } catch {}
+      } catch {
+        // JSON.parse failed — LLMs often produce invalid JSON when healed_script
+        // contains newlines/special chars. Try to extract fields via regex.
+        const extracted = this._extractFromMalformedJson(jsonMatch[1]);
+        if (extracted.healedScript) return extracted;
+      }
     }
 
     // 2. Fallback: look for a ```javascript or ```js code block (but NOT ```json)
@@ -708,7 +714,7 @@ class HealerAgent {
         healedScript: scriptMatch[1].trim(),
         changes: [],
         analysis: response.split("```")[0].trim(),
-        confidence: "low",
+        confidence: this._extractConfidenceFromText(response),
       };
     }
 
@@ -729,7 +735,7 @@ class HealerAgent {
         healedScript: content,
         changes: [],
         analysis: response.split("```")[0].trim(),
-        confidence: "low",
+        confidence: this._extractConfidenceFromText(response),
       };
     }
 
@@ -739,6 +745,73 @@ class HealerAgent {
       analysis: response,
       confidence: "low",
     };
+  }
+
+  /**
+   * Try to extract healed_script and other fields from malformed JSON text
+   * using regex. LLMs often produce JSON where the healed_script value has
+   * unescaped newlines or other issues that break JSON.parse.
+   */
+  _extractFromMalformedJson(jsonText) {
+    const result = { healedScript: null, changes: [], analysis: "", confidence: "medium" };
+
+    // Extract confidence
+    const confMatch = jsonText.match(/"confidence"\s*:\s*"(high|medium|low)"/);
+    if (confMatch) result.confidence = confMatch[1];
+
+    // Extract analysis
+    const analysisMatch = jsonText.match(/"analysis"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (analysisMatch) {
+      try { result.analysis = JSON.parse('"' + analysisMatch[1] + '"'); } catch {
+        result.analysis = analysisMatch[1];
+      }
+    }
+
+    // Extract healed_script — find its start and look for the code between quotes
+    // Strategy: find "healed_script": " and then grab everything until the closing
+    // pattern (either end of JSON or next top-level key)
+    const scriptKeyIdx = jsonText.indexOf('"healed_script"');
+    if (scriptKeyIdx === -1) {
+      const altIdx = jsonText.indexOf('"healedScript"');
+      if (altIdx === -1) return result;
+    }
+
+    // Try a more lenient approach: find the last ```javascript or ```js block
+    // inside the JSON text (LLMs sometimes embed code blocks within JSON values)
+    const innerScript = jsonText.match(/```(?:javascript|js)\s*\n?([\s\S]*?)```/);
+    if (innerScript) {
+      result.healedScript = innerScript[1].trim();
+      return result;
+    }
+
+    // Last resort: try to fix common JSON issues and re-parse
+    try {
+      // Replace literal newlines inside string values with \n
+      const fixed = jsonText.replace(/(?<=: "(?:[^"\\]|\\.)*)(\r?\n)(?=(?:[^"\\]|\\.)*")/g, "\\n");
+      const parsed = JSON.parse(fixed);
+      result.healedScript = parsed.healed_script || parsed.healedScript || null;
+      if (parsed.confidence) result.confidence = parsed.confidence;
+      if (parsed.analysis) result.analysis = parsed.analysis;
+      if (parsed.changes) result.changes = parsed.changes;
+    } catch {}
+
+    return result;
+  }
+
+  /**
+   * Try to extract a confidence level from the LLM's free-text response.
+   * Returns "medium" as default if no confidence indicator is found.
+   */
+  _extractConfidenceFromText(response) {
+    const lower = response.toLowerCase();
+    // Check for explicit confidence mentions
+    const confMatch = lower.match(/confidence[:\s]*["']?(high|medium|low)/);
+    if (confMatch) return confMatch[1];
+    // Check for phrases indicating confidence
+    if (lower.includes("high confidence") || lower.includes("confident this fix")) return "high";
+    if (lower.includes("low confidence") || lower.includes("not confident") || lower.includes("cannot determine")) return "low";
+    // Default to medium — the LLM produced a fix, it's likely reasonable
+    return "medium";
   }
 }
 
