@@ -622,6 +622,73 @@
     border-color: var(--accent);
   }
 
+  /* ── Run Detail Tabs ────────────────────────────────── */
+  .run-detail-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  .run-detail-tab {
+    padding: 8px 20px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--font);
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+    user-select: none;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+  }
+  .run-detail-tab:hover {
+    color: var(--text-primary);
+  }
+  .run-detail-tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+  .run-detail-tab-panel {
+    display: none;
+  }
+  .run-detail-tab-panel.active {
+    display: block;
+  }
+  .images-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .image-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .image-card:hover {
+    border-color: var(--primary);
+  }
+  .image-card img {
+    width: 100%;
+    display: block;
+    max-height: 240px;
+    object-fit: cover;
+  }
+  .image-card-label {
+    padding: 8px 12px;
+    font-size: 11px;
+    font-family: var(--font);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   /* ── Section Headers ────────────────────────────────── */
   .section-header {
     font-size: 11px;
@@ -2715,7 +2782,35 @@ function showRunDetail(run) {
         <div>Completed: ${run.completedAt ? new Date(run.completedAt).toLocaleString() : '—'}</div>
       </div>
 
-      ${stepsHtml}
+      ${(() => {
+        const allImages = (r.artifacts || []).filter(a => /\.(png|jpg|jpeg)$/i.test(a));
+        const hasImages = allImages.length > 0;
+        const tabsHtml = hasImages ? `
+          <div class="run-detail-tabs">
+            <button class="run-detail-tab active" onclick="switchRunDetailTab(this, 'steps-panel-${run.runId}')">Steps</button>
+            <button class="run-detail-tab" onclick="switchRunDetailTab(this, 'images-panel-${run.runId}')">Images (${allImages.length})</button>
+          </div>
+        ` : '';
+        const imagesPanel = hasImages ? `
+          <div id="images-panel-${run.runId}" class="run-detail-tab-panel">
+            <div class="images-grid">
+              ${allImages.map(a => `
+                <div class="image-card" data-run-id="${run.runId}" data-artifact="${esc(a)}" onclick="window.zoniq.openResultsFolder('${run.runId}')">
+                  <img data-src="${esc(a)}" data-run-id="${run.runId}" alt="${esc(a)}" />
+                  <div class="image-card-label">${esc(a)}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : '';
+        return `
+          ${tabsHtml}
+          <div id="steps-panel-${run.runId}" class="run-detail-tab-panel active">
+            ${stepsHtml}
+          </div>
+          ${imagesPanel}
+        `;
+      })()}
 
       ${r.errors?.length ? `
         <div class="section-header">Errors</div>
@@ -2746,6 +2841,32 @@ function showRunDetail(run) {
       ` : ''}
     </div>
   `;
+}
+
+function switchRunDetailTab(tabEl, panelId) {
+  const tabs = tabEl.parentElement.querySelectorAll('.run-detail-tab');
+  tabs.forEach(t => t.classList.remove('active'));
+  tabEl.classList.add('active');
+  const body = tabEl.closest('.detail-body');
+  body.querySelectorAll('.run-detail-tab-panel').forEach(p => p.classList.remove('active'));
+  const panel = document.getElementById(panelId);
+  if (panel) {
+    panel.classList.add('active');
+    // Lazy-load images in the images panel
+    panel.querySelectorAll('img[data-src]').forEach(async (img) => {
+      if (img.src && !img.src.endsWith('/')) return; // already loaded
+      const runId = img.dataset.runId;
+      const artifact = img.dataset.src;
+      const filePath = await window.zoniq.getArtifactPath(runId, artifact);
+      if (filePath) {
+        img.src = 'file://' + filePath;
+      } else {
+        img.alt = 'Image not found';
+        img.style.display = 'none';
+      }
+      img.removeAttribute('data-src');
+    });
+  }
 }
 
 async function toggleProofImage(badgeEl) {
