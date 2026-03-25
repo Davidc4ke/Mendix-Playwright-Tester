@@ -1636,12 +1636,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       // After a short delay, show the full run detail
       setTimeout(() => {
         loadRuns().then(() => {
-          selectRunById(run.runId);
           activeStepRun = null;
+          selectRunById(run.runId);
         });
       }, 1500);
     } else if (selectedRun?.runId === run.runId) {
       showRunDetail(run);
+    } else {
+      // No active step tracker and no matching selected run — still show the result
+      loadRuns().then(() => selectRunById(run.runId));
     }
   });
 
