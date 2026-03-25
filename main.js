@@ -1149,6 +1149,25 @@ ipcMain.handle("save-scenario", (event, scenario) => {
   return scenario;
 });
 
+// Duplicate a scenario
+ipcMain.handle("duplicate-scenario", (event, id) => {
+  const db = loadDB();
+  const original = db.scenarios.find((s) => s.id === id);
+  if (!original) return null;
+  const now = new Date().toISOString();
+  const duplicate = {
+    ...original,
+    id: uuidv4(),
+    name: `${original.name} (copy)`,
+    createdAt: now,
+    updatedAt: now,
+  };
+  delete duplicate.steps;
+  db.scenarios.push(duplicate);
+  saveDB(db);
+  return duplicate;
+});
+
 // Delete a scenario
 ipcMain.handle("delete-scenario", (event, id) => {
   const db = loadDB();
