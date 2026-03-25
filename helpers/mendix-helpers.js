@@ -869,6 +869,27 @@ function resolveLocator(page, selector) {
   return page.locator(selector);
 }
 
+// ── Page introspection ────────────────────────────────────────────────────────
+
+/**
+ * Get the current Mendix content form path (e.g. "MyModule/MyPage").
+ * Uses the Mendix client API: mx.ui.getContentForm().path
+ * Returns empty string if not available (non-Mendix page, loading, etc.)
+ *
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<string>}
+ */
+async function getCurrentFormPath(page) {
+  try {
+    return await page.evaluate(() => {
+      try { return window.mx?.ui?.getContentForm?.()?.path || ''; }
+      catch { return ''; }
+    });
+  } catch {
+    return '';
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -911,4 +932,6 @@ module.exports = {
   takeScreenshot,
   // Selector resolution
   resolveLocator,
+  // Page introspection
+  getCurrentFormPath,
 };

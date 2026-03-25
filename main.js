@@ -385,16 +385,17 @@ function injectStepMarkers(scriptBody) {
     const screenshotLine = wantsScreenshot && idx >= 0
       ? `\n    await page.screenshot({ path: require('path').join(process.env.ZONIQ_RUN_RESULTS_DIR || 'results', 'step-${idx}-proof.png'), fullPage: true });`
       : '';
+    const formPathLine = `\n  try { const _fp = await mx.getCurrentFormPath(page); if (_fp) console.log('[ZONIQ_STEP:FORM_PATH:${idx}:' + _fp + ']'); } catch {}`;
     const isRaw = /^(?:const|let|var)\s/.test(cleanStmt);
     if (isRaw) {
       return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
         `  ${cleanStmt}\n` +
-        `  console.log('[ZONIQ_STEP:DONE:${idx}]');`;
+        `  console.log('[ZONIQ_STEP:DONE:${idx}]');` + formPathLine;
     }
     const errVar = `_stepErr_${stmtIdx}`;
     return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
       `  try {\n    ${cleanStmt}\n` +
-      `    console.log('[ZONIQ_STEP:DONE:${idx}]');${screenshotLine}\n` +
+      `    console.log('[ZONIQ_STEP:DONE:${idx}]');${screenshotLine}` + formPathLine + `\n` +
       `  } catch (${errVar}) {\n` +
       `    console.log('[ZONIQ_STEP:FAIL:${idx}:' + ${errVar}.message.replace(/\\n/g, ' ') + ']');\n` +
       `    throw ${errVar};\n` +
@@ -600,6 +601,7 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
     let stdoutBuf = "";
     let stderrBuf = "";
     const guidResolutions = new Map(); // GUID → label resolved by smartSelect
+    const formPaths = new Map(); // stepIndex → Mendix form path
 
     const proc = spawn(PLAYWRIGHT_CLI, args, { env, shell: true, timeout: 300_000 });
 
@@ -616,6 +618,13 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
         const guidMatch = cl.match(/^\[ZONIQ_GUID_RESOLVED:([^:]+):(.*)\]$/);
         if (guidMatch) {
           guidResolutions.set(guidMatch[1], guidMatch[2]);
+          continue;
+        }
+
+        // Capture Mendix form path per step
+        const formPathMatch = cl.match(/^\[ZONIQ_STEP:FORM_PATH:(-?\d+):(.*)\]$/);
+        if (formPathMatch) {
+          formPaths.set(parseInt(formPathMatch[1]), formPathMatch[2]);
           continue;
         }
 
@@ -710,7 +719,7 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
         }
       }
 
-      const resultObj = { status, summary, errors, artifacts, stderr: stderrBuf?.substring(0, 2000), guidResolutions };
+      const resultObj = { status, summary, errors, artifacts, stderr: stderrBuf?.substring(0, 2000), guidResolutions, formPaths };
 
       // Extract step data from Playwright JSON report as a fallback for
       // tests that don't use real-time ZONIQ_STEP marker tracking.
@@ -1546,6 +1555,43 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
     }
     // Remove guidResolutions from persisted results (internal only)
     delete results.guidResolutions;
+
+    // ── Enrich element DB with Mendix form paths from this run ──
+    // formPaths maps stepIndex → Mendix form path (e.g. "MyModule/BuyerDetail").
+    // Cross-reference with stepList to tag each element with the form it appeared on.
+    if (results.formPaths && results.formPaths.size > 0 && scenario.appId && stepList) {
+      try {
+        let elDB = loadElementDBForApp(scenario.appId);
+        let enriched = false;
+        for (const [stepIdx, formPath] of results.formPaths) {
+          if (!formPath) continue;
+          const step = stepList.find(s => s.index === stepIdx);
+          if (!step?.selector) continue;
+
+          // Find the element in the DB by selector
+          const mxMatch = step.selector.match(/^mx:(.+)$/);
+          const cssMxMatch = !mxMatch && step.selector.match(/^\.mx-name-(\S+)/);
+          const elementKey = mxMatch ? mxMatch[1] : cssMxMatch ? cssMxMatch[1] : step.selector;
+
+          const el = elDB.elements?.[elementKey];
+          if (el) {
+            if (!el.pages) el.pages = [];
+            if (!el.pages.some(p => p.formPath === formPath)) {
+              el.pages.push({ url: '', title: '', formPath });
+            }
+            enriched = true;
+          }
+        }
+        if (enriched) {
+          saveElementDBForApp(scenario.appId, elDB);
+          console.log(`[form-path] Enriched element DB with form paths from ${results.formPaths.size} step(s)`);
+        }
+      } catch (fpErr) {
+        console.error(`[form-path] Error enriching element DB:`, fpErr.message);
+      }
+    }
+    // Remove formPaths from persisted results (internal only)
+    delete results.formPaths;
 
     const db2 = loadDB();
     const idx = db2.runs.findIndex((r) => r.runId === runId);

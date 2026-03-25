@@ -89,9 +89,10 @@ Step editing flow:
 
 ### Test Execution Flow
 1. `wrapScript()` — strips Codegen imports, cleans fragile `#mxui_widget_*` selectors, wraps bare code in `test()` block, adds `require` for Playwright and Mendix helpers
-2. `injectStepMarkers()` — parses test body into statements, wraps each with progress markers (`[ZONIQ_STEP:START/DONE/FAIL]`)
-3. `runPlaywright()` — spawns `npx playwright test` with JSON reporter, parses stdout for real-time step progress
+2. `injectStepMarkers()` — parses test body into statements, wraps each with progress markers (`[ZONIQ_STEP:START/DONE/FAIL]`) and Mendix form path capture (`[ZONIQ_STEP:FORM_PATH]`)
+3. `runPlaywright()` — spawns `npx playwright test` with JSON reporter, parses stdout for real-time step progress and form paths
 4. Results parsed from JSON report and stored in `scenarios.json`
+5. After execution, form paths are cross-referenced with steps to enrich the element DB — each element records which Mendix form(s) it appears on
 
 ### Mendix Helpers (`helpers/mendix-helpers.js`)
 Utility functions for Mendix-specific testing:
@@ -103,6 +104,7 @@ Utility functions for Mendix-specific testing:
 - `waitForPopup(page)` / `closePopup(page)` — Dialog handling
 - `waitForMicroflow(page)` — Wait for microflow completion
 - `assertWidgetText`, `assertWidgetVisible`, `assertWidgetEnabled`, `assertWidgetDisabled` — Assertion helpers
+- `getCurrentFormPath(page)` — Returns current Mendix content form path via `mx.ui.getContentForm().path`
 
 ### REST API Endpoints (port 3100)
 - `POST /api/execute` — Run raw Playwright script
