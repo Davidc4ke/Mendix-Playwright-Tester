@@ -1082,6 +1082,43 @@
     grid-template-columns: 1fr 1fr;
     gap: 14px;
   }
+
+  /* ── Element Browser ─────────────────────────────── */
+  .element-browser { margin-top: 8px; }
+  .element-browser-search {
+    width: 100%; padding: 6px 10px; margin-bottom: 8px;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text-primary);
+    font-size: 12px; font-family: var(--font);
+  }
+  .element-browser-search:focus { outline: none; border-color: var(--accent); }
+  .element-group-header {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted);
+    padding: 8px 0 4px; border-bottom: 1px solid var(--border);
+  }
+  .element-row {
+    display: grid; grid-template-columns: 1fr 80px 1fr 80px;
+    gap: 8px; padding: 5px 0; font-size: 11px; font-family: var(--font);
+    border-bottom: 1px solid rgba(30,45,69,0.3);
+    align-items: center;
+  }
+  .element-row:hover { background: rgba(59,130,246,0.05); }
+  .element-name { color: var(--accent); font-weight: 600; }
+  .element-type { color: var(--text-muted); }
+  .element-selector { color: var(--text-secondary); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .element-meta { color: var(--text-muted); font-size: 10px; text-align: right; }
+
+  /* ── App Cards ───────────────────────────────────── */
+  .app-card {
+    padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
+    transition: background var(--transition);
+  }
+  .app-card:hover { background: var(--bg-elevated); }
+  .app-card.selected { background: var(--bg-elevated); border-left: 3px solid var(--accent); }
+  .app-card-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .app-card-url { font-size: 11px; font-family: var(--font); color: var(--text-secondary); margin-top: 2px; }
+  .app-card-meta { font-size: 10px; color: var(--text-muted); margin-top: 4px; display: flex; gap: 10px; }
 </style>
 </head>
 <body>
@@ -1108,14 +1145,19 @@
       <div class="sidebar-tabs">
         <button class="sidebar-tab active" data-panel="scenarios">Scenarios</button>
         <button class="sidebar-tab" data-panel="runs">Test Runs</button>
+        <button class="sidebar-tab" data-panel="apps">Apps</button>
       </div>
 
       <!-- Scenarios Panel -->
       <div class="sidebar-panel active" id="panel-scenarios">
         <div class="sidebar-actions">
-          <button class="btn btn-primary" onclick="openNewScenarioModal()">+ New Scenario</button>
-          <button class="btn btn-record" onclick="launchRecorderPrompt()">Record from Browser</button>
+          <button class="btn btn-primary" onclick="openNewScenarioModal()">+ New</button>
+          <button class="btn btn-record" onclick="launchRecorderPrompt()">Record</button>
+          <button class="btn btn-ai" onclick="openGenerateModal()">Generate</button>
         </div>
+        <select class="form-input" id="appFilter" onchange="onAppFilterChange()" style="margin:0 12px 8px 12px;width:calc(100% - 24px);font-size:11px;padding:5px 8px;">
+          <option value="">All Apps</option>
+        </select>
         <div class="sidebar-list" id="scenarioList">
           <div class="empty-state">
             <div class="empty-state-icon">&#9881;</div>
@@ -1133,6 +1175,19 @@
           <div class="empty-state">
             <div class="empty-state-icon">&#9654;</div>
             <p>No test runs yet. Execute a scenario to see results here.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Apps Panel -->
+      <div class="sidebar-panel" id="panel-apps">
+        <div class="sidebar-actions">
+          <button class="btn btn-primary btn-sm" onclick="openNewAppModal()">+ New App</button>
+        </div>
+        <div class="sidebar-list" id="appList">
+          <div class="empty-state">
+            <div class="empty-state-icon">&#127760;</div>
+            <p>No apps yet. Apps are auto-created when you record a script, or create one manually.</p>
           </div>
         </div>
       </div>
@@ -1291,19 +1346,85 @@
   </div>
 </div>
 
+<!-- ── Generate Test Modal ─────────────────────────── -->
+<div class="modal-overlay" id="generateModal">
+  <div class="modal" style="width:580px;">
+    <div class="modal-title">Generate Test from Description</div>
+    <div class="form-group">
+      <label>App</label>
+      <select class="form-input" id="genApp">
+        <option value="">Select an app...</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Describe the test in plain English</label>
+      <textarea class="form-input" id="genDescription" style="min-height:100px;" placeholder="e.g. Log in, navigate to Customer overview, create a new customer with name 'John Doe' and email 'john@example.com', then save and verify the customer appears in the list."></textarea>
+    </div>
+    <div id="genResultArea" style="display:none;">
+      <div class="form-group">
+        <label>Generated Script</label>
+        <textarea class="script-area" id="genScript" style="min-height:180px;"></textarea>
+      </div>
+      <div id="genExplanation" style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;"></div>
+    </div>
+    <div id="genLoading" style="display:none;text-align:center;padding:20px;color:var(--text-secondary);font-size:13px;">
+      Generating script... this may take a moment.
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('generateModal')">Cancel</button>
+      <button class="btn btn-ai" id="genBtn" onclick="generateTestScript()">Generate Script</button>
+      <button class="btn btn-primary" id="genSaveBtn" style="display:none;" onclick="saveGeneratedScript()">Save as Scenario</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── New App Modal ──────────────────────────────── -->
+<div class="modal-overlay" id="appModal">
+  <div class="modal" style="width:440px;">
+    <div class="modal-title" id="appModalTitle">New App</div>
+    <div class="form-group">
+      <label>App Name</label>
+      <input class="form-input" id="appName" placeholder="e.g. My Mendix App" />
+    </div>
+    <div class="form-group">
+      <label>Base URL</label>
+      <input class="form-input" id="appBaseUrl" placeholder="https://myapp.mendixcloud.com" />
+    </div>
+    <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div class="form-group">
+        <label>Default Username (optional)</label>
+        <input class="form-input" id="appUser" placeholder="testuser" />
+      </div>
+      <div class="form-group">
+        <label>Default Password (optional)</label>
+        <input class="form-input" id="appPass" type="password" placeholder="..." />
+      </div>
+    </div>
+    <input type="hidden" id="appEditId" />
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('appModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAppFromModal()">Save App</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Toast Container ────────────────────────────── -->
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="lib/script-utils.js"></script>
+<script src="lib/element-db.js"></script>
 <script>
 // ════════════════════════════════════════════════════
 //  State
 // ════════════════════════════════════════════════════
 let scenarios = [];
 let runs = [];
+let apps = [];
 let selectedScenario = null;
 let selectedRun = null;
-let currentView = null; // 'scenario' | 'run' | 'health'
+let selectedApp = null;
+let selectedAppFilter = ''; // appId or '' for all
+let currentView = null; // 'scenario' | 'run' | 'health' | 'app'
 let activeStepRun = null; // { runId, steps: [...] } — tracks live step execution
 
 const STEP_ACTION_CONFIG = ScriptUtils.STEP_ACTION_CONFIG;
@@ -1327,6 +1448,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   await runHealthCheck();
+  await loadApps();
   await loadScenarios();
   await loadRuns();
   await loadUrlHistory();
@@ -1464,21 +1586,30 @@ document.getElementById("healthIndicator").onclick = showHealthPanel;
 async function loadScenarios() {
   scenarios = await window.zoniq.getScenarios();
   renderScenarioList();
+  renderAppList(); // Update app scenario counts
 }
 
 function renderScenarioList() {
   const container = document.getElementById("scenarioList");
-  if (!scenarios.length) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">&#9881;</div><p>No test scenarios yet. Create one or record a browser session.</p></div>`;
+  const filtered = selectedAppFilter
+    ? scenarios.filter(s => s.appId === selectedAppFilter)
+    : scenarios;
+  if (!filtered.length) {
+    const msg = selectedAppFilter
+      ? "No scenarios for this app yet."
+      : "No test scenarios yet. Create one or record a browser session.";
+    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">&#9881;</div><p>${msg}</p></div>`;
     return;
   }
-  container.innerHTML = scenarios.map((s) => `
+  container.innerHTML = filtered.map((s) => {
+    const appName = apps.find(a => a.id === s.appId)?.name;
+    return `
     <div class="scenario-card ${selectedScenario?.id === s.id ? 'selected' : ''}" onclick="selectScenario('${s.id}')">
       <div class="card-title">${esc(s.name)}</div>
       <div class="card-url">${esc(s.targetUrl || 'No URL set')}</div>
-      <div class="card-meta">${timeAgo(s.updatedAt || s.createdAt)}</div>
-    </div>
-  `).join("");
+      <div class="card-meta">${appName ? esc(appName) + ' &middot; ' : ''}${timeAgo(s.updatedAt || s.createdAt)}</div>
+    </div>`;
+  }).join("");
 }
 
 function selectScenario(id) {
@@ -1504,7 +1635,9 @@ function showScenarioDetail(sc) {
     <div class="detail-header">
       <div>
         <div class="detail-title">${esc(sc.name)}</div>
-        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">${esc(sc.targetUrl || '')}</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
+          ${sc.appId ? `<span style="color:var(--accent);cursor:pointer;" onclick="selectApp('${sc.appId}')">${esc(apps.find(a=>a.id===sc.appId)?.name || '')}</span> &middot; ` : ''}${esc(sc.targetUrl || '')}
+        </div>
       </div>
       <div class="btn-group">
         <button class="btn btn-primary" onclick="executeSelected()">&#9654; Run Test</button>
@@ -1702,6 +1835,274 @@ async function loadUrlHistory() {
   datalist.innerHTML = urls
     .map((u) => `<option value="${u.replace(/"/g, '&quot;')}"></option>`)
     .join("");
+}
+
+// ════════════════════════════════════════════════════
+//  Apps & Element Database
+// ════════════════════════════════════════════════════
+async function loadApps() {
+  apps = await window.zoniq.getApps();
+  renderAppFilter();
+  renderAppList();
+}
+
+function renderAppFilter() {
+  const select = document.getElementById("appFilter");
+  const prev = select.value;
+  select.innerHTML = `<option value="">All Apps</option>` +
+    apps.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join("");
+  select.value = prev || "";
+}
+
+function onAppFilterChange() {
+  selectedAppFilter = document.getElementById("appFilter").value;
+  renderScenarioList();
+}
+
+function renderAppList() {
+  const container = document.getElementById("appList");
+  if (!apps.length) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">&#127760;</div><p>No apps yet. Apps are auto-created when you record a script, or create one manually.</p></div>`;
+    return;
+  }
+  container.innerHTML = apps.map(a => {
+    const scCount = scenarios.filter(s => s.appId === a.id).length;
+    return `
+      <div class="app-card ${selectedApp?.id === a.id ? 'selected' : ''}" onclick="selectApp('${a.id}')">
+        <div class="app-card-name">${esc(a.name)}</div>
+        <div class="app-card-url">${esc(a.baseUrl)}</div>
+        <div class="app-card-meta">
+          <span>${scCount} scenario${scCount !== 1 ? 's' : ''}</span>
+          <span>${timeAgo(a.updatedAt)}</span>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function selectApp(appId) {
+  selectedApp = apps.find(a => a.id === appId);
+  renderAppList();
+  if (selectedApp) showAppDetail(selectedApp);
+}
+
+async function showAppDetail(app) {
+  currentView = "app";
+  const el = document.getElementById("detailContent");
+  const empty = document.getElementById("detailEmpty");
+  empty.style.display = "none";
+  el.style.display = "flex";
+
+  const elDB = await window.zoniq.getElementDB(app.id);
+  const elements = elDB?.elements ? Object.values(elDB.elements) : [];
+  const scCount = scenarios.filter(s => s.appId === app.id).length;
+
+  el.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">${esc(app.name)}</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">${esc(app.baseUrl)}</div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-ai btn-sm" onclick="openGenerateModalForApp('${app.id}')">Generate Test</button>
+        <button class="btn btn-sm" onclick="editApp('${app.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteApp('${app.id}')">Delete</button>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div style="display:flex;gap:20px;font-size:12px;color:var(--text-secondary);margin-bottom:16px;">
+        <span>${scCount} scenario${scCount !== 1 ? 's' : ''}</span>
+        <span>${elements.length} known element${elements.length !== 1 ? 's' : ''}</span>
+        ${app.credentials?.username ? `<span>Default user: ${esc(app.credentials.username)}</span>` : ''}
+      </div>
+
+      <div class="section-header">Element Database</div>
+      ${renderElementBrowser(elements)}
+    </div>
+  `;
+}
+
+function renderElementBrowser(elements) {
+  if (!elements.length) {
+    return `<div style="font-size:12px;color:var(--text-muted);padding:12px 0;">No elements discovered yet. Record a script to populate the element database.</div>`;
+  }
+
+  // Group by type
+  const byType = {};
+  for (const el of elements) {
+    const t = el.type || 'unknown';
+    if (!byType[t]) byType[t] = [];
+    byType[t].push(el);
+  }
+
+  const typeOrder = ['button','textbox','textarea','dropdown','checkbox','radio','datepicker','link','datagrid','listview','tab','groupbox','container','image','unknown'];
+  let html = `<div class="element-browser">
+    <input type="text" class="element-browser-search" placeholder="Search elements..." oninput="filterElements(this.value)" />
+    <div id="elementBrowserContent">`;
+
+  for (const type of typeOrder) {
+    const group = byType[type];
+    if (!group?.length) continue;
+    html += `<div class="element-group" data-type="${type}">
+      <div class="element-group-header">${type}s (${group.length})</div>`;
+    for (const el of group) {
+      const sel = el.selectors?.mx || el.selectors?.label || el.selectors?.text || '';
+      const pages = (el.pages || []).map(p => p.url || p.title).join(', ');
+      html += `
+        <div class="element-row" data-name="${esc(el.widgetName).toLowerCase()}" data-text="${esc(el.text || '').toLowerCase()}">
+          <div class="element-name">${esc(el.widgetName)}</div>
+          <div class="element-type">${esc(el.type)}</div>
+          <div class="element-selector" title="${esc(sel)}">${esc(sel)}</div>
+          <div class="element-meta">${el.seenCount || 1}x seen</div>
+        </div>`;
+    }
+    html += `</div>`;
+  }
+  html += `</div></div>`;
+  return html;
+}
+
+function filterElements(query) {
+  const q = query.toLowerCase();
+  document.querySelectorAll(".element-row").forEach(row => {
+    const name = row.dataset.name || '';
+    const text = row.dataset.text || '';
+    row.style.display = (!q || name.includes(q) || text.includes(q)) ? '' : 'none';
+  });
+}
+
+function openNewAppModal() {
+  document.getElementById("appModalTitle").textContent = "New App";
+  document.getElementById("appEditId").value = "";
+  document.getElementById("appName").value = "";
+  document.getElementById("appBaseUrl").value = "";
+  document.getElementById("appUser").value = "";
+  document.getElementById("appPass").value = "";
+  openModal("appModal");
+}
+
+function editApp(appId) {
+  const app = apps.find(a => a.id === appId);
+  if (!app) return;
+  document.getElementById("appModalTitle").textContent = "Edit App";
+  document.getElementById("appEditId").value = app.id;
+  document.getElementById("appName").value = app.name;
+  document.getElementById("appBaseUrl").value = app.baseUrl;
+  document.getElementById("appUser").value = app.credentials?.username || "";
+  document.getElementById("appPass").value = app.credentials?.password || "";
+  openModal("appModal");
+}
+
+async function saveAppFromModal() {
+  const name = document.getElementById("appName").value.trim();
+  const baseUrl = document.getElementById("appBaseUrl").value.trim();
+  const username = document.getElementById("appUser").value.trim();
+  const password = document.getElementById("appPass").value.trim();
+  const editId = document.getElementById("appEditId").value;
+
+  if (!name) { toast("App name is required", "error"); return; }
+  if (!baseUrl) { toast("Base URL is required", "error"); return; }
+
+  const appData = {
+    name,
+    baseUrl,
+    credentials: username ? { username, password } : null,
+  };
+
+  if (editId) {
+    appData.id = editId;
+    await window.zoniq.updateApp(appData);
+  } else {
+    await window.zoniq.createApp(appData);
+  }
+
+  closeModal("appModal");
+  await loadApps();
+  toast(editId ? "App updated" : "App created", "success");
+}
+
+async function deleteApp(appId) {
+  if (!confirm("Delete this app and its element database? Scenarios will NOT be deleted.")) return;
+  await window.zoniq.deleteApp(appId);
+  selectedApp = null;
+  await loadApps();
+  document.getElementById("detailContent").style.display = "none";
+  document.getElementById("detailEmpty").style.display = "flex";
+  toast("App deleted", "info");
+}
+
+// ════════════════════════════════════════════════════
+//  AI Script Generation
+// ════════════════════════════════════════════════════
+function openGenerateModal() {
+  _resetGenerateModal();
+  openModal("generateModal");
+}
+
+function openGenerateModalForApp(appId) {
+  _resetGenerateModal();
+  document.getElementById("genApp").value = appId;
+  openModal("generateModal");
+}
+
+function _resetGenerateModal() {
+  const select = document.getElementById("genApp");
+  select.innerHTML = `<option value="">Select an app...</option>` +
+    apps.map(a => `<option value="${a.id}">${esc(a.name)} — ${esc(a.baseUrl)}</option>`).join("");
+  document.getElementById("genDescription").value = "";
+  document.getElementById("genResultArea").style.display = "none";
+  document.getElementById("genLoading").style.display = "none";
+  document.getElementById("genBtn").style.display = "";
+  document.getElementById("genSaveBtn").style.display = "none";
+  document.getElementById("genScript").value = "";
+  document.getElementById("genExplanation").textContent = "";
+}
+
+async function generateTestScript() {
+  const appId = document.getElementById("genApp").value;
+  const description = document.getElementById("genDescription").value.trim();
+
+  if (!appId) { toast("Select an app first", "error"); return; }
+  if (!description) { toast("Describe the test you want to generate", "error"); return; }
+
+  document.getElementById("genBtn").style.display = "none";
+  document.getElementById("genLoading").style.display = "block";
+  document.getElementById("genResultArea").style.display = "none";
+
+  const result = await window.zoniq.generateScript({ appId, description });
+
+  document.getElementById("genLoading").style.display = "none";
+
+  if (result.error) {
+    toast(`Generation failed: ${result.error}`, "error");
+    document.getElementById("genBtn").style.display = "";
+    return;
+  }
+
+  document.getElementById("genScript").value = result.script || "";
+  document.getElementById("genExplanation").textContent = result.explanation || "";
+  document.getElementById("genResultArea").style.display = "block";
+  document.getElementById("genBtn").textContent = "Regenerate";
+  document.getElementById("genBtn").style.display = "";
+  document.getElementById("genSaveBtn").style.display = "";
+}
+
+function saveGeneratedScript() {
+  const appId = document.getElementById("genApp").value;
+  const script = document.getElementById("genScript").value;
+  const description = document.getElementById("genDescription").value.trim();
+  const app = apps.find(a => a.id === appId);
+
+  closeModal("generateModal");
+
+  // Open scenario modal with pre-filled data
+  document.getElementById("scenarioModalTitle").textContent = "New Generated Scenario";
+  document.getElementById("scId").value = "";
+  document.getElementById("scName").value = description.substring(0, 60);
+  document.getElementById("scUrl").value = app?.baseUrl || "";
+  document.getElementById("scUser").value = app?.credentials?.username || "";
+  document.getElementById("scPass").value = app?.credentials?.password || "";
+  document.getElementById("scScript").value = script;
+  openModal("scenarioModal");
 }
 
 // ════════════════════════════════════════════════════

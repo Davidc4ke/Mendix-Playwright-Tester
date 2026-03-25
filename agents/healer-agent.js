@@ -68,10 +68,11 @@ class HealerAgent {
    * @param {function} [params.onProgress] — Progress callback
    * @returns {{ healedScript: string, changes: Array, analysis: string, confidence: string }}
    */
-  async heal({ script, steps: _legacySteps, errors, targetUrl, credentials, runResultsDir, artifacts, onProgress }) {
+  async heal({ script, steps: _legacySteps, errors, targetUrl, credentials, runResultsDir, artifacts, onProgress, elementDB }) {
     // Steps are always derived from the script (script is the source of truth)
     const ScriptUtils = require('../lib/script-utils');
     const steps = script ? ScriptUtils.parseScriptToSteps(script) : [];
+    this._elementDB = elementDB || null;
 
     // ── Try static healing first (fast path, no browser) ──
     if (runResultsDir) {
@@ -667,6 +668,16 @@ class HealerAgent {
       if (replayResult.failedAtIndex != null && replayResult.totalStatements != null) {
         lines.push(`\nFailed at command ${replayResult.failedAtIndex + 1} of ${replayResult.totalStatements}. The page state below reflects the app at that point.`);
       }
+      lines.push("");
+    }
+
+    // Include element DB context if available
+    if (this._elementDB && this._elementDB.elements && Object.keys(this._elementDB.elements).length > 0) {
+      const ElementDB = require('../lib/element-db');
+      lines.push("## Known Application Elements\n");
+      lines.push("These are all the UI elements discovered from previous recordings of this app.");
+      lines.push("Use these widget names and selectors as references for finding the correct elements:\n");
+      lines.push(ElementDB.formatElementDBForLLM(this._elementDB));
       lines.push("");
     }
 

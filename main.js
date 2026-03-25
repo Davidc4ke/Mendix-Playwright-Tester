@@ -16,6 +16,7 @@ const { loadSettings, saveSettings, getDefaultModel } = require("./settings");
 const { LLMClient } = require("./agents/llm-client");
 const { HealerAgent } = require("./agents/healer-agent");
 const ScriptUtils = require("./lib/script-utils");
+const ElementDB = require("./lib/element-db");
 
 // ── Paths ────────────────────────────────────────────────
 const USER_DATA = app.getPath("userData");
@@ -24,6 +25,8 @@ const RESULTS_DIR = path.join(USER_DATA, "results");
 const TEMP_DIR = path.join(__dirname, "temp");
 const HELPERS_DIR = path.join(__dirname, "helpers");
 const DB_PATH = path.join(USER_DATA, "scenarios.json");
+const APPS_PATH = path.join(USER_DATA, "apps.json");
+const APPS_DIR = path.join(USER_DATA, "apps");
 
 // ── Playwright paths ────────────────────────────────────
 const PLAYWRIGHT_CLI = path.resolve(
@@ -117,7 +120,7 @@ function getBrowserChannel() {
   return _browserChannel;
 }
 
-[SCRIPTS_DIR, RESULTS_DIR, TEMP_DIR].forEach((d) => {
+[SCRIPTS_DIR, RESULTS_DIR, TEMP_DIR, APPS_DIR].forEach((d) => {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 });
 
@@ -143,6 +146,81 @@ function addSavedUrl(db, url) {
   if (!db.savedUrls.includes(normalized)) {
     db.savedUrls.push(normalized);
   }
+}
+
+// ── Apps & Element DB ────────────────────────────────────
+
+function loadApps() {
+  try {
+    if (fs.existsSync(APPS_PATH)) {
+      return JSON.parse(fs.readFileSync(APPS_PATH, "utf-8"));
+    }
+  } catch {}
+  return [];
+}
+
+function saveApps(apps) {
+  fs.writeFileSync(APPS_PATH, JSON.stringify(apps, null, 2));
+}
+
+function loadElementDBForApp(appId) {
+  const dbPath = path.join(APPS_DIR, appId, "elements.json");
+  try {
+    if (fs.existsSync(dbPath)) {
+      return JSON.parse(fs.readFileSync(dbPath, "utf-8"));
+    }
+  } catch {}
+  return { elements: {} };
+}
+
+function saveElementDBForApp(appId, elementDB) {
+  const appDir = path.join(APPS_DIR, appId);
+  if (!fs.existsSync(appDir)) fs.mkdirSync(appDir, { recursive: true });
+  fs.writeFileSync(path.join(appDir, "elements.json"), JSON.stringify(elementDB, null, 2));
+}
+
+/**
+ * Find an existing app by base URL, or create one automatically.
+ * Returns the app object.
+ */
+function findOrCreateApp(targetUrl) {
+  if (!targetUrl) return null;
+  const baseUrl = ElementDB.normalizeAppUrl(targetUrl);
+  if (!baseUrl) return null;
+
+  const apps = loadApps();
+  const existing = apps.find(a => a.baseUrl === baseUrl);
+  if (existing) return existing;
+
+  const newApp = {
+    id: uuidv4(),
+    name: ElementDB.deriveAppName(baseUrl),
+    baseUrl,
+    credentials: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  apps.push(newApp);
+  saveApps(apps);
+  return newApp;
+}
+
+/**
+ * Migrate existing scenarios without appId — assign them to apps based on targetUrl.
+ */
+function migrateScenarioApps() {
+  const db = loadDB();
+  let changed = false;
+  for (const sc of db.scenarios) {
+    if (!sc.appId && sc.targetUrl) {
+      const app = findOrCreateApp(sc.targetUrl);
+      if (app) {
+        sc.appId = app.id;
+        changed = true;
+      }
+    }
+  }
+  if (changed) saveDB(db);
 }
 
 // ── Playwright helpers path ──────────────────────────────
@@ -981,8 +1059,9 @@ ipcMain.handle("health-check", async () => {
   });
 });
 
-// Get all scenarios
+// Get all scenarios (with auto-migration for apps)
 ipcMain.handle("get-scenarios", () => {
+  migrateScenarioApps();
   return loadDB().scenarios;
 });
 
@@ -990,6 +1069,13 @@ ipcMain.handle("get-scenarios", () => {
 ipcMain.handle("save-scenario", (event, scenario) => {
   // Steps are ephemeral (derived from script) — never persist them
   delete scenario.steps;
+
+  // Auto-assign appId if not set
+  if (!scenario.appId && scenario.targetUrl) {
+    const app = findOrCreateApp(scenario.targetUrl);
+    if (app) scenario.appId = app.id;
+  }
+
   const db = loadDB();
   const existing = db.scenarios.findIndex((s) => s.id === scenario.id);
   if (existing >= 0) {
@@ -1004,6 +1090,20 @@ ipcMain.handle("save-scenario", (event, scenario) => {
   }
   addSavedUrl(db, scenario.targetUrl);
   saveDB(db);
+
+  // Enrich element DB from script selectors
+  const savedSc = existing >= 0 ? db.scenarios[existing] : scenario;
+  if (savedSc.appId && savedSc.script) {
+    try {
+      const steps = ScriptUtils.parseScriptToSteps(savedSc.script);
+      if (steps.length) {
+        const elDB = loadElementDBForApp(savedSc.appId);
+        const updated = ElementDB.enrichFromSteps(elDB, steps);
+        saveElementDBForApp(savedSc.appId, updated);
+      }
+    } catch {}
+  }
+
   return scenario;
 });
 
@@ -1024,6 +1124,93 @@ ipcMain.handle("get-runs", () => {
 ipcMain.handle("get-saved-urls", () => {
   const db = loadDB();
   return db.savedUrls || [];
+});
+
+// ── App & Element DB IPC Handlers ────────────────────────
+
+ipcMain.handle("get-apps", () => {
+  return loadApps();
+});
+
+ipcMain.handle("create-app", (event, appData) => {
+  const apps = loadApps();
+  const baseUrl = ElementDB.normalizeAppUrl(appData.baseUrl || appData.targetUrl || '');
+  // Check for duplicate
+  const existing = apps.find(a => a.baseUrl === baseUrl);
+  if (existing) return existing;
+
+  const newApp = {
+    id: uuidv4(),
+    name: appData.name || ElementDB.deriveAppName(baseUrl),
+    baseUrl,
+    credentials: appData.credentials || null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  apps.push(newApp);
+  saveApps(apps);
+  return newApp;
+});
+
+ipcMain.handle("update-app", (event, appData) => {
+  const apps = loadApps();
+  const idx = apps.findIndex(a => a.id === appData.id);
+  if (idx < 0) return { error: "App not found" };
+  apps[idx] = { ...apps[idx], ...appData, updatedAt: new Date().toISOString() };
+  saveApps(apps);
+  return apps[idx];
+});
+
+ipcMain.handle("delete-app", (event, appId) => {
+  let apps = loadApps();
+  apps = apps.filter(a => a.id !== appId);
+  saveApps(apps);
+  // Remove element DB directory
+  const appDir = path.join(APPS_DIR, appId);
+  try { fs.rmSync(appDir, { recursive: true, force: true }); } catch {}
+  return true;
+});
+
+ipcMain.handle("get-element-db", (event, appId) => {
+  if (!appId) return { elements: {} };
+  return loadElementDBForApp(appId);
+});
+
+ipcMain.handle("generate-script", async (event, { appId, description }) => {
+  const settings = loadSettings();
+  if (!settings.llm.apiKey) return { error: "No LLM API key configured. Go to Settings to add one." };
+
+  const apps = loadApps();
+  const app = apps.find(a => a.id === appId);
+  if (!app) return { error: "App not found" };
+
+  const elementDB = loadElementDBForApp(appId);
+  const db = loadDB();
+  const appScenarios = db.scenarios.filter(s => s.appId === appId && s.script);
+  const exampleScripts = appScenarios.slice(0, 2).map(s => s.script);
+
+  let llmClient;
+  try {
+    llmClient = new LLMClient(settings);
+  } catch (err) {
+    return { error: err.message };
+  }
+
+  try {
+    const { ScriptGenerator } = require("./agents/script-generator");
+    const generator = new ScriptGenerator(llmClient);
+    const result = await generator.generate({
+      appName: app.name,
+      baseUrl: app.baseUrl,
+      elementDB,
+      existingScripts: exampleScripts,
+      description,
+      credentials: app.credentials,
+    });
+    return result;
+  } catch (err) {
+    return { error: err.message };
+  }
 });
 
 // Launch Codegen recorder
@@ -1073,6 +1260,33 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
       try {
         if (fs.existsSync(outputPath)) {
           const script = fs.readFileSync(outputPath, "utf-8");
+
+          // Process captured elements from sidecar file
+          const elementsPath = outputPath + ".elements.json";
+          try {
+            if (fs.existsSync(elementsPath)) {
+              const discovered = JSON.parse(fs.readFileSync(elementsPath, "utf-8"));
+              const app = findOrCreateApp(normalizedUrl);
+              if (app && discovered.length) {
+                let elDB = loadElementDBForApp(app.id);
+                elDB = ElementDB.mergeElements(elDB, discovered, {
+                  pageUrl: normalizedUrl,
+                  pageTitle: '',
+                });
+                // Also enrich from parsed script steps
+                try {
+                  const steps = ScriptUtils.parseScriptToSteps(script);
+                  if (steps.length) elDB = ElementDB.enrichFromSteps(elDB, steps);
+                } catch {}
+                saveElementDBForApp(app.id, elDB);
+                console.log(`[recorder] Captured ${discovered.length} elements for app "${app.name}"`);
+              }
+              fs.unlinkSync(elementsPath);
+            }
+          } catch (elemErr) {
+            console.error(`[recorder] Element capture error:`, elemErr.message);
+          }
+
           resolve({ outputFile, script });
         } else {
           resolve({ outputFile: null, script: null });
@@ -1315,6 +1529,9 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
 
   const runResultsDir = path.join(RESULTS_DIR, runId);
 
+  // Load element DB for enhanced healing context
+  const elementDB = scenario.appId ? loadElementDBForApp(scenario.appId) : null;
+
   try {
     const result = await healer.heal({
       script: scenario.script || "",
@@ -1324,6 +1541,7 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
       runResultsDir: fs.existsSync(runResultsDir) ? runResultsDir : null,
       artifacts: run.results?.artifacts || [],
       onProgress,
+      elementDB,
     });
 
     activeAgent = null;
@@ -1413,12 +1631,16 @@ ipcMain.handle("agent-preheal", async (event, { scenarioId }) => {
 
     activeAgent = { type: "prehealer", agent: healer };
 
+    // Load element DB for enhanced healing context
+    const prehealElementDB = scenario.appId ? loadElementDBForApp(scenario.appId) : null;
+
     const result = await healer.heal({
       script: scenario.script || "",
       errors: results.errors,
       targetUrl: scenario.targetUrl,
       credentials: scenario.credentials,
       onProgress,
+      elementDB: prehealElementDB,
     });
 
     activeAgent = null;
