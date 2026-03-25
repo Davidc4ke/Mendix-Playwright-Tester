@@ -780,6 +780,49 @@
     font-size: 14px;
   }
 
+  .step-proof-screenshot {
+    margin-top: 4px;
+  }
+
+  .step-proof-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-family: var(--font);
+    background: color-mix(in srgb, var(--amber) 12%, var(--bg-surface));
+    border: 1px solid color-mix(in srgb, var(--amber) 30%, var(--border));
+    border-radius: 4px;
+    color: var(--amber);
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+
+  .step-proof-badge:hover {
+    background: color-mix(in srgb, var(--amber) 20%, var(--bg-surface));
+    border-color: var(--amber);
+  }
+
+  .step-proof-image-wrap {
+    margin-top: 6px;
+  }
+
+  .step-proof-img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all var(--transition);
+    object-fit: contain;
+  }
+
+  .step-proof-img:hover {
+    border-color: var(--amber);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+
   .step-copy-btn {
     opacity: 0;
     flex-shrink: 0;
@@ -930,6 +973,17 @@
   .step-editor-actions button.step-remove-btn:hover {
     border-color: var(--red);
     color: var(--red);
+  }
+
+  .step-editor-actions button.step-screenshot-btn.active {
+    border-color: var(--amber);
+    color: var(--amber);
+    background: color-mix(in srgb, var(--amber) 12%, var(--bg-elevated));
+  }
+
+  .step-editor-actions button.step-screenshot-btn:hover {
+    border-color: var(--amber);
+    color: var(--amber);
   }
 
   .step-phase-group {
@@ -1599,6 +1653,7 @@ function _renderStepCard(sc, step, idx) {
         ` : ''}
       </div>
       <div class="step-editor-actions">
+        <button class="step-screenshot-btn ${step.screenshot ? 'active' : ''}" title="Capture screenshot after this step" onclick="onStepScreenshotToggle('${sc.id}', ${idx})">&#128247;</button>
         <button class="step-remove-btn" title="Delete step" onclick="onStepDelete('${sc.id}', ${idx})">&#x2715;</button>
       </div>
     </div>`;
@@ -1713,6 +1768,18 @@ function onStepFieldChange(scenarioId, stepIndex, field, value) {
   const step = sc.steps[stepIndex];
   step[field] = value;
   _updateStepInScript(sc, step);
+  _autoSaveScenario(sc);
+}
+
+function onStepScreenshotToggle(scenarioId, stepIndex) {
+  const sc = scenarios.find(s => s.id === scenarioId);
+  if (!sc?.steps?.[stepIndex]) return;
+  const step = sc.steps[stepIndex];
+  step.screenshot = !step.screenshot;
+  _updateStepInScript(sc, step);
+  // Re-parse steps from the updated script and refresh the view
+  sc.steps = parseScriptToSteps(sc.script);
+  showScenarioDetail(sc);
   _autoSaveScenario(sc);
 }
 
@@ -1834,9 +1901,10 @@ function showRunDetail(run) {
   // Build step timeline HTML if step data is available
   const stepList = r.stepList || null;
   const stepResultsMap = r.stepResults || {};
-  // Separate failure artifacts from other artifacts
+  // Separate failure artifacts, proof screenshots, and other artifacts
   const failureArtifacts = (r.artifacts || []).filter(a => /test-failed/i.test(a));
-  const otherArtifacts = (r.artifacts || []).filter(a => !/test-failed/i.test(a));
+  const proofArtifacts = (r.artifacts || []).filter(a => /step-\d+-proof\.png/.test(a));
+  const otherArtifacts = (r.artifacts || []).filter(a => !/test-failed/i.test(a) && !/step-\d+-proof\.png/.test(a));
 
   let stepsHtml = "";
   if (stepList && stepList.length) {
@@ -1861,6 +1929,8 @@ function showRunDetail(run) {
           const isFailed = status === "failed";
           // Attach failure artifacts to the failed step
           const stepFailArtifacts = isFailed ? failureArtifacts : [];
+          // Find proof screenshot for this step
+          const stepProof = proofArtifacts.find(a => a.includes('step-' + step.index + '-proof'));
           // Find matching error for this step
           const stepError = isFailed && sr.error ? sr.error : "";
 
@@ -1878,6 +1948,12 @@ function showRunDetail(run) {
                         <span>${esc(a)}</span>
                       </div>
                     `).join("")}
+                  </div>
+                ` : ""}
+                ${stepProof ? `
+                  <div class="step-proof-screenshot">
+                    <div class="step-proof-badge" onclick="toggleProofImage(this)" data-run-id="${run.runId}" data-artifact="${esc(stepProof)}">&#128247; Proof screenshot captured &mdash; click to view</div>
+                    <div class="step-proof-image-wrap" style="display:none;"></div>
                   </div>
                 ` : ""}
               </div>
@@ -1956,6 +2032,27 @@ function showRunDetail(run) {
       ` : ''}
     </div>
   `;
+}
+
+async function toggleProofImage(badgeEl) {
+  const wrap = badgeEl.parentElement.querySelector('.step-proof-image-wrap');
+  if (wrap.style.display !== 'none') {
+    wrap.style.display = 'none';
+    return;
+  }
+  // Load image if not already loaded
+  if (!wrap.dataset.loaded) {
+    const runId = badgeEl.dataset.runId;
+    const artifact = badgeEl.dataset.artifact;
+    const filePath = await window.zoniq.getArtifactPath(runId, artifact);
+    if (filePath) {
+      wrap.innerHTML = `<img class="step-proof-img" src="file://${filePath}" alt="Step proof screenshot" onclick="window.zoniq.openResultsFolder('${runId}')" title="Click to open results folder" />`;
+    } else {
+      wrap.innerHTML = `<div style="font-size:11px;color:var(--text-muted);padding:8px;">Screenshot file not found</div>`;
+    }
+    wrap.dataset.loaded = '1';
+  }
+  wrap.style.display = 'block';
 }
 
 function copyRunStepToClipboard(runId, stepIndex) {

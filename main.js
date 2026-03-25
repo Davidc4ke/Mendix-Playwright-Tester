@@ -284,16 +284,22 @@ function injectStepMarkers(scriptBody) {
     }
 
     const idx = isFiltered ? -1 : realIdx++;
-    const isRaw = /^(?:const|let|var)\s/.test(stmt.text);
+    // Detect screenshot marker and strip it from the executed statement
+    const wantsScreenshot = /\/\/\s*@zoniq:screenshot/.test(stmt.text);
+    const cleanStmt = wantsScreenshot ? stmt.text.replace(/\s*\/\/\s*@zoniq:screenshot\s*$/, '') : stmt.text;
+    const screenshotLine = wantsScreenshot && idx >= 0
+      ? `\n    await page.screenshot({ path: require('path').join(process.env.ZONIQ_RUN_RESULTS_DIR || 'results', 'step-${idx}-proof.png'), fullPage: true });`
+      : '';
+    const isRaw = /^(?:const|let|var)\s/.test(cleanStmt);
     if (isRaw) {
       return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
-        `  ${stmt.text}\n` +
+        `  ${cleanStmt}\n` +
         `  console.log('[ZONIQ_STEP:DONE:${idx}]');`;
     }
     const errVar = `_stepErr_${stmtIdx}`;
     return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
-      `  try {\n    ${stmt.text}\n` +
-      `    console.log('[ZONIQ_STEP:DONE:${idx}]');\n` +
+      `  try {\n    ${cleanStmt}\n` +
+      `    console.log('[ZONIQ_STEP:DONE:${idx}]');${screenshotLine}\n` +
       `  } catch (${errVar}) {\n` +
       `    console.log('[ZONIQ_STEP:FAIL:${idx}:' + ${errVar}.message.replace(/\\n/g, ' ') + ']');\n` +
       `    throw ${errVar};\n` +
@@ -450,6 +456,7 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
       ...(channel ? { ZONIQ_BROWSER_CHANNEL: channel } : {}),
       ZONIQ_RETRIES: settings.testExecution.retryOnFailure ? "1" : "0",
       ZONIQ_STEP_TIMEOUT: String(settings.testExecution.stepTimeout || 30),
+      ZONIQ_RUN_RESULTS_DIR: runResultsDir,
     });
     const runIdPrefix = path.basename(scriptPath, ".spec.js");
     // Default to headed on desktop; set ZONIQ_HEADED=false to run headless (e.g. on CI)
@@ -1238,6 +1245,17 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
   } finally {
     try { fs.unlinkSync(scriptPath); } catch {}
   }
+});
+
+// Get absolute path for a run artifact (for displaying images in the renderer)
+ipcMain.handle("get-artifact-path", (event, runId, filename) => {
+  if (!runId || !filename) return null;
+  // Security: prevent directory traversal
+  if (filename.includes('/') || filename.includes('\\')) return null;
+  const filePath = path.join(RESULTS_DIR, runId, filename);
+  if (!filePath.startsWith(path.resolve(RESULTS_DIR) + path.sep)) return null;
+  if (fs.existsSync(filePath)) return filePath;
+  return null;
 });
 
 // Open results folder
