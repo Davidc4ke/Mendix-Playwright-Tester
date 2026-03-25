@@ -1714,6 +1714,22 @@ document.addEventListener("DOMContentLoaded", async () => {
       document.querySelectorAll(".sidebar-panel").forEach((p) => p.classList.remove("active"));
       tab.classList.add("active");
       document.getElementById(`panel-${tab.dataset.panel}`).classList.add("active");
+
+      // Select the first item in the newly active tab's list
+      const panel = tab.dataset.panel;
+      if (panel === "scenarios") {
+        const filtered = selectedAppFilter
+          ? scenarios.filter(s => s.appId === selectedAppFilter)
+          : scenarios;
+        if (filtered.length) { selectScenario(filtered[0].id); }
+        else { selectedScenario = null; renderScenarioList(); document.getElementById("detailContent").style.display = "none"; document.getElementById("detailEmpty").style.display = "flex"; }
+      } else if (panel === "runs") {
+        if (runs.length) { selectedRun = runs[0]; renderRunList(); showRunDetail(selectedRun); }
+        else { selectedRun = null; renderRunList(); document.getElementById("detailContent").style.display = "none"; document.getElementById("detailEmpty").style.display = "flex"; }
+      } else if (panel === "apps") {
+        if (apps.length) { selectApp(apps[0].id); }
+        else { selectedApp = null; renderAppList(); document.getElementById("detailContent").style.display = "none"; document.getElementById("detailEmpty").style.display = "flex"; }
+      }
     });
   });
 
