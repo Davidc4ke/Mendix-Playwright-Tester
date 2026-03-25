@@ -320,6 +320,11 @@ function replaceGuidsInScript(guidToLabel) {
   // Strategy 4: poll — check if the page is still alive every second.
   // Catches cases where events don't fire (e.g. _enableRecorder
   // intercepts them, or the browser process is killed externally).
+  // We tolerate transient failures (e.g. during full-page navigations
+  // like Mendix login/logout redirects) by requiring multiple consecutive
+  // failures before shutting down.
+  let consecutiveFailures = 0;
+  const MAX_POLL_FAILURES = 3;
   const pollInterval = setInterval(async () => {
     try {
       const pages = context.pages();
@@ -333,10 +338,15 @@ function replaceGuidsInScript(guidToLabel) {
       await pages[0].evaluate("1").catch(() => {
         throw new Error("evaluate failed");
       });
+      consecutiveFailures = 0;
     } catch {
-      console.log("[recorder] Browser connection lost (poll), exiting");
-      clearInterval(pollInterval);
-      shutdown();
+      consecutiveFailures++;
+      console.log(`[recorder] Browser poll failure ${consecutiveFailures}/${MAX_POLL_FAILURES}`);
+      if (consecutiveFailures >= MAX_POLL_FAILURES) {
+        console.log("[recorder] Browser connection lost (poll), exiting");
+        clearInterval(pollInterval);
+        shutdown();
+      }
     }
   }, 1000);
 
