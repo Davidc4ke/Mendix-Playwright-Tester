@@ -302,8 +302,13 @@ function replaceGuidsInScript(guidToLabel) {
 
   // Strategy 2: page close event
   page.on("close", () => {
-    console.log("[recorder] Main page closed, exiting");
-    setTimeout(shutdown, 300);
+    const remaining = context.pages().length;
+    if (remaining === 0) {
+      console.log("[recorder] Main page closed (no pages remain), exiting");
+      setTimeout(shutdown, 300);
+    } else {
+      console.log(`[recorder] Main page closed, but ${remaining} page(s) still open — continuing`);
+    }
   });
 
   // Strategy 3: context close event
@@ -317,14 +322,15 @@ function replaceGuidsInScript(guidToLabel) {
   // intercepts them, or the browser process is killed externally).
   const pollInterval = setInterval(async () => {
     try {
-      if (page.isClosed()) {
-        console.log("[recorder] Page detected as closed (poll), exiting");
+      const pages = context.pages();
+      if (pages.length === 0) {
+        console.log("[recorder] No pages remain (poll), exiting");
         clearInterval(pollInterval);
         shutdown();
         return;
       }
-      // Lightweight CDP call to verify connection is alive
-      await page.evaluate("1").catch(() => {
+      // Lightweight CDP call on any live page to verify connection is alive
+      await pages[0].evaluate("1").catch(() => {
         throw new Error("evaluate failed");
       });
     } catch {
