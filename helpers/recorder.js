@@ -31,6 +31,102 @@ function looksLikeGuid(value) {
 }
 
 /**
+ * Convert a CSS selector into a valid JS variable name.
+ * ".mx-name-txtTicketId" → "txtTicketId"
+ */
+function selectorToVarName(selector, usedNames) {
+  let name;
+  const mxMatch = selector.match(/\.mx-name-(\w+)/);
+  if (mxMatch) {
+    name = mxMatch[1];
+  } else {
+    const words = selector.replace(/[^a-zA-Z0-9]/g, ' ').trim().split(/\s+/).filter(Boolean);
+    name = 'captured' + words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
+  }
+  // Avoid collisions
+  let final = name;
+  let suffix = 2;
+  while (usedNames.has(final)) { final = name + suffix++; }
+  usedNames.add(final);
+  return final;
+}
+
+/**
+ * Post-recording: insert capture statements and replace hardcoded values
+ * for any "value echoes" (values the user typed that were previously seen on the page).
+ */
+function applyValueEchoes(echoes) {
+  if (!echoes.length) return;
+  const absOutput = path.resolve(outputPath);
+  if (!fs.existsSync(absOutput)) return;
+  let script = fs.readFileSync(absOutput, "utf-8");
+
+  // Deduplicate echoes by value (keep first occurrence)
+  const seen = new Set();
+  const unique = echoes.filter(e => {
+    if (seen.has(e.value)) return false;
+    seen.add(e.value);
+    return true;
+  });
+
+  const usedVarNames = new Set();
+  let applied = 0;
+
+  for (const echo of unique) {
+    // Check if this value actually appears in the script as a string literal
+    if (!script.includes(`'${echo.value}'`) && !script.includes(`"${echo.value}"`)) continue;
+
+    const varName = selectorToVarName(echo.sourceSelector, usedVarNames);
+
+    // Find the FIRST fill/type/selectOption line containing this value
+    const lines = script.split('\n');
+    let firstUsageLine = -1;
+    const escapedValue = echo.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const usageRe = new RegExp(`\\.(?:fill|type|selectOption)\\s*\\(\\s*['"]${escapedValue}['"]`);
+
+    for (let i = 0; i < lines.length; i++) {
+      if (usageRe.test(lines[i])) { firstUsageLine = i; break; }
+    }
+    if (firstUsageLine === -1) continue;
+
+    // Walk backward from first usage to find the best insertion point:
+    // After a click/waitForMendix/goto — but BEFORE any logout/login that would lose the source element
+    let insertAt = firstUsageLine;
+    for (let i = firstUsageLine - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      // Stop at logout/login boundary — capture must be before user switches
+      if (/\.goto\s*\(.*logout/i.test(line) || /mx\.login/.test(line)) {
+        insertAt = i;
+        break;
+      }
+      // Good insertion points: after a click, waitForMendix, or navigation
+      if (/\.click\s*\(/.test(line) || /waitForMendix/.test(line) || /\.goto\s*\(/.test(line)) {
+        insertAt = i + 1;
+        break;
+      }
+    }
+
+    // Build and insert the capture statement
+    const indent = lines[insertAt]?.match(/^(\s*)/)?.[1] || '  ';
+    const captureCode = `${indent}const ${varName} = (await page.locator('${echo.sourceSelector}').textContent()).trim();`;
+    lines.splice(insertAt, 0, captureCode);
+
+    // Rejoin and replace all occurrences of the hardcoded value with the variable
+    script = lines.join('\n');
+    script = script.split(`'${echo.value}'`).join(varName);
+    script = script.split(`"${echo.value}"`).join(varName);
+
+    applied++;
+    console.log(`[recorder] Auto-captured: "${echo.value}" → ${varName} (from ${echo.sourceSelector})`);
+  }
+
+  if (applied > 0) {
+    fs.writeFileSync(absOutput, script);
+    console.log(`[recorder] Applied ${applied} value echo(es) to script`);
+  }
+}
+
+/**
  * Post-recording: replace any GUID values in the script with human-readable labels.
  */
 function replaceGuidsInScript(guidToLabel) {
@@ -77,14 +173,42 @@ function replaceGuidsInScript(guidToLabel) {
   // value→textContent pairs WITHOUT mutating the DOM — so Mendix
   // form handling works normally during recording.
   const guidToLabel = new Map();
+  const valueEchoes = [];          // [{ value, sourceSelector, type }]
+  const clipboardCopies = [];      // [{ value, sourceSelector }]
 
-  // Each page in the context gets the exposed function
+  function _exposeEchoFunctions(p) {
+    p.exposeFunction("__zoniqReportEcho", (value, sourceSelector) => {
+      if (value && sourceSelector) {
+        // Avoid duplicate echoes for the same value
+        if (!valueEchoes.some(e => e.value === value)) {
+          valueEchoes.push({ value, sourceSelector, type: 'input' });
+          console.log(`[recorder] Value echo detected: "${value}" from ${sourceSelector}`);
+        }
+      }
+    }).catch(() => {});
+
+    p.exposeFunction("__zoniqReportClipboard", (action, value, selector) => {
+      if (action === 'copy' && value && selector) {
+        clipboardCopies.push({ value, sourceSelector: selector });
+      }
+      if (action === 'paste' && value) {
+        const copy = clipboardCopies.find(c => c.value === value);
+        if (copy && !valueEchoes.some(e => e.value === value)) {
+          valueEchoes.push({ value, sourceSelector: copy.sourceSelector, type: 'clipboard' });
+          console.log(`[recorder] Clipboard echo detected: "${value}" from ${copy.sourceSelector}`);
+        }
+      }
+    }).catch(() => {});
+  }
+
+  // Each page in the context gets the exposed functions
   context.on("page", (newPage) => {
     newPage.exposeFunction("__zoniqReportOption", (value, label) => {
       if (label && value && value !== label) {
         guidToLabel.set(value, label);
       }
     }).catch(() => {}); // Ignore if page is already closed
+    _exposeEchoFunctions(newPage);
   });
 
   // Also expose on any existing pages
@@ -94,6 +218,7 @@ function replaceGuidsInScript(guidToLabel) {
         guidToLabel.set(value, label);
       }
     }).catch(() => {});
+    _exposeEchoFunctions(p);
   }
 
   await context.addInitScript(() => {
@@ -149,6 +274,160 @@ function replaceGuidsInScript(guidToLabel) {
         observer.observe(document.documentElement, { childList: true, subtree: true });
       });
     }
+  });
+
+  // ── Value Observatory — detect "value echoes" for auto-capture ──
+  // Tracks interesting text values appearing on the page (ticket IDs, reference
+  // numbers, etc). When the user types/pastes a value that was previously seen
+  // on-screen, reports it as an "echo" — indicating a dynamic value being reused.
+  await context.addInitScript(() => {
+    const __zoniqValueBank = new Map(); // value → selector
+
+    const BLOCKLIST = new Set([
+      'yes','no','ok','cancel','submit','save','delete','edit','close','open',
+      'back','next','previous','search','filter','login','logout','loading',
+      'username','password','email','name','true','false','null','undefined',
+      'home','settings','help','new','add','remove','update','create','view',
+      'select','none','all','other','details','description','title','status',
+      'error','success','warning','info','confirm','apply','reset','clear',
+    ]);
+
+    function isInterestingValue(text) {
+      if (!text || text.length < 3 || text.length > 200) return false;
+      const lower = text.toLowerCase().trim();
+      if (BLOCKLIST.has(lower)) return false;
+      // Reject pure alphabetic short phrases (common UI labels)
+      if (/^[A-Za-z\s]{1,25}$/.test(text) && text.split(/\s+/).length <= 3) return false;
+      // Accept: contains digits, has separators like dashes/dots, looks structured
+      return true;
+    }
+
+    function getBestSelector(el) {
+      if (!el) return null;
+      // Walk up to find nearest .mx-name-* ancestor
+      let node = el;
+      while (node && node !== document.body) {
+        if (node.classList) {
+          for (const cls of node.classList) {
+            if (cls.startsWith('mx-name-')) return '.' + cls;
+          }
+        }
+        node = node.parentElement;
+      }
+      // Fallback: data-testid
+      const testId = el.closest('[data-testid]');
+      if (testId) return `[data-testid="${testId.getAttribute('data-testid')}"]`;
+      // Fallback: tag + class
+      if (el.id) return '#' + el.id;
+      return null;
+    }
+
+    function scanElement(el) {
+      if (!el || el.nodeType !== 1) return;
+      // Scan .mx-name-* elements for their text content
+      const widgets = el.classList?.contains('mx-name-') || Array.from(el.classList || []).some(c => c.startsWith('mx-name-'))
+        ? [el]
+        : el.querySelectorAll?.("[class*='mx-name-']") || [];
+
+      for (const w of widgets) {
+        const text = w.textContent?.trim();
+        if (text && isInterestingValue(text)) {
+          // Don't overwrite if we already have this value with a better selector
+          if (!__zoniqValueBank.has(text)) {
+            const selector = getBestSelector(w);
+            if (selector) __zoniqValueBank.set(text, selector);
+          }
+        }
+        // Also check input values
+        const input = w.querySelector('input, textarea');
+        if (input?.value) {
+          const val = input.value.trim();
+          if (val && isInterestingValue(val) && !__zoniqValueBank.has(val)) {
+            const selector = getBestSelector(w);
+            if (selector) __zoniqValueBank.set(val, selector);
+          }
+        }
+      }
+
+      // Also scan data-testid elements, table cells, alerts
+      const extras = el.querySelectorAll?.('[data-testid], td, .alert, .mx-dataview-content') || [];
+      for (const e of extras) {
+        const text = e.textContent?.trim();
+        if (text && isInterestingValue(text) && !__zoniqValueBank.has(text)) {
+          const selector = getBestSelector(e);
+          if (selector) __zoniqValueBank.set(text, selector);
+        }
+      }
+    }
+
+    // Initial scan
+    function fullScan() { scanElement(document.body); }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => setTimeout(fullScan, 500));
+    } else {
+      setTimeout(fullScan, 500);
+    }
+
+    // Watch for new content (debounced)
+    let _scanTimer = null;
+    const valueObserver = new MutationObserver((mutations) => {
+      if (_scanTimer) return; // debounce
+      _scanTimer = setTimeout(() => {
+        _scanTimer = null;
+        for (const mut of mutations) {
+          for (const node of mut.addedNodes) {
+            if (node.nodeType === 1) scanElement(node);
+          }
+        }
+      }, 200);
+    });
+    if (document.documentElement) {
+      valueObserver.observe(document.documentElement, { childList: true, subtree: true });
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        valueObserver.observe(document.documentElement, { childList: true, subtree: true });
+      });
+    }
+
+    // ── Echo detection: input events ──
+    let _echoTimer = null;
+    document.addEventListener('input', (e) => {
+      // Debounce — check after 300ms of no typing
+      clearTimeout(_echoTimer);
+      _echoTimer = setTimeout(() => {
+        const val = e.target?.value?.trim();
+        if (val && val.length >= 3 && __zoniqValueBank.has(val)) {
+          window.__zoniqReportEcho?.(val, __zoniqValueBank.get(val));
+        }
+      }, 300);
+    }, true);
+
+    // ── Echo detection: clipboard events ──
+    document.addEventListener('copy', () => {
+      setTimeout(() => {
+        const sel = window.getSelection()?.toString().trim();
+        if (sel && sel.length >= 3) {
+          const anchor = window.getSelection()?.anchorNode?.parentElement;
+          const selector = getBestSelector(anchor);
+          if (selector) {
+            // Also add to value bank if not already there
+            if (!__zoniqValueBank.has(sel)) __zoniqValueBank.set(sel, selector);
+            window.__zoniqReportClipboard?.('copy', sel, selector);
+          }
+        }
+      }, 0);
+    }, true);
+
+    document.addEventListener('paste', (e) => {
+      const pasted = e.clipboardData?.getData('text')?.trim();
+      if (pasted && pasted.length >= 3) {
+        window.__zoniqReportClipboard?.('paste', pasted, '');
+        // Also check the value bank for non-clipboard echoes
+        if (__zoniqValueBank.has(pasted)) {
+          window.__zoniqReportEcho?.(pasted, __zoniqValueBank.get(pasted));
+        }
+      }
+    }, true);
   });
 
   // Hide Playwright's recorder highlight overlays when not wanted
@@ -209,6 +488,7 @@ function replaceGuidsInScript(guidToLabel) {
       guidToLabel.set(value, label);
     }
   }).catch(() => {}); // Ignore if already exposed by context "page" handler
+  _exposeEchoFunctions(page);
 
   if (url) {
     let targetUrl = url;
@@ -291,6 +571,10 @@ function replaceGuidsInScript(guidToLabel) {
       console.log(`[ZONIQ_GUID_MAP]${JSON.stringify(Object.fromEntries(guidToLabel))}`);
     }
     replaceGuidsInScript(guidToLabel);
+    applyValueEchoes(valueEchoes);
+    if (valueEchoes.length > 0) {
+      console.log(`[ZONIQ_VALUE_ECHOES]${JSON.stringify(valueEchoes)}`);
+    }
     process.exit(0);
   }
 
@@ -352,12 +636,13 @@ function replaceGuidsInScript(guidToLabel) {
 
   // Strategy 5: watch all pages — if every page in the context closes
   context.on("page", (newPage) => {
-    // Expose GUID reporting on new pages too
+    // Expose GUID and echo reporting on new pages too
     newPage.exposeFunction("__zoniqReportOption", (value, label) => {
       if (looksLikeGuid(value) && label) {
         guidToLabel.set(value, label);
       }
     }).catch(() => {});
+    _exposeEchoFunctions(newPage);
 
     newPage.on("close", () => {
       const remaining = context.pages().length;
