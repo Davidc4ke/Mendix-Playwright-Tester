@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("zoniq", {
   getRuns: () => ipcRenderer.invoke("get-runs"),
   getSavedUrls: () => ipcRenderer.invoke("get-saved-urls"),
   launchRecorder: (url, options) => ipcRenderer.invoke("launch-recorder", url, options),
+  launchRecorderFromStep: (scenario, stepIndex) => ipcRenderer.invoke("launch-recorder-from-step", { scenario, stepIndex }),
   importScript: () => ipcRenderer.invoke("import-script"),
   executeScenario: (s) => ipcRenderer.invoke("execute-scenario", s),
   openResultsFolder: (runId) => ipcRenderer.invoke("open-results-folder", runId),
@@ -68,5 +69,15 @@ contextBridge.exposeInMainWorld("zoniq", {
     const handler = (_, data) => cb(data);
     ipcRenderer.on("agent-progress", handler);
     return () => ipcRenderer.removeListener("agent-progress", handler);
+  },
+  onRecorderFromStepProgress: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("recorder-from-step-progress", handler);
+    return () => ipcRenderer.removeListener("recorder-from-step-progress", handler);
+  },
+  onRecorderFromStepStatus: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("recorder-from-step-status", handler);
+    return () => ipcRenderer.removeListener("recorder-from-step-status", handler);
   },
 });

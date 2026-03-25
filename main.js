@@ -1337,6 +1337,171 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
   });
 });
 
+// Launch recorder from a specific step ("Record from here")
+// Replays prefix statements, then enables codegen for new recording.
+ipcMain.handle("launch-recorder-from-step", async (event, { scenario, stepIndex }) => {
+  return new Promise((resolve, reject) => {
+    const outputFile = `recording-from-step-${Date.now()}.js`;
+    const outputPath = path.join(SCRIPTS_DIR, outputFile);
+
+    // Parse steps and split the script at the requested step
+    const { prefixStatements } = ScriptUtils.splitScriptAtStep(scenario.script, stepIndex);
+
+    // Normalize URL
+    let normalizedUrl = scenario.targetUrl;
+    if (normalizedUrl && !normalizedUrl.startsWith("http") && !normalizedUrl.startsWith("file://") && !normalizedUrl.startsWith("about:")) {
+      normalizedUrl = "http://" + normalizedUrl;
+    }
+
+    // Write prefix data to a temp JSON file for the recorder subprocess
+    const prefixJsonPath = path.join(TEMP_DIR, `prefix-${Date.now()}.json`);
+    fs.writeFileSync(prefixJsonPath, JSON.stringify({
+      statements: prefixStatements,
+      credentials: scenario.credentials || {},
+      targetUrl: normalizedUrl,
+    }));
+
+    const recorderScript = path.join(HELPERS_DIR, "recorder-from-step.js");
+    const settings = loadSettings();
+    const showHighlights = settings.recorder?.showHighlights ? "true" : "false";
+    const recorderArgs = [recorderScript, normalizedUrl || "", outputPath, showHighlights, prefixJsonPath];
+    const channel = getBrowserChannel();
+    if (channel) {
+      recorderArgs.push(channel);
+    }
+
+    console.log(`[recorder-from-step] CMD: node ${recorderArgs.join(" ")}`);
+    console.log(`[recorder-from-step] Replaying ${prefixStatements.length} steps before recording`);
+
+    const proc = spawn(process.execPath, recorderArgs, {
+      env: getPlaywrightEnv({ ELECTRON_RUN_AS_NODE: "1" }),
+    });
+
+    // Collect GUID map and replay progress
+    const recorderGuidMap = new Map();
+    proc.stdout.on("data", (chunk) => {
+      const text = chunk.toString();
+      console.log(`[recorder-from-step stdout] ${text}`);
+
+      for (const line of text.split("\n")) {
+        // GUID map
+        const guidIdx = line.indexOf("[ZONIQ_GUID_MAP]");
+        if (guidIdx !== -1) {
+          try {
+            const obj = JSON.parse(line.slice(guidIdx + "[ZONIQ_GUID_MAP]".length));
+            for (const [guid, label] of Object.entries(obj)) {
+              recorderGuidMap.set(guid, label);
+            }
+          } catch (e) {
+            console.error("[recorder-from-step] Failed to parse GUID map:", e.message);
+          }
+        }
+
+        // Forward replay progress to the UI
+        const replayStepIdx = line.indexOf("[ZONIQ_REPLAY_STEP]");
+        if (replayStepIdx !== -1) {
+          try {
+            const data = JSON.parse(line.slice(replayStepIdx + "[ZONIQ_REPLAY_STEP]".length));
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("recorder-from-step-progress", data);
+            }
+          } catch {}
+        }
+
+        const replayStatusIdx = line.indexOf("[ZONIQ_REPLAY_STATUS]");
+        if (replayStatusIdx !== -1) {
+          try {
+            const data = JSON.parse(line.slice(replayStatusIdx + "[ZONIQ_REPLAY_STATUS]".length));
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("recorder-from-step-status", data);
+            }
+          } catch {}
+        }
+      }
+    });
+    proc.stderr.on("data", (chunk) => {
+      console.error(`[recorder-from-step stderr] ${chunk}`);
+    });
+
+    proc.on("close", (code) => {
+      console.log(`[recorder-from-step] exited with code ${code}`);
+      // Clean up prefix JSON
+      try { fs.unlinkSync(prefixJsonPath); } catch {}
+
+      try {
+        if (fs.existsSync(outputPath)) {
+          let newScript = fs.readFileSync(outputPath, "utf-8");
+
+          // Fallback GUID replacement
+          if (recorderGuidMap.size > 0) {
+            let patched = 0;
+            for (const [guid, label] of recorderGuidMap) {
+              const escaped = label.replace(/'/g, "\\'");
+              const before = newScript;
+              newScript = newScript.split(`'${guid}'`).join(`'${escaped}'`);
+              newScript = newScript.split(`"${guid}"`).join(`"${escaped}"`);
+              if (newScript !== before) patched++;
+            }
+            if (patched > 0) {
+              console.log(`[recorder-from-step] Fallback: replaced ${patched} remaining GUID(s)`);
+            }
+          }
+
+          // Extract just the body from the newly recorded script
+          const newBody = ScriptUtils.extractTestBody(newScript);
+
+          // Merge the new recording into the original script
+          const mergedScript = ScriptUtils.mergeRecordedCode(
+            scenario.script,
+            stepIndex,
+            newBody || newScript
+          );
+
+          // Process captured elements
+          const elementsPath = outputPath + ".elements.json";
+          try {
+            if (fs.existsSync(elementsPath)) {
+              const discovered = JSON.parse(fs.readFileSync(elementsPath, "utf-8"));
+              const app = findOrCreateApp(normalizedUrl);
+              if (app && discovered.length) {
+                let elDB = loadElementDBForApp(app.id);
+                elDB = ElementDB.mergeElements(elDB, discovered, {
+                  pageUrl: normalizedUrl,
+                  pageTitle: '',
+                });
+                try {
+                  const steps = ScriptUtils.parseScriptToSteps(mergedScript);
+                  if (steps.length) elDB = ElementDB.enrichFromSteps(elDB, steps);
+                } catch {}
+                saveElementDBForApp(app.id, elDB);
+                console.log(`[recorder-from-step] Captured ${discovered.length} elements`);
+              }
+              fs.unlinkSync(elementsPath);
+            }
+          } catch (elemErr) {
+            console.error(`[recorder-from-step] Element capture error:`, elemErr.message);
+          }
+
+          // Clean up the recorded file
+          try { fs.unlinkSync(outputPath); } catch {}
+
+          resolve({ mergedScript, newBody: newBody || newScript, stepIndex });
+        } else {
+          resolve({ mergedScript: null, newBody: null, stepIndex });
+        }
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    proc.on("error", (err) => {
+      console.error(`[recorder-from-step] spawn error:`, err);
+      try { fs.unlinkSync(prefixJsonPath); } catch {}
+      reject(err);
+    });
+  });
+});
+
 // Import script from file dialog
 ipcMain.handle("import-script", async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
