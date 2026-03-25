@@ -2542,12 +2542,41 @@ async function applyHealedScript(scenarioId) {
 
 // ── Script Cleanup ──────────────────────────────────────
 
+function showCleanupLoading(message) {
+  currentView = "cleanup-loading";
+  const el = document.getElementById("detailContent");
+  const empty = document.getElementById("detailEmpty");
+  empty.style.display = "none";
+  el.style.display = "flex";
+  el.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">Cleaning Up Script...</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
+          ${esc(message)}
+        </div>
+      </div>
+      <div class="btn-group">
+        <span class="badge badge-running" style="font-size:12px;padding:4px 12px;">CLEANING</span>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="agent-progress">
+        <div class="agent-progress-item current">
+          <div class="spinner"></div>
+          <span>${esc(message)}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 async function startCleanup(scenarioId) {
-  toast("Analyzing script for redundancies...", "info");
+  showCleanupLoading("Analyzing script for redundancies...");
   const result = await window.zoniq.cleanupScript(scenarioId);
 
-  if (result.error) { toast(result.error, "error"); return; }
-  if (result.removedCount === 0) { toast("Script is already clean — no redundancies found", "success"); return; }
+  if (result.error) { toast(result.error, "error"); showScenarioDetail(selectedScenario); return; }
+  if (result.removedCount === 0) { toast("Script is already clean — no redundancies found", "success"); showScenarioDetail(selectedScenario); return; }
 
   showCleanupResult(result, scenarioId);
 }
@@ -2606,21 +2635,19 @@ function showCleanupResult(result, scenarioId) {
 }
 
 async function startAICleanup(scenarioId) {
-  const btn = document.getElementById("btnAICleanup");
-  if (btn) { btn.disabled = true; btn.textContent = "Analyzing..."; }
+  showCleanupLoading("Sending script to AI for semantic cleanup...");
 
-  toast("Running AI cleanup...", "info");
   const result = await window.zoniq.cleanupScriptAI(scenarioId);
 
   if (result.error) {
     toast(result.error, "error");
-    if (btn) { btn.disabled = false; btn.textContent = "\u2728 AI Cleanup"; }
+    showScenarioDetail(selectedScenario);
     return;
   }
 
   if ((result.aiChanges?.length || 0) === 0 && (result.ruleChanges?.length || 0) === 0) {
     toast("AI found no additional improvements", "info");
-    if (btn) { btn.disabled = false; btn.textContent = "\u2728 AI Cleanup"; }
+    showScenarioDetail(selectedScenario);
     return;
   }
 
