@@ -282,6 +282,11 @@ function wrapScript(script, targetUrl, credentials) {
   // custom combobox widgets (non-native dropdowns).
   scriptBody = transformSelectOptionCalls(scriptBody);
 
+  // Add .first() to bare locator calls that don't already have disambiguation,
+  // preventing strict mode violations when multiple elements match (common in
+  // Mendix apps with nested forms/dialogs containing duplicate button labels).
+  scriptBody = disambiguateSelectors(scriptBody);
+
   // Check if there's still a test() block after stripping
   const hasTestBlock = /\btest\s*\(/.test(scriptBody);
 
@@ -476,6 +481,36 @@ function transformSelectOptionCalls(script) {
       return `await mx.smartSelect(page, ${locatorExpr}, ${valueExpr});`;
     }
   );
+}
+
+/**
+ * Add .first() to bare Playwright locator calls (page.getByRole, page.getByText,
+ * page.getByLabel, page.getByPlaceholder, page.locator) that are followed directly
+ * by an action method (.click, .fill, etc.) without any existing disambiguation
+ * (.first, .last, .nth, .filter) or scoped chaining (.getByRole, .getByText, etc.).
+ *
+ * Mendix apps frequently have nested forms/dialogs with duplicate button labels
+ * (e.g. multiple "Save" buttons), causing Playwright strict mode violations.
+ * This mirrors the .first() pattern already used in mendix-helpers.js.
+ */
+function disambiguateSelectors(script) {
+  // Actions that trigger strict mode checks
+  const actions = 'click|fill|press|dblclick|check|uncheck|hover|focus|clear|type|selectOption|setInputFiles|tap';
+  // Locator methods that indicate the locator is already scoped/disambiguated
+  const chainingIndicators = /\.(?:first|last|nth|filter|getByRole|getByText|getByLabel|getByPlaceholder|locator)\s*\(/;
+
+  const re = new RegExp(
+    `(await\\s+)(page\\.(?:getByRole|getByText|getByLabel|getByPlaceholder|locator)\\s*\\([^)]*\\))(\\s*\\.\\s*(?:${actions})\\s*\\()`,
+    'g'
+  );
+
+  return script.replace(re, (match, prefix, locatorExpr, actionPart) => {
+    // Skip if the locator already has chaining (disambiguation or scoping)
+    if (chainingIndicators.test(locatorExpr.slice(locatorExpr.indexOf(')')))) {
+      return match;
+    }
+    return `${prefix}${locatorExpr}.first()${actionPart}`;
+  });
 }
 
 // GUID resolution is handled at recording time — recorder.js collects
