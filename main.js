@@ -1231,7 +1231,7 @@ ipcMain.handle("get-element-db", (event, appId) => {
 });
 
 ipcMain.handle("scan-elements", (event, appId) => {
-  const apps = loadAppsDB();
+  const apps = loadApps();
   const app = apps.find(a => a.id === appId);
   if (!app) return { error: "App not found" };
 
