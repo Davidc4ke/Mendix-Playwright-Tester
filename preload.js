@@ -5,9 +5,11 @@ contextBridge.exposeInMainWorld("zoniq", {
   getScenarios: () => ipcRenderer.invoke("get-scenarios"),
   saveScenario: (s) => ipcRenderer.invoke("save-scenario", s),
   deleteScenario: (id) => ipcRenderer.invoke("delete-scenario", id),
+  duplicateScenario: (id) => ipcRenderer.invoke("duplicate-scenario", id),
   getRuns: () => ipcRenderer.invoke("get-runs"),
   getSavedUrls: () => ipcRenderer.invoke("get-saved-urls"),
   launchRecorder: (url, options) => ipcRenderer.invoke("launch-recorder", url, options),
+  launchRecorderFromStep: (scenario, stepIndex) => ipcRenderer.invoke("launch-recorder-from-step", { scenario, stepIndex }),
   importScript: () => ipcRenderer.invoke("import-script"),
   executeScenario: (s) => ipcRenderer.invoke("execute-scenario", s),
   openResultsFolder: (runId) => ipcRenderer.invoke("open-results-folder", runId),
@@ -30,7 +32,6 @@ contextBridge.exposeInMainWorld("zoniq", {
   // Agent operations
   agentHeal: (opts) => ipcRenderer.invoke("agent-heal", opts),
   agentAnalyze: (opts) => ipcRenderer.invoke("agent-analyze", opts),
-  agentPreheal: (opts) => ipcRenderer.invoke("agent-preheal", opts),
   agentHealApply: (opts) => ipcRenderer.invoke("agent-heal-apply", opts),
   agentCancel: () => ipcRenderer.invoke("agent-cancel"),
 
@@ -68,5 +69,15 @@ contextBridge.exposeInMainWorld("zoniq", {
     const handler = (_, data) => cb(data);
     ipcRenderer.on("agent-progress", handler);
     return () => ipcRenderer.removeListener("agent-progress", handler);
+  },
+  onRecorderFromStepProgress: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("recorder-from-step-progress", handler);
+    return () => ipcRenderer.removeListener("recorder-from-step-progress", handler);
+  },
+  onRecorderFromStepStatus: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("recorder-from-step-status", handler);
+    return () => ipcRenderer.removeListener("recorder-from-step-status", handler);
   },
 });

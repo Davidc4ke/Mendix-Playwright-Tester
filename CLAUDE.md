@@ -42,6 +42,7 @@ Record/Import → Script (stored, always executed)
 - Each step edit regenerates the step's code and replaces it in the script text
 - Steps are not stored in the database — `scenario.steps` is stripped on save
 - Adding/removing/reordering steps is done by re-recording or editing the script directly
+- "Record from here" allows users to select a step and re-record from that point — replays prefix steps on a live browser, then enables codegen
 
 ### Electron Main Process (`main.js`)
 - Runs embedded Express server on port 3100
@@ -62,6 +63,8 @@ Key functions:
 - `parseScriptToSteps(script)` — full pipeline: extract body → split → parse → filter codegen boilerplate → skip redundant navigates. Returns steps with `sourceText` for edit tracking
 - `generateStepCode(step)` — converts a step object back to Playwright code
 - `replaceInScript(script, sourceText, newCode, occurrence)` — finds and replaces a statement in the script by text matching, supports occurrence index for duplicate statements
+- `splitScriptAtStep(script, stepIndex)` — splits script at a step boundary, returning prefix statements (for replay) and suffix code (to be replaced)
+- `mergeRecordedCode(originalScript, stepIndex, newCode)` — merges newly recorded code into an existing script, replacing everything from stepIndex onward
 - `resolveLocator(selector)` — converts selector strings (mx:, label:, text:, role:Name) to Playwright locator code
 - `resolveValue(rawValue)` — handles `{{varName}}` references in step values, returns `{ expr, isDynamic }` for code generation
 - `describeStatement(stmtText)` — short human-readable description for progress markers
@@ -69,10 +72,10 @@ Key functions:
 ### IPC Bridge (`preload.js`)
 Exposes `window.zoniq` API to renderer:
 - Scenario CRUD: `getScenarios`, `saveScenario`, `deleteScenario`
-- Execution: `executeScenario`, `launchRecorder`, `importScript`
+- Execution: `executeScenario`, `launchRecorder`, `launchRecorderFromStep`, `importScript`
 - Settings: `getSettings`, `saveSettings`, `testLLMConnection`
-- Agent operations: `agentHeal`, `agentPreheal`, `agentHealApply`, `agentCancel`
-- Events: `onRunStarted`, `onRunCompleted`, `onRunsUpdated`, `onStepList`, `onStepProgress`, `onAgentProgress`
+- Agent operations: `agentHeal`, `agentHealApply`, `agentCancel`
+- Events: `onRunStarted`, `onRunCompleted`, `onRunsUpdated`, `onStepList`, `onStepProgress`, `onAgentProgress`, `onRecorderFromStepProgress`, `onRecorderFromStepStatus`
 
 ### Renderer (`index.html`)
 Single-file UI with embedded `<script>`. Imports `ScriptUtils` from `lib/script-utils.js`.
@@ -113,7 +116,6 @@ Utility functions for Mendix-specific testing:
 - `GET /api/runs/:runId/artifacts/:filename` — Download test artifact
 - `GET /api/health` — Health check
 - `POST /api/agent/heal` — Run AI healer on a failed test
-- `POST /api/agent/preheal` — Run test then auto-heal if it fails
 - `GET /api/agent/status` — Check if an agent is running
 - `POST /api/agent/cancel` — Cancel running agent
 
@@ -220,7 +222,6 @@ When implementing new fixes: always solve at the `wrapScript()` / helper layer s
 
 - `wrapScript()` auto-transforms `.selectOption()` calls into `mx.smartSelect()` calls. `smartSelect` is label-first: it never matches by GUID value
 - `looksLikeGuid()` in `lib/script-utils.js` is the shared GUID detector used by `parseScriptToSteps()`, `smartSelect`, and the auto-heal logic. Detects: numeric IDs 10+ digits, UUIDs, and long hex strings
-- `activeAgent.agent` can be `null` during prehealer phase (before the healer is created) — always guard with `if (activeAgent.agent)` before calling `.cancel()`
 - `replaceInScript()` takes an `occurrence` parameter (0-indexed) to handle duplicate statements — the caller must count prior steps with matching `sourceText`
 - `splitIntoStatements()` peeks ahead for `.` continuation lines to handle multi-line method chaining
 - Codegen boilerplate (`browser.launch()`, `context.newPage()`, `page.close()`, etc.) is filtered out during `parseScriptToSteps()`

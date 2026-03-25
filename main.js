@@ -970,96 +970,6 @@ function startAPIServer() {
     }
   });
 
-  api.post("/api/agent/preheal", async (req, res) => {
-    if (activeAgent) return res.status(409).json({ error: "An agent is already running" });
-
-    const { scenarioId, script, targetUrl, credentials } = req.body;
-
-    let healScript, healUrl, healCreds;
-
-    if (scenarioId) {
-      const db = loadDB();
-      const scenario = db.scenarios.find((s) => s.id === scenarioId);
-      if (!scenario) return res.status(404).json({ error: "Scenario not found" });
-      healScript = scenario.script;
-      healUrl = scenario.targetUrl;
-      healCreds = scenario.credentials;
-    } else if (script && targetUrl) {
-      healScript = script;
-      healUrl = targetUrl;
-      healCreds = credentials;
-    } else {
-      return res.status(400).json({ error: "Provide scenarioId or (script + targetUrl)" });
-    }
-
-    const settings = loadSettings();
-    if (!settings.llm.apiKey) return res.status(400).json({ error: "No LLM API key configured" });
-
-    if (!healScript) {
-      return res.status(400).json({ error: "No script defined" });
-    }
-    const scriptContent = wrapScript(healScript, healUrl, healCreds);
-
-    activeAgent = { type: "prehealer", agent: null };
-    res.json({ status: "running" });
-
-    try {
-      // Run the test first
-      const runId = uuidv4();
-      const scriptPath = path.join(TEMP_DIR, `preheal-${runId}.spec.js`);
-      fs.writeFileSync(scriptPath, scriptContent);
-      const results = await runPlaywright(scriptPath, runId);
-      try { fs.unlinkSync(scriptPath); } catch {}
-
-      if (results.status === "passed") {
-        activeAgent = null;
-        return; // Test passed, nothing to heal
-      }
-
-      if (!results.errors?.length) {
-        activeAgent = null;
-        return;
-      }
-
-      // Heal the failures
-      let llmClient;
-      try {
-        llmClient = new LLMClient(settings);
-      } catch {
-        activeAgent = null;
-        return;
-      }
-
-      const healer = new HealerAgent(llmClient, {
-        maxIterations: settings.agent.maxIterations,
-        headless: true,
-        browserChannel: getBrowserChannel(),
-      });
-      activeAgent = { type: "prehealer", agent: healer };
-
-      const result = await healer.heal({
-        script: healScript || "",
-        errors: results.errors,
-        targetUrl: healUrl,
-        credentials: healCreds,
-      });
-      activeAgent = null;
-
-      // Auto-apply if scenarioId was provided
-      if (scenarioId && result.healedScript) {
-        const db = loadDB();
-        const idx = db.scenarios.findIndex((s) => s.id === scenarioId);
-        if (idx >= 0) {
-          db.scenarios[idx].script = result.healedScript;
-          db.scenarios[idx].updatedAt = new Date().toISOString();
-          saveDB(db);
-        }
-      }
-    } catch {
-      activeAgent = null;
-    }
-  });
-
   api.get("/api/agent/status", (req, res) => {
     res.json({
       running: !!activeAgent,
@@ -1149,6 +1059,25 @@ ipcMain.handle("save-scenario", (event, scenario) => {
   return scenario;
 });
 
+// Duplicate a scenario
+ipcMain.handle("duplicate-scenario", (event, id) => {
+  const db = loadDB();
+  const original = db.scenarios.find((s) => s.id === id);
+  if (!original) return null;
+  const now = new Date().toISOString();
+  const duplicate = {
+    ...original,
+    id: uuidv4(),
+    name: `${original.name} (copy)`,
+    createdAt: now,
+    updatedAt: now,
+  };
+  delete duplicate.steps;
+  db.scenarios.push(duplicate);
+  saveDB(db);
+  return duplicate;
+});
+
 // Delete a scenario
 ipcMain.handle("delete-scenario", (event, id) => {
   const db = loadDB();
@@ -1234,7 +1163,7 @@ ipcMain.handle("scan-elements", (event, appId) => {
     try {
       const steps = ScriptUtils.parseScriptToSteps(sc.script);
       if (steps.length) {
-        elDB = ElementDB.enrichFromSteps(elDB, steps);
+        elDB = ElementDB.enrichFromSteps(elDB, steps, sc.targetUrl || app.baseUrl);
         totalElements += steps.filter(s => s.selector).length;
       }
     } catch (err) {
@@ -1403,6 +1332,171 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
 
     proc.on("error", (err) => {
       console.error(`[recorder] spawn error:`, err);
+      reject(err);
+    });
+  });
+});
+
+// Launch recorder from a specific step ("Record from here")
+// Replays prefix statements, then enables codegen for new recording.
+ipcMain.handle("launch-recorder-from-step", async (event, { scenario, stepIndex }) => {
+  return new Promise((resolve, reject) => {
+    const outputFile = `recording-from-step-${Date.now()}.js`;
+    const outputPath = path.join(SCRIPTS_DIR, outputFile);
+
+    // Parse steps and split the script at the requested step
+    const { prefixStatements } = ScriptUtils.splitScriptAtStep(scenario.script, stepIndex);
+
+    // Normalize URL
+    let normalizedUrl = scenario.targetUrl;
+    if (normalizedUrl && !normalizedUrl.startsWith("http") && !normalizedUrl.startsWith("file://") && !normalizedUrl.startsWith("about:")) {
+      normalizedUrl = "http://" + normalizedUrl;
+    }
+
+    // Write prefix data to a temp JSON file for the recorder subprocess
+    const prefixJsonPath = path.join(TEMP_DIR, `prefix-${Date.now()}.json`);
+    fs.writeFileSync(prefixJsonPath, JSON.stringify({
+      statements: prefixStatements,
+      credentials: scenario.credentials || {},
+      targetUrl: normalizedUrl,
+    }));
+
+    const recorderScript = path.join(HELPERS_DIR, "recorder-from-step.js");
+    const settings = loadSettings();
+    const showHighlights = settings.recorder?.showHighlights ? "true" : "false";
+    const recorderArgs = [recorderScript, normalizedUrl || "", outputPath, showHighlights, prefixJsonPath];
+    const channel = getBrowserChannel();
+    if (channel) {
+      recorderArgs.push(channel);
+    }
+
+    console.log(`[recorder-from-step] CMD: node ${recorderArgs.join(" ")}`);
+    console.log(`[recorder-from-step] Replaying ${prefixStatements.length} steps before recording`);
+
+    const proc = spawn(process.execPath, recorderArgs, {
+      env: getPlaywrightEnv({ ELECTRON_RUN_AS_NODE: "1" }),
+    });
+
+    // Collect GUID map and replay progress
+    const recorderGuidMap = new Map();
+    proc.stdout.on("data", (chunk) => {
+      const text = chunk.toString();
+      console.log(`[recorder-from-step stdout] ${text}`);
+
+      for (const line of text.split("\n")) {
+        // GUID map
+        const guidIdx = line.indexOf("[ZONIQ_GUID_MAP]");
+        if (guidIdx !== -1) {
+          try {
+            const obj = JSON.parse(line.slice(guidIdx + "[ZONIQ_GUID_MAP]".length));
+            for (const [guid, label] of Object.entries(obj)) {
+              recorderGuidMap.set(guid, label);
+            }
+          } catch (e) {
+            console.error("[recorder-from-step] Failed to parse GUID map:", e.message);
+          }
+        }
+
+        // Forward replay progress to the UI
+        const replayStepIdx = line.indexOf("[ZONIQ_REPLAY_STEP]");
+        if (replayStepIdx !== -1) {
+          try {
+            const data = JSON.parse(line.slice(replayStepIdx + "[ZONIQ_REPLAY_STEP]".length));
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("recorder-from-step-progress", data);
+            }
+          } catch {}
+        }
+
+        const replayStatusIdx = line.indexOf("[ZONIQ_REPLAY_STATUS]");
+        if (replayStatusIdx !== -1) {
+          try {
+            const data = JSON.parse(line.slice(replayStatusIdx + "[ZONIQ_REPLAY_STATUS]".length));
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("recorder-from-step-status", data);
+            }
+          } catch {}
+        }
+      }
+    });
+    proc.stderr.on("data", (chunk) => {
+      console.error(`[recorder-from-step stderr] ${chunk}`);
+    });
+
+    proc.on("close", (code) => {
+      console.log(`[recorder-from-step] exited with code ${code}`);
+      // Clean up prefix JSON
+      try { fs.unlinkSync(prefixJsonPath); } catch {}
+
+      try {
+        if (fs.existsSync(outputPath)) {
+          let newScript = fs.readFileSync(outputPath, "utf-8");
+
+          // Fallback GUID replacement
+          if (recorderGuidMap.size > 0) {
+            let patched = 0;
+            for (const [guid, label] of recorderGuidMap) {
+              const escaped = label.replace(/'/g, "\\'");
+              const before = newScript;
+              newScript = newScript.split(`'${guid}'`).join(`'${escaped}'`);
+              newScript = newScript.split(`"${guid}"`).join(`"${escaped}"`);
+              if (newScript !== before) patched++;
+            }
+            if (patched > 0) {
+              console.log(`[recorder-from-step] Fallback: replaced ${patched} remaining GUID(s)`);
+            }
+          }
+
+          // Extract just the body from the newly recorded script
+          const newBody = ScriptUtils.extractTestBody(newScript);
+
+          // Merge the new recording into the original script
+          const mergedScript = ScriptUtils.mergeRecordedCode(
+            scenario.script,
+            stepIndex,
+            newBody || newScript
+          );
+
+          // Process captured elements
+          const elementsPath = outputPath + ".elements.json";
+          try {
+            if (fs.existsSync(elementsPath)) {
+              const discovered = JSON.parse(fs.readFileSync(elementsPath, "utf-8"));
+              const app = findOrCreateApp(normalizedUrl);
+              if (app && discovered.length) {
+                let elDB = loadElementDBForApp(app.id);
+                elDB = ElementDB.mergeElements(elDB, discovered, {
+                  pageUrl: normalizedUrl,
+                  pageTitle: '',
+                });
+                try {
+                  const steps = ScriptUtils.parseScriptToSteps(mergedScript);
+                  if (steps.length) elDB = ElementDB.enrichFromSteps(elDB, steps);
+                } catch {}
+                saveElementDBForApp(app.id, elDB);
+                console.log(`[recorder-from-step] Captured ${discovered.length} elements`);
+              }
+              fs.unlinkSync(elementsPath);
+            }
+          } catch (elemErr) {
+            console.error(`[recorder-from-step] Element capture error:`, elemErr.message);
+          }
+
+          // Clean up the recorded file
+          try { fs.unlinkSync(outputPath); } catch {}
+
+          resolve({ mergedScript, newBody: newBody || newScript, stepIndex });
+        } else {
+          resolve({ mergedScript: null, newBody: null, stepIndex });
+        }
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    proc.on("error", (err) => {
+      console.error(`[recorder-from-step] spawn error:`, err);
+      try { fs.unlinkSync(prefixJsonPath); } catch {}
       reject(err);
     });
   });
@@ -1718,110 +1812,6 @@ ipcMain.handle("agent-analyze", async (event, { scenarioId, runId }) => {
     activeAgent = null;
     return {
       healedScript: result.healedScript || null,
-      changes: result.changes,
-      analysis: result.analysis,
-      confidence: result.confidence,
-    };
-  } catch (err) {
-    activeAgent = null;
-    return { error: err.message };
-  }
-});
-
-ipcMain.handle("agent-preheal", async (event, { scenarioId }) => {
-  if (activeAgent) {
-    return { error: "An agent is already running. Cancel it first." };
-  }
-
-  const db = loadDB();
-  const scenario = db.scenarios.find((s) => s.id === scenarioId);
-  if (!scenario) return { error: "Scenario not found" };
-
-  const settings = loadSettings();
-  if (!settings.llm.apiKey) {
-    return { error: "No API key configured. Go to Settings to add one." };
-  }
-
-  // Generate the script to test
-  if (!scenario.script) {
-    return { error: "No script defined in this scenario" };
-  }
-  const scriptContent = wrapScript(scenario.script, scenario.targetUrl, scenario.credentials);
-
-  activeAgent = { type: "prehealer", agent: null };
-
-  const onProgress = (data) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("agent-progress", {
-        agentType: "prehealer",
-        ...data,
-      });
-    }
-  };
-
-  try {
-    // Phase 1: Run the test to check if it already works
-    onProgress({ status: "running", message: "Running test to check for issues..." });
-
-    const runId = uuidv4();
-    const scriptPath = path.join(TEMP_DIR, `preheal-${runId}.spec.js`);
-    fs.writeFileSync(scriptPath, scriptContent);
-
-    const results = await runPlaywright(scriptPath, runId);
-
-    try { fs.unlinkSync(scriptPath); } catch {}
-
-    // If the test passed, no healing needed
-    if (results.status === "passed") {
-      activeAgent = null;
-      onProgress({ status: "done", message: "Test passed — no healing needed" });
-      return { status: "passed", message: "Script is working correctly, no healing needed." };
-    }
-
-    // Phase 2: Test failed — heal it
-    if (!results.errors?.length) {
-      activeAgent = null;
-      return { error: "Test failed but no error details were captured" };
-    }
-
-    onProgress({ status: "healing", message: "Test failed — starting AI healer..." });
-
-    let llmClient;
-    try {
-      llmClient = new LLMClient(settings);
-    } catch (err) {
-      activeAgent = null;
-      return { error: err.message };
-    }
-
-    const healer = new HealerAgent(llmClient, {
-      maxIterations: settings.agent.maxIterations,
-      headless: settings.agent.headless,
-      browserChannel: getBrowserChannel(),
-    });
-
-    activeAgent = { type: "prehealer", agent: healer };
-
-    // Load element DB for enhanced healing context
-    const prehealElementDB = scenario.appId ? loadElementDBForApp(scenario.appId) : null;
-
-    const result = await healer.heal({
-      script: scenario.script || "",
-      errors: results.errors,
-      targetUrl: scenario.targetUrl,
-      credentials: scenario.credentials,
-      onProgress,
-      elementDB: prehealElementDB,
-    });
-
-    activeAgent = null;
-
-    if (!result.healedScript) {
-      return { error: "Healer could not produce a fixed script. Analysis: " + (result.analysis || "No analysis") };
-    }
-
-    return {
-      healedScript: result.healedScript,
       changes: result.changes,
       analysis: result.analysis,
       confidence: result.confidence,
