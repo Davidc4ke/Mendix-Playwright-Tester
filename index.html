@@ -2690,6 +2690,7 @@ function showRunDetail(run) {
         ${run.status === "failed" && run.scenarioId ? `<button class="btn btn-sm btn-ai" onclick="startAnalysis('${run.scenarioId}', '${run.runId}')">&#128269; AI Analysis</button><button class="btn btn-sm btn-ai" onclick="startHealing('${run.scenarioId}', '${run.runId}')">&#10024; Rerun &amp; AI Heal</button>` : ""}
         ${run.scenarioId ? `<button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--primary);color:var(--primary);" onclick="rerunTest('${run.scenarioId}')">&#9654; Rerun</button>` : ""}
         <button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--amber);color:var(--amber);" onclick="copyLogForAI('${run.runId}')">&#128203; Copy Log For AI</button>
+        ${run.scenarioId ? `<button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--text-secondary);color:var(--text-secondary);" onclick="navigateToStep('${run.scenarioId}', 0)">&#128196; View Scenario</button>` : ""}
         <button class="btn btn-sm" onclick="window.zoniq.openResultsFolder('${run.runId}')">&#128193; Open Folder</button>
       </div>
     </div>
