@@ -1234,7 +1234,7 @@ ipcMain.handle("scan-elements", (event, appId) => {
     try {
       const steps = ScriptUtils.parseScriptToSteps(sc.script);
       if (steps.length) {
-        elDB = ElementDB.enrichFromSteps(elDB, steps);
+        elDB = ElementDB.enrichFromSteps(elDB, steps, sc.targetUrl || app.baseUrl);
         totalElements += steps.filter(s => s.selector).length;
       }
     } catch (err) {

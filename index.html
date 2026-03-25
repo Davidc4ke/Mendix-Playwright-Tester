@@ -1424,6 +1424,30 @@
   .element-type { color: var(--text-muted); }
   .element-selector { color: var(--text-secondary); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .element-meta { color: var(--text-muted); font-size: 10px; text-align: right; }
+  .element-page-header {
+    font-size: 12px; font-weight: 600; color: var(--text-primary);
+    padding: 10px 0 4px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .element-page-header .page-url {
+    font-size: 10px; font-weight: 400; color: var(--text-muted); font-family: var(--font);
+  }
+  .element-page-header .page-count {
+    font-size: 10px; color: var(--text-muted); margin-left: auto;
+  }
+  .element-browser-toolbar {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+  }
+  .element-browser-toolbar .view-toggle {
+    display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+  }
+  .element-browser-toolbar .view-toggle button {
+    background: transparent; border: none; color: var(--text-muted);
+    padding: 3px 8px; font-size: 10px; cursor: pointer; font-family: var(--font);
+  }
+  .element-browser-toolbar .view-toggle button.active {
+    background: var(--accent); color: #fff;
+  }
 
   /* ── App Cards ───────────────────────────────────── */
   .app-card {
@@ -2437,12 +2461,39 @@ async function generateElements(appId) {
   }
 }
 
+let elementBrowserView = 'type'; // 'type' or 'page'
+let elementBrowserData = [];
+
 function renderElementBrowser(elements) {
+  elementBrowserData = elements;
   if (!elements.length) {
     return `<div style="font-size:12px;color:var(--text-muted);padding:12px 0;">No elements discovered yet. Record a script to populate the element database.</div>`;
   }
 
-  // Group by type
+  // Check if any elements have page data
+  const hasPages = elements.some(el => el.pages?.length > 0);
+
+  let html = `<div class="element-browser">
+    <div class="element-browser-toolbar">
+      <input type="text" class="element-browser-search" placeholder="Search elements..." oninput="filterElements(this.value)" style="flex:1;margin-bottom:0;" />
+      ${hasPages ? `<div class="view-toggle">
+        <button onclick="setElementView('type')" class="${elementBrowserView === 'type' ? 'active' : ''}">By Type</button>
+        <button onclick="setElementView('page')" class="${elementBrowserView === 'page' ? 'active' : ''}">By Page</button>
+      </div>` : ''}
+    </div>
+    <div id="elementBrowserContent">`;
+
+  if (elementBrowserView === 'page' && hasPages) {
+    html += renderElementsByPage(elements);
+  } else {
+    html += renderElementsByType(elements);
+  }
+
+  html += `</div></div>`;
+  return html;
+}
+
+function renderElementsByType(elements) {
   const byType = {};
   for (const el of elements) {
     const t = el.type || 'unknown';
@@ -2451,9 +2502,7 @@ function renderElementBrowser(elements) {
   }
 
   const typeOrder = ['button','textbox','textarea','dropdown','checkbox','radio','datepicker','link','datagrid','listview','tab','groupbox','container','image','unknown'];
-  let html = `<div class="element-browser">
-    <input type="text" class="element-browser-search" placeholder="Search elements..." oninput="filterElements(this.value)" />
-    <div id="elementBrowserContent">`;
+  let html = '';
 
   for (const type of typeOrder) {
     const group = byType[type];
@@ -2461,20 +2510,93 @@ function renderElementBrowser(elements) {
     html += `<div class="element-group" data-type="${type}">
       <div class="element-group-header">${type}s (${group.length})</div>`;
     for (const el of group) {
-      const sel = el.selectors?.mx || el.selectors?.label || el.selectors?.text || '';
-      const pages = (el.pages || []).map(p => p.url || p.title).join(', ');
-      html += `
-        <div class="element-row" data-name="${esc(el.widgetName).toLowerCase()}" data-text="${esc(el.text || '').toLowerCase()}">
-          <div class="element-name">${esc(el.widgetName)}</div>
-          <div class="element-type">${esc(el.type)}</div>
-          <div class="element-selector" title="${esc(sel)}">${esc(sel)}</div>
-          <div class="element-meta">${el.seenCount || 1}x seen</div>
-        </div>`;
+      html += renderElementRow(el);
     }
     html += `</div>`;
   }
-  html += `</div></div>`;
   return html;
+}
+
+function renderElementsByPage(elements) {
+  // Group elements by page URL
+  const byPage = {};
+  const noPage = [];
+
+  for (const el of elements) {
+    if (el.pages?.length > 0) {
+      for (const pg of el.pages) {
+        const key = pg.url || pg.title || 'Unknown';
+        if (!byPage[key]) byPage[key] = { page: pg, elements: [] };
+        byPage[key].elements.push(el);
+      }
+    } else {
+      noPage.push(el);
+    }
+  }
+
+  let html = '';
+  // Sort pages by URL
+  const pageKeys = Object.keys(byPage).sort();
+
+  for (const key of pageKeys) {
+    const { page, elements: pageElements } = byPage[key];
+    const displayUrl = page.url || '';
+    // Extract just the path for display
+    let pagePath = displayUrl;
+    try { pagePath = new URL(displayUrl).pathname || '/'; } catch {}
+
+    html += `<div class="element-group" data-page="${esc(key)}">
+      <div class="element-page-header">
+        <span>${esc(page.title || pagePath)}</span>
+        <span class="page-url">${esc(pagePath)}</span>
+        <span class="page-count">${pageElements.length} element${pageElements.length !== 1 ? 's' : ''}</span>
+      </div>`;
+    for (const el of pageElements) {
+      html += renderElementRow(el);
+    }
+    html += `</div>`;
+  }
+
+  if (noPage.length) {
+    html += `<div class="element-group" data-page="none">
+      <div class="element-page-header">
+        <span>No Page Info</span>
+        <span class="page-count">${noPage.length} element${noPage.length !== 1 ? 's' : ''}</span>
+      </div>`;
+    for (const el of noPage) {
+      html += renderElementRow(el);
+    }
+    html += `</div>`;
+  }
+
+  return html;
+}
+
+function renderElementRow(el) {
+  const sel = el.selectors?.mx || el.selectors?.label || el.selectors?.text || '';
+  return `
+    <div class="element-row" data-name="${esc(el.widgetName).toLowerCase()}" data-text="${esc(el.text || '').toLowerCase()}">
+      <div class="element-name">${esc(el.widgetName)}</div>
+      <div class="element-type">${esc(el.type)}</div>
+      <div class="element-selector" title="${esc(sel)}">${esc(sel)}</div>
+      <div class="element-meta">${el.seenCount || 1}x seen</div>
+    </div>`;
+}
+
+function setElementView(view) {
+  elementBrowserView = view;
+  const container = document.getElementById('elementBrowserContent');
+  if (!container) return;
+  // Re-render toolbar toggle buttons
+  document.querySelectorAll('.view-toggle button').forEach(btn => {
+    btn.classList.toggle('active', btn.textContent.toLowerCase().includes(view));
+  });
+  // Re-render content
+  if (view === 'page') {
+    container.innerHTML = renderElementsByPage(elementBrowserData);
+  } else {
+    container.innerHTML = renderElementsByType(elementBrowserData);
+  }
 }
 
 function filterElements(query) {
