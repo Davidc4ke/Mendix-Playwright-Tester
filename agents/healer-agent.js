@@ -59,7 +59,7 @@ class HealerAgent {
 
   /**
    * Heal a failing test. Uses a hybrid approach:
-   * 1. First tries static healing (screenshot + errors, no browser) for speed
+   * 1. First tries static healing (errors only, no browser) for speed
    * 2. Falls back to replay-based healing if static healing has low confidence
    *
    * @param {object} params
@@ -68,24 +68,22 @@ class HealerAgent {
    * @param {Array}  params.errors — Error objects from the failed run [{ test, message, snippet }]
    * @param {string} params.targetUrl — The app URL
    * @param {object} [params.credentials] — { username, password }
-   * @param {string} [params.runResultsDir] — Path to the run's results directory (for screenshots)
-   * @param {Array}  [params.artifacts] — List of artifact filenames from the failed run
    * @param {function} [params.onProgress] — Progress callback
    * @returns {{ healedScript: string, changes: Array, analysis: string, confidence: string }}
    */
-  async heal({ script, steps: _legacySteps, errors, targetUrl, credentials, runResultsDir, artifacts, onProgress, elementDB }) {
+  async heal({ script, steps: _legacySteps, errors, targetUrl, credentials, onProgress, elementDB }) {
     // Steps are always derived from the script (script is the source of truth)
     const ScriptUtils = require('../lib/script-utils');
     const steps = script ? ScriptUtils.parseScriptToSteps(script) : [];
     this._elementDB = elementDB || null;
 
     // ── Try static healing first (fast path, no browser) ──
-    if (runResultsDir) {
+    if (errors?.length) {
       try {
-        if (onProgress) onProgress({ status: "analyzing", message: "Analyzing failure from screenshot and errors (no browser needed)..." });
+        if (onProgress) onProgress({ status: "analyzing", message: "Analyzing failure from errors (no browser needed)..." });
 
         const staticResult = await this.healStatic({
-          script, steps, errors, targetUrl, runResultsDir, artifacts, onProgress,
+          script, steps, errors, targetUrl, onProgress,
         });
 
         if (this._cancelled) throw new Error("Cancelled");
@@ -116,16 +114,16 @@ class HealerAgent {
   }
 
   /**
-   * Analysis-only mode: analyze errors + screenshot without launching a browser
+   * Analysis-only mode: analyze errors without launching a browser
    * or attempting to produce a healed script. Returns analysis and optional fix.
    */
-  async analyzeOnly({ script, errors, targetUrl, runResultsDir, artifacts, onProgress }) {
+  async analyzeOnly({ script, errors, targetUrl, onProgress }) {
     const ScriptUtils = require('../lib/script-utils');
     const steps = script ? ScriptUtils.parseScriptToSteps(script) : [];
 
     if (onProgress) onProgress({ status: "analyzing", message: "Analyzing failure from run results..." });
 
-    const message = this._buildStaticMessage(script, steps, errors, targetUrl, runResultsDir, artifacts);
+    const message = this._buildStaticMessage(script, steps, errors, targetUrl);
 
     const response = await this.llm.chat(
       [{ role: "user", content: message }],
@@ -142,11 +140,11 @@ class HealerAgent {
   }
 
   /**
-   * Static healing: analyze errors + screenshot without launching a browser.
-   * Makes a single LLM call with multimodal content (text + image).
+   * Static healing: analyze errors without launching a browser.
+   * Makes a single LLM call with error context.
    */
-  async healStatic({ script, steps, errors, targetUrl, runResultsDir, artifacts, onProgress }) {
-    const message = this._buildStaticMessage(script, steps, errors, targetUrl, runResultsDir, artifacts);
+  async healStatic({ script, steps, errors, targetUrl, onProgress }) {
+    const message = this._buildStaticMessage(script, steps, errors, targetUrl);
 
     const response = await this.llm.chat(
       [{ role: "user", content: message }],
@@ -562,7 +560,7 @@ class HealerAgent {
    * Build a multimodal message for static healing (text + optional screenshot).
    * Returns an Anthropic-style content array that works with both providers.
    */
-  _buildStaticMessage(script, steps, errors, targetUrl, runResultsDir, artifacts) {
+  _buildStaticMessage(script, steps, errors, targetUrl) {
     const textParts = [];
 
     textParts.push("# Failing Test — Please Heal (from error analysis)\n");
@@ -599,54 +597,15 @@ class HealerAgent {
       textParts.push("No specific error messages available.\n");
     }
 
-    textParts.push("Please analyze the errors and the screenshot (if provided) and produce a healed script.");
+    textParts.push("Please analyze the errors and produce a healed script.");
     textParts.push("If you cannot confidently determine the fix without seeing the live page, set confidence to \"low\".");
 
     const content = [];
     content.push({ type: "text", text: textParts.join("\n") });
 
-    // Find and attach the failure screenshot
-    if (runResultsDir) {
-      const screenshotFile = this._findScreenshot(runResultsDir, artifacts);
-      if (screenshotFile) {
-        try {
-          const imageData = fs.readFileSync(screenshotFile);
-          const base64 = imageData.toString("base64");
-          const ext = path.extname(screenshotFile).toLowerCase();
-          const mediaType = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : "image/png";
-          content.push({
-            type: "image",
-            source: { type: "base64", media_type: mediaType, data: base64 },
-          });
-        } catch {}
-      }
-    }
-
     return content;
   }
 
-  /**
-   * Find the best failure screenshot in the results directory.
-   */
-  _findScreenshot(runResultsDir, artifacts) {
-    // Prefer screenshots listed in artifacts
-    if (artifacts?.length) {
-      const screenshotArtifact = artifacts.find((a) => /\.(png|jpg|jpeg)$/i.test(a));
-      if (screenshotArtifact) {
-        const fullPath = path.join(runResultsDir, screenshotArtifact);
-        if (fs.existsSync(fullPath)) return fullPath;
-      }
-    }
-
-    // Fallback: look for any PNG/JPG in the results dir
-    try {
-      const files = fs.readdirSync(runResultsDir);
-      const screenshot = files.find((f) => /\.(png|jpg|jpeg)$/i.test(f));
-      if (screenshot) return path.join(runResultsDir, screenshot);
-    } catch {}
-
-    return null;
-  }
 
   _buildInitialMessage(script, steps, errors, targetUrl, replayResult) {
     const lines = [];
