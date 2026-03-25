@@ -31,6 +31,11 @@ const STATIC_SYSTEM_PROMPT = fs.readFileSync(
   "utf-8"
 );
 
+const ANALYZE_SYSTEM_PROMPT = fs.readFileSync(
+  path.join(__dirname, "prompts", "healer-analyze-system.md"),
+  "utf-8"
+);
+
 const mx = require(path.resolve(__dirname, "..", "helpers", "mendix-helpers"));
 
 // AsyncFunction constructor for executing dynamic async code
@@ -108,6 +113,32 @@ class HealerAgent {
 
     // ── Replay-based healing (full browser) ──
     return this._healWithReplay({ script, steps, errors, targetUrl, credentials, onProgress });
+  }
+
+  /**
+   * Analysis-only mode: analyze errors + screenshot without launching a browser
+   * or attempting to produce a healed script. Returns analysis and optional fix.
+   */
+  async analyzeOnly({ script, errors, targetUrl, runResultsDir, artifacts, onProgress }) {
+    const ScriptUtils = require('../lib/script-utils');
+    const steps = script ? ScriptUtils.parseScriptToSteps(script) : [];
+
+    if (onProgress) onProgress({ status: "analyzing", message: "Analyzing failure from run results..." });
+
+    const message = this._buildStaticMessage(script, steps, errors, targetUrl, runResultsDir, artifacts);
+
+    const response = await this.llm.chat(
+      [{ role: "user", content: message }],
+      { system: ANALYZE_SYSTEM_PROMPT }
+    );
+
+    if (this._cancelled) throw new Error("Cancelled");
+
+    const result = this._parseHealerResponse(response.content);
+
+    if (onProgress) onProgress({ status: "done", message: "Analysis complete" });
+
+    return result;
   }
 
   /**

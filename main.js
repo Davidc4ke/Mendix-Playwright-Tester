@@ -1650,6 +1650,69 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
   }
 });
 
+ipcMain.handle("agent-analyze", async (event, { scenarioId, runId }) => {
+  if (activeAgent) {
+    return { error: "An agent is already running. Cancel it first." };
+  }
+
+  const db = loadDB();
+  const scenario = db.scenarios.find((s) => s.id === scenarioId);
+  const run = db.runs.find((r) => r.runId === runId);
+
+  if (!scenario) return { error: "Scenario not found" };
+  if (!run) return { error: "Run not found" };
+  if (!run.results?.errors?.length) return { error: "No errors to analyse" };
+
+  const settings = loadSettings();
+  if (!settings.llm.apiKey) {
+    return { error: "No API key configured. Go to Settings to add one." };
+  }
+
+  let llmClient;
+  try {
+    llmClient = new LLMClient(settings);
+  } catch (err) {
+    return { error: err.message };
+  }
+
+  const healer = new HealerAgent(llmClient, {});
+
+  activeAgent = { type: "analyzer", agent: healer };
+
+  const onProgress = (data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("agent-progress", {
+        agentType: "analyzer",
+        ...data,
+      });
+    }
+  };
+
+  const runResultsDir = path.join(RESULTS_DIR, runId);
+
+  try {
+    const result = await healer.analyzeOnly({
+      script: scenario.script || "",
+      errors: run.results.errors,
+      targetUrl: scenario.targetUrl,
+      runResultsDir: fs.existsSync(runResultsDir) ? runResultsDir : null,
+      artifacts: run.results?.artifacts || [],
+      onProgress,
+    });
+
+    activeAgent = null;
+    return {
+      healedScript: result.healedScript || null,
+      changes: result.changes,
+      analysis: result.analysis,
+      confidence: result.confidence,
+    };
+  } catch (err) {
+    activeAgent = null;
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle("agent-preheal", async (event, { scenarioId }) => {
   if (activeAgent) {
     return { error: "An agent is already running. Cancel it first." };
