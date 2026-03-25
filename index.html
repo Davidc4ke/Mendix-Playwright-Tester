@@ -2005,31 +2005,68 @@ function _renderStepCard(sc, step, idx) {
 function renderStepEditor(sc) {
   const steps = sc.steps || [];
 
-  // Count Login steps to decide whether to show phase grouping
-  const loginCount = steps.filter(s => s.action === 'Login').length;
-  const showPhases = loginCount >= 2;
+  // Identify login events: explicit Login actions OR login-button clicks
+  // (raw Playwright scripts produce Click actions with selector like "button:Login with password")
+  const loginButtonRe = /^button:.*(?:login|sign\s*in)/i;
+  const loginEvents = []; // { idx, username }
+
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    if (s.action === 'Login') {
+      loginEvents.push({ idx: i, username: s.username || 'Scenario credentials' });
+    } else if (s.action === 'Click' && loginButtonRe.test(s.selector)) {
+      // Look backwards (up to 6 steps) for a Fill on a username/email field
+      let username = 'Scenario credentials';
+      for (let j = i - 1; j >= 0 && j >= i - 6; j--) {
+        if (steps[j].action === 'Fill' && /username|email|user/i.test(steps[j].selector)) {
+          username = steps[j].value || 'Unknown user';
+          break;
+        }
+      }
+      loginEvents.push({ idx: i, username });
+    }
+  }
+
+  const showPhases = loginEvents.length >= 2;
 
   let body;
   if (!showPhases) {
     // Simple flat list — no phase headers
     body = steps.map((step, idx) => _renderStepCard(sc, step, idx)).join('');
   } else {
-    // Group steps into phases split by Login steps
-    const phases = [];
-    let current = null;
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
-      if (step.action === 'Login') {
-        // Start a new phase
-        const label = step.username ? esc(step.username) : 'Scenario credentials';
-        current = { label, startIdx: i, steps: [] };
-        phases.push(current);
-      } else if (!current) {
-        // Steps before first Login — "Setup" phase
-        current = { label: 'Setup', startIdx: i, steps: [] };
-        phases.push(current);
+    // Group steps into phases split by login events.
+    // Walk backwards from each login-button click to include the preceding
+    // username/password Fill/Click steps in the same phase.
+    const phaseStarts = loginEvents.map(evt => {
+      let start = evt.idx;
+      if (steps[evt.idx].action !== 'Login') {
+        // Raw Playwright login: include preceding username/password steps
+        for (let j = evt.idx - 1; j >= 0; j--) {
+          const s = steps[j];
+          if ((s.action === 'Fill' || s.action === 'Click') &&
+              /username|password|email|user/i.test(s.selector)) {
+            start = j;
+          } else {
+            break;
+          }
+        }
       }
-      current.steps.push({ step, idx: i });
+      return { ...evt, phaseStart: start };
+    });
+
+    const phases = [];
+    let nextPhase = 0;
+
+    for (let i = 0; i < steps.length; i++) {
+      if (nextPhase < phaseStarts.length && i === phaseStarts[nextPhase].phaseStart) {
+        // Start a new login phase
+        phases.push({ label: phaseStarts[nextPhase].username, steps: [] });
+        nextPhase++;
+      } else if (phases.length === 0) {
+        // Steps before first login — "Setup" phase
+        phases.push({ label: 'Setup', steps: [] });
+      }
+      phases[phases.length - 1].steps.push({ step: steps[i], idx: i });
     }
 
     body = phases.map((phase, pi) => {
