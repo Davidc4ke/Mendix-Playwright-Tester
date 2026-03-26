@@ -627,23 +627,33 @@ function transformListViewRowClicks(script) {
 }
 
 /**
- * Transform DataGrid gridcell clicks with dynamic-looking IDs (e.g. 'DB00000772')
- * into mx.clickDataGridFirstRow() calls.  Human-readable cell names are left as-is.
+ * Transform DataGrid cell/row clicks into mx.clickDataGridFirstRow() calls.
+ * Any getByRole('gridcell') click is unambiguously a datagrid interaction —
+ * always transform regardless of cell content (France, Renewal, DB00000772, etc.).
+ * getByText() clicks are only transformed when the value looks like a dynamic ID,
+ * since getByText() could match non-grid elements.
  */
 function transformDataGridRowClicks(script) {
   const ScriptUtils = require('./lib/script-utils');
-  // Pattern 1: getByRole('gridcell', { name: 'DB00000772' }).click()
+  // Pattern 1: getByRole('gridcell', { name: '...' }).click()
+  // Always transform — gridcell role is unambiguous proof of a datagrid click.
   let result = script.replace(
     /await\s+page\.getByRole\s*\(\s*['"]gridcell['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
-    (match, cellName) => {
-      if (ScriptUtils.looksLikeDynamicId(cellName)) {
-        return `await mx.clickDataGridFirstRow(page);`;
-      }
-      return match;
-    }
+    `await mx.clickDataGridFirstRow(page);`
   );
-  // Pattern 2: getByText('DB00000777').first().click() or getByText('DB00000777').click()
+  // Pattern 2: getByRole('gridcell').first().click() (no name — clicks any cell)
+  result = result.replace(
+    /await\s+page\.getByRole\s*\(\s*['"]gridcell['"]\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
+    `await mx.clickDataGridFirstRow(page);`
+  );
+  // Pattern 3: getByRole('row', { name: '...' }).click() — click on the row element itself
+  result = result.replace(
+    /await\s+page\.getByRole\s*\(\s*['"]row['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
+    `await mx.clickDataGridFirstRow(page);`
+  );
+  // Pattern 4: getByText('DB00000777').first().click() or getByText('DB00000777').click()
   // Codegen sometimes records datagrid row clicks as getByText() with the cell value.
+  // Only transform if value looks like a dynamic ID — getByText() is ambiguous.
   result = result.replace(
     /await\s+page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
     (match, textValue) => {

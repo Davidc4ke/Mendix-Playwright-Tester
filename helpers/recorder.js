@@ -110,6 +110,43 @@ function injectMissingListViewClicks(clicks) {
 }
 
 /**
+ * Post-recording: normalize datagrid cell clicks that Playwright recorded as
+ * getByText('cellValue').click() into getByRole('gridcell', { name: 'cellValue' }).click().
+ * This allows wrapScript()'s transformDataGridRowClicks() to reliably detect and
+ * convert them to mx.clickDataGridFirstRow() calls.
+ */
+function normalizeDataGridClicks(clicks) {
+  const absOutput = path.resolve(outputPath);
+  if (!clicks.length || !fs.existsSync(absOutput)) return;
+
+  let script = fs.readFileSync(absOutput, "utf-8");
+  let normalized = 0;
+  const clickTexts = new Set(clicks.map(c => c.text));
+
+  for (const cellText of clickTexts) {
+    const escapedText = cellText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Match getByText('cellText').click() or getByText('cellText').first().click()
+    // but NOT if it's already a getByRole('gridcell', ...) call
+    const pattern = new RegExp(
+      `(await\\s+page\\.getByText\\s*\\(\\s*['"]${escapedText}['"]\\s*\\))(?:\\s*\\.first\\s*\\(\\s*\\))?\\s*\\.click\\s*\\(\\s*\\)\\s*;`,
+      'g'
+    );
+    const replacement = `await page.getByRole('gridcell', { name: '${cellText.replace(/'/g, "\\'")}' }).first().click();`;
+    const before = script;
+    script = script.replace(pattern, replacement);
+    if (script !== before) {
+      normalized++;
+      console.log(`[recorder] Normalized datagrid click: getByText('${cellText}') → getByRole('gridcell', ...)`);
+    }
+  }
+
+  if (normalized > 0) {
+    fs.writeFileSync(absOutput, script);
+    console.log(`[recorder] Normalized ${normalized} datagrid cell click(s)`);
+  }
+}
+
+/**
  * Post-recording: replace any GUID values in the script with human-readable labels.
  */
 function replaceGuidsInScript(guidToLabel) {
@@ -158,6 +195,8 @@ function replaceGuidsInScript(guidToLabel) {
   const guidToLabel = new Map();
   // Track clicks on listview rows so we can inject them if codegen misses them
   const listViewClicks = [];
+  // Track clicks on datagrid cells so we can normalize getByText() → getByRole('gridcell')
+  const dataGridClicks = [];
 
   // Each page in the context gets the exposed functions
   context.on("page", (newPage) => {
@@ -170,6 +209,12 @@ function replaceGuidsInScript(guidToLabel) {
       if (rowText) {
         listViewClicks.push({ text: rowText, ts: Date.now() });
         console.log(`[recorder] ListView row clicked: "${rowText}"`);
+      }
+    }).catch(() => {});
+    newPage.exposeFunction("__zoniqReportDataGridClick", (cellText) => {
+      if (cellText) {
+        dataGridClicks.push({ text: cellText, ts: Date.now() });
+        console.log(`[recorder] DataGrid cell clicked: "${cellText}"`);
       }
     }).catch(() => {});
   });
@@ -185,6 +230,12 @@ function replaceGuidsInScript(guidToLabel) {
       if (rowText) {
         listViewClicks.push({ text: rowText, ts: Date.now() });
         console.log(`[recorder] ListView row clicked: "${rowText}"`);
+      }
+    }).catch(() => {});
+    await p.exposeFunction("__zoniqReportDataGridClick", (cellText) => {
+      if (cellText) {
+        dataGridClicks.push({ text: cellText, ts: Date.now() });
+        console.log(`[recorder] DataGrid cell clicked: "${cellText}"`);
       }
     }).catch(() => {});
   }
@@ -292,6 +343,19 @@ function replaceGuidsInScript(guidToLabel) {
       }
     }, true); // capture phase to fire before codegen's handlers
 
+    // Track clicks on datagrid cells (Data Grid 2 uses role="gridcell" inside role="row")
+    document.addEventListener('click', (e) => {
+      const cell = e.target.closest('[role="gridcell"]');
+      if (!cell) return;
+      // Verify this is a datagrid context: check for grid role, row role, or Mendix datagrid classes
+      const inGrid = cell.closest('[role="grid"], [role="treegrid"], [role="row"], [class*="datagrid"], [class*="DataGrid"]');
+      if (!inGrid) return;
+      const text = cell.textContent?.replace(/\u00a0/g, '').trim();
+      if (text) {
+        window.__zoniqReportDataGridClick?.(text);
+      }
+    }, true);
+
     // Initial scan + periodic re-scan for dynamically loaded listviews
     let _lvScanCount = 0;
     function _scanListViews() {
@@ -388,6 +452,12 @@ function replaceGuidsInScript(guidToLabel) {
     if (rowText) {
       listViewClicks.push({ text: rowText, ts: Date.now() });
       console.log(`[recorder] ListView row clicked: "${rowText}"`);
+    }
+  }).catch(() => {});
+  await page.exposeFunction("__zoniqReportDataGridClick", (cellText) => {
+    if (cellText) {
+      dataGridClicks.push({ text: cellText, ts: Date.now() });
+      console.log(`[recorder] DataGrid cell clicked: "${cellText}"`);
     }
   }).catch(() => {});
 
@@ -521,6 +591,7 @@ function replaceGuidsInScript(guidToLabel) {
       console.log(`[ZONIQ_GUID_MAP]${JSON.stringify(Object.fromEntries(guidToLabel))}`);
     }
     injectMissingListViewClicks(listViewClicks);
+    normalizeDataGridClicks(dataGridClicks);
     replaceGuidsInScript(guidToLabel);
     process.exit(0);
   }
