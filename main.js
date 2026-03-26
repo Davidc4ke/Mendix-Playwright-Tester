@@ -131,7 +131,7 @@ function loadDB() {
       return JSON.parse(fs.readFileSync(DB_PATH, "utf-8"));
     }
   } catch {}
-  return { scenarios: [], runs: [], savedUrls: [] };
+  return { scenarios: [], runs: [], savedUrls: [], analyses: [] };
 }
 
 function saveDB(db) {
@@ -1774,7 +1774,27 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
     });
 
     activeAgent = null;
+
+    // Persist analysis to history
+    const dbForSave = loadDB();
+    if (!dbForSave.analyses) dbForSave.analyses = [];
+    const analysisEntry = {
+      id: uuidv4(),
+      scenarioId,
+      runId,
+      type: "heal",
+      analysis: result.analysis || null,
+      confidence: result.confidence || null,
+      changes: result.changes || [],
+      healedScript: result.healedScript || null,
+      applied: false,
+      createdAt: new Date().toISOString(),
+    };
+    dbForSave.analyses.push(analysisEntry);
+    saveDB(dbForSave);
+
     return {
+      analysisId: analysisEntry.id,
       healedScript: result.healedScript,
       changes: result.changes,
       analysis: result.analysis,
@@ -1833,7 +1853,27 @@ ipcMain.handle("agent-analyze", async (event, { scenarioId, runId }) => {
     });
 
     activeAgent = null;
+
+    // Persist analysis to history
+    const dbForSave = loadDB();
+    if (!dbForSave.analyses) dbForSave.analyses = [];
+    const analysisEntry = {
+      id: uuidv4(),
+      scenarioId,
+      runId,
+      type: "analysis",
+      analysis: result.analysis || null,
+      confidence: result.confidence || null,
+      changes: result.changes || [],
+      healedScript: result.healedScript || null,
+      applied: false,
+      createdAt: new Date().toISOString(),
+    };
+    dbForSave.analyses.push(analysisEntry);
+    saveDB(dbForSave);
+
     return {
+      analysisId: analysisEntry.id,
       healedScript: result.healedScript || null,
       changes: result.changes,
       analysis: result.analysis,
@@ -1845,13 +1885,41 @@ ipcMain.handle("agent-analyze", async (event, { scenarioId, runId }) => {
   }
 });
 
-ipcMain.handle("agent-heal-apply", async (event, { scenarioId, healedScript }) => {
+ipcMain.handle("agent-heal-apply", async (event, { scenarioId, healedScript, analysisId }) => {
   const db = loadDB();
   const idx = db.scenarios.findIndex((s) => s.id === scenarioId);
   if (idx < 0) return { error: "Scenario not found" };
 
   db.scenarios[idx].script = healedScript;
   db.scenarios[idx].updatedAt = new Date().toISOString();
+
+  // Mark analysis as applied
+  if (analysisId && db.analyses) {
+    const analysis = db.analyses.find((a) => a.id === analysisId);
+    if (analysis) {
+      analysis.applied = true;
+      analysis.appliedAt = new Date().toISOString();
+    }
+  }
+
+  saveDB(db);
+  return { ok: true };
+});
+
+ipcMain.handle("get-analyses", async (event, { scenarioId }) => {
+  const db = loadDB();
+  if (!db.analyses) return [];
+  return db.analyses
+    .filter((a) => a.scenarioId === scenarioId)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+});
+
+ipcMain.handle("delete-analysis", async (event, analysisId) => {
+  const db = loadDB();
+  if (!db.analyses) return { ok: false };
+  const idx = db.analyses.findIndex((a) => a.id === analysisId);
+  if (idx < 0) return { error: "Analysis not found" };
+  db.analyses.splice(idx, 1);
   saveDB(db);
   return { ok: true };
 });
