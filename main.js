@@ -1885,7 +1885,11 @@ ipcMain.handle("execute-plan", async (event, plan) => {
   const planRunId = uuidv4();
   const db = loadDB();
   if (!db.plans) db.plans = [];
-  const resolvedScenarios = (plan.scenarioIds || [])
+  const upToIndex = plan.upToIndex != null ? plan.upToIndex : null;
+  const scenarioIds = upToIndex != null
+    ? (plan.scenarioIds || []).slice(0, upToIndex + 1)
+    : (plan.scenarioIds || []);
+  const resolvedScenarios = scenarioIds
     .map(id => db.scenarios.find(s => s.id === id))
     .filter(Boolean);
 
