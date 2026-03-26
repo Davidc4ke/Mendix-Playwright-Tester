@@ -209,7 +209,6 @@ function replaceGuidsInScript(guidToLabel) {
       guidToLabel.set(value, label);
     }
   }).catch(() => {}); // Ignore if already exposed by context "page" handler
-  _exposeEchoFunctions(page);
 
   if (url) {
     let targetUrl = url;
@@ -373,7 +372,6 @@ function replaceGuidsInScript(guidToLabel) {
         guidToLabel.set(value, label);
       }
     }).catch(() => {});
-    _exposeEchoFunctions(newPage);
 
     newPage.on("close", () => {
       const remaining = context.pages().length;
