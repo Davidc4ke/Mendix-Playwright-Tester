@@ -244,8 +244,8 @@ function wrapScript(script, targetUrl, credentials) {
     .replace(/^import\s+\{[^}]*\}\s+from\s+['"][^'"]*['"];\s*$/gm, '')
     .replace(/^import\s+\*\s+as\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, '')
     .replace(/^import\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, '')
-    .replace(/^const\s+\{[^}]*\}\s*=\s*require\s*\([^)]*\);\s*$/gm, '')
-    .replace(/^const\s+\w+\s*=\s*require\s*\([^)]*\);\s*$/gm, '')
+    .replace(/^const\s+\{[^}]*\}\s*=\s*require\s*\([^)]*\);.*$/gm, '')
+    .replace(/^const\s+\w+\s*=\s*require\s*\([^)]*\);.*$/gm, '')
     // Strip existing TARGET_URL and CREDENTIALS declarations to avoid duplicates
     .replace(/^const\s+TARGET_URL\s*=\s*.*;\s*$/gm, '')
     .replace(/^const\s+CREDENTIALS\s*=\s*\{[\s\S]*?\}\s*;\s*$/gm, '')
