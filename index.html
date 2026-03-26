@@ -816,6 +816,17 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── Step Tracker ───────────────────────────────────── */
+  .plan-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    min-height: 0;
+  }
+  .plan-columns .plan-col {
+    min-height: 0;
+    overflow-y: auto;
+  }
+
   .step-tracker {
     margin-top: 12px;
   }
@@ -3309,9 +3320,13 @@ function showLivePlanTracker() {
       </div>
     </div>
     <div class="detail-body">
-      <div class="section-header">Scenarios</div>
-      <div class="step-tracker" id="planTrackerList"></div>
-      <div id="planStepTrackerContainer" style="margin-top:16px;"></div>
+      <div class="plan-columns">
+        <div class="plan-col">
+          <div class="section-header">Scenarios</div>
+          <div class="step-tracker" id="planTrackerList"></div>
+        </div>
+        <div class="plan-col" id="planStepTrackerContainer"></div>
+      </div>
     </div>
   `;
   renderPlanTracker();
@@ -3349,7 +3364,7 @@ function renderPlanTracker() {
     if (runningIdx >= 0) {
       const sc = scenarios.find(s => s.id === activePlanRun.scenarioRuns[runningIdx].scenarioId);
       stepContainer.innerHTML = `
-        <div class="section-header">Steps — ${esc(sc?.name || 'Current Scenario')}</div>
+        <div class="section-header" style="margin-top:0;">Steps — ${esc(sc?.name || 'Current Scenario')}</div>
         <div class="step-tracker" id="planNestedStepTracker"></div>
       `;
       const nestedContainer = document.getElementById("planNestedStepTracker");
