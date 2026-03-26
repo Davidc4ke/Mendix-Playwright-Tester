@@ -1295,6 +1295,159 @@
     margin-bottom: 6px;
   }
 
+  /* ── Drag Handle ─────────────────────────────────────── */
+  .step-drag-handle {
+    width: 18px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    color: var(--text-muted);
+    font-size: 14px;
+    flex-shrink: 0;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+    user-select: none;
+    opacity: 0.4;
+    letter-spacing: -1px;
+  }
+  .step-editor-card:hover .step-drag-handle {
+    opacity: 1;
+    color: var(--text-secondary);
+  }
+  .step-drag-handle:hover {
+    background: var(--bg-input);
+    color: var(--accent) !important;
+    opacity: 1 !important;
+  }
+  .step-drag-handle:active {
+    cursor: grabbing;
+  }
+
+  /* ── Drag & Drop States ──────────────────────────────── */
+  .step-card-wrapper {
+    position: relative;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  .step-card-wrapper.dragging {
+    opacity: 0.3;
+    transform: scale(0.97);
+  }
+  .step-card-wrapper.drag-over-above::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--accent);
+    border-radius: 2px;
+    z-index: 10;
+    box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 50%, transparent);
+    animation: drag-indicator-pulse 0.8s ease-in-out infinite alternate;
+  }
+  .step-card-wrapper.drag-over-below::after {
+    content: '';
+    position: absolute;
+    bottom: -4px;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--accent);
+    border-radius: 2px;
+    z-index: 10;
+    box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 50%, transparent);
+    animation: drag-indicator-pulse 0.8s ease-in-out infinite alternate;
+  }
+  @keyframes drag-indicator-pulse {
+    0% { opacity: 0.7; }
+    100% { opacity: 1; }
+  }
+  body.is-dragging-step .step-editor-card {
+    user-select: none;
+  }
+  body.is-dragging-step .step-insert-zone {
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  /* ── Insert Step Zone ────────────────────────────────── */
+  .step-insert-zone {
+    position: relative;
+    height: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: height 0.2s ease, opacity 0.2s ease;
+    opacity: 0;
+    margin: -2px 0;
+    z-index: 5;
+  }
+  .step-editor:hover .step-insert-zone {
+    opacity: 1;
+  }
+  .step-insert-zone:hover {
+    height: 24px;
+  }
+  .step-insert-line {
+    position: absolute;
+    left: 32px;
+    right: 8px;
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    transition: background 0.15s;
+  }
+  .step-insert-zone:hover .step-insert-line {
+    background: var(--accent);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .step-insert-btn {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 6;
+    transition: all 0.2s ease;
+    padding: 0;
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  .step-insert-zone:hover .step-insert-btn {
+    opacity: 1;
+    transform: scale(1);
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--bg-surface);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+  .step-insert-btn:hover {
+    background: var(--accent) !important;
+    color: white !important;
+    transform: scale(1.15) !important;
+  }
+
+  /* ── Add Step Toolbar Button ─────────────────────────── */
+  .step-add-toolbar-btn {
+    font-size: 11px;
+    padding: 2px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+
   /* ── AI Agent ─────────────────────────────────────────── */
   .btn-ai {
     background: linear-gradient(135deg, #8b5cf6, #6366f1);
@@ -1914,7 +2067,8 @@ const STEP_ACTION_CONFIG = ScriptUtils.STEP_ACTION_CONFIG;
 
 // ── Script-to-Steps Parser (delegated to shared ScriptUtils) ──
 const { extractTestBody, splitIntoStatements, parseStatement, parseScriptToSteps,
-        generateStepCode, replaceInScript, removeFromScript, escapeJsString: escJsStr } = ScriptUtils;
+        generateStepCode, replaceInScript, removeFromScript, escapeJsString: escJsStr,
+        reorderStepInScript, insertStepInScript } = ScriptUtils;
 
 
 // ════════════════════════════════════════════════════
@@ -2284,14 +2438,16 @@ function showScenarioDetail(sc) {
   `;
 
   _initDetailTabs();
+  _initDragAndDrop(sc.id);
 }
 
 function _renderStepCard(sc, step, idx) {
   const config = STEP_ACTION_CONFIG[step.action] || { selector: false, value: false };
   const codeId = `step-code-${idx}`;
   return `
-    <div class="step-card-wrapper">
+    <div class="step-card-wrapper" data-step-index="${idx}">
       <div class="step-editor-card" data-step-index="${idx}">
+        <div class="step-drag-handle" draggable="true" title="Drag to reorder">&#x2847;</div>
         <div class="step-editor-order">${idx + 1}</div>
         <div class="step-editor-fields">
           <select class="form-input" onchange="onStepActionChange('${sc.id}', ${idx}, this.value)">
@@ -2348,10 +2504,18 @@ function renderStepEditor(sc) {
 
   const showPhases = loginEvents.length >= 2;
 
+  const _insertZone = (idx) => `
+    <div class="step-insert-zone" onclick="onStepInsert('${sc.id}', ${idx})">
+      <div class="step-insert-line"></div>
+      <button class="step-insert-btn" title="Insert step here">+</button>
+    </div>`;
+
   let body;
   if (!showPhases) {
     // Simple flat list — no phase headers
-    body = steps.map((step, idx) => _renderStepCard(sc, step, idx)).join('');
+    body = _insertZone(0) + steps.map((step, idx) =>
+      _renderStepCard(sc, step, idx) + _insertZone(idx + 1)
+    ).join('');
   } else {
     // Group steps into phases split by login events.
     // Walk backwards from each login-button click to include the preceding
@@ -2389,7 +2553,10 @@ function renderStepEditor(sc) {
     }
 
     body = phases.map((phase, pi) => {
-      const cards = phase.steps.map(s => _renderStepCard(sc, s.step, s.idx)).join('');
+      const firstIdx = phase.steps[0]?.idx ?? 0;
+      const cards = _insertZone(firstIdx) + phase.steps.map(s =>
+        _renderStepCard(sc, s.step, s.idx) + _insertZone(s.idx + 1)
+      ).join('');
       const count = phase.steps.length;
       return `
         <div class="step-phase-group">
@@ -2407,9 +2574,14 @@ function renderStepEditor(sc) {
   return `
     <div class="step-editor-toolbar">
       <span style="font-size:11px;color:var(--text-muted);">${steps.length} step${steps.length !== 1 ? 's' : ''} &mdash; edits update the script directly</span>
-      <button id="undoStepBtn" class="btn btn-sm btn-outline" onclick="undoStepEdit()" disabled title="Nothing to undo" style="font-size:11px;padding:2px 8px;display:inline-flex;align-items:center;gap:4px;">
-        &#8630; Undo${_undoStack.length > 0 ? ' (' + _undoStack.length + ')' : ''}
-      </button>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="btn btn-sm btn-outline step-add-toolbar-btn" onclick="onStepInsert('${sc.id}', ${steps.length})" title="Add a new step at the end">
+          + Add Step
+        </button>
+        <button id="undoStepBtn" class="btn btn-sm btn-outline" onclick="undoStepEdit()" disabled title="Nothing to undo" style="font-size:11px;padding:2px 8px;display:inline-flex;align-items:center;gap:4px;">
+          &#8630; Undo${_undoStack.length > 0 ? ' (' + _undoStack.length + ')' : ''}
+        </button>
+      </div>
     </div>
     <div class="step-editor">
       ${body}
@@ -2426,6 +2598,7 @@ function _refreshStepEditor(sc) {
   container.innerHTML = renderStepEditor(sc);
   if (scrollParent) scrollParent.scrollTop = scrollTop;
   _updateUndoButton();
+  _initDragAndDrop(sc.id);
 }
 
 // ── Step editing → modifies script directly ──────────
@@ -2544,6 +2717,107 @@ function onStepDelete(scenarioId, stepIndex) {
   sc.script = removeFromScript(sc.script, step.sourceText, occurrence);
   _refreshStepEditor(sc);
   _autoSaveScenario(sc);
+}
+
+// ── Step Reorder (Drag & Drop) ───────────────────────
+
+let _dragFromIndex = null;
+
+function _initDragAndDrop(scenarioId) {
+  const wrappers = document.querySelectorAll('.step-card-wrapper[data-step-index]');
+
+  wrappers.forEach(wrapper => {
+    const handle = wrapper.querySelector('.step-drag-handle');
+    if (!handle) return;
+
+    handle.addEventListener('dragstart', (e) => {
+      _dragFromIndex = parseInt(wrapper.dataset.stepIndex, 10);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(_dragFromIndex));
+      // Use the whole card as drag image
+      const card = wrapper.querySelector('.step-editor-card');
+      if (card) e.dataTransfer.setDragImage(card, 20, 20);
+      requestAnimationFrame(() => {
+        wrapper.classList.add('dragging');
+        document.body.classList.add('is-dragging-step');
+      });
+    });
+
+    handle.addEventListener('dragend', () => {
+      _dragFromIndex = null;
+      document.body.classList.remove('is-dragging-step');
+      document.querySelectorAll('.step-card-wrapper').forEach(w => {
+        w.classList.remove('dragging', 'drag-over-above', 'drag-over-below');
+      });
+    });
+
+    // Drop target is the whole wrapper
+    wrapper.addEventListener('dragover', (e) => {
+      if (_dragFromIndex === null) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = wrapper.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const isAbove = e.clientY < midY;
+      wrapper.classList.toggle('drag-over-above', isAbove);
+      wrapper.classList.toggle('drag-over-below', !isAbove);
+    });
+
+    wrapper.addEventListener('dragleave', (e) => {
+      // Only remove if actually leaving this wrapper (not entering a child)
+      if (!wrapper.contains(e.relatedTarget)) {
+        wrapper.classList.remove('drag-over-above', 'drag-over-below');
+      }
+    });
+
+    wrapper.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      const toWrapperIdx = parseInt(wrapper.dataset.stepIndex, 10);
+      const rect = wrapper.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      let toIdx = e.clientY < midY ? toWrapperIdx : toWrapperIdx + 1;
+      // Adjust: if dragging downward, account for removal shifting indices
+      if (fromIdx < toIdx) toIdx--;
+      // Clean up classes
+      wrapper.classList.remove('drag-over-above', 'drag-over-below');
+      if (fromIdx !== toIdx) {
+        onStepReorder(scenarioId, fromIdx, toIdx);
+      }
+    });
+  });
+}
+
+function onStepReorder(scenarioId, fromIndex, toIndex) {
+  const sc = scenarios.find(s => s.id === scenarioId);
+  if (!sc || fromIndex === toIndex) return;
+  _pushUndo(sc);
+  sc.script = reorderStepInScript(sc.script, fromIndex, toIndex);
+  _refreshStepEditor(sc);
+  _autoSaveScenario(sc);
+  toast('Step moved', 'info');
+}
+
+// ── Step Insert ──────────────────────────────────────
+
+function onStepInsert(scenarioId, atIndex) {
+  const sc = scenarios.find(s => s.id === scenarioId);
+  if (!sc) return;
+  _pushUndo(sc);
+  const defaultStep = { action: 'Click', selector: '', value: '' };
+  sc.script = insertStepInScript(sc.script, atIndex, defaultStep);
+  _refreshStepEditor(sc);
+  _autoSaveScenario(sc);
+  // Highlight the newly inserted step
+  requestAnimationFrame(() => {
+    const card = document.querySelector(`.step-editor-card[data-step-index="${atIndex}"]`);
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.classList.add('step-highlight');
+      setTimeout(() => card.classList.remove('step-highlight'), 3000);
+    }
+  });
+  toast('Step inserted', 'info');
 }
 
 async function rerunTest(scenarioId) {
