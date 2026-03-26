@@ -818,6 +818,54 @@ async function clickDataGrid2RowButton(page, gridName, rowText, buttonName) {
   await row.locator(`.mx-name-${buttonName}`).click();
 }
 
+/**
+ * Click the first row in a Mendix DataGrid (classic or Data Grid 2).
+ *
+ * Useful when the datagrid contains dynamically generated record IDs that change
+ * between test runs.  Instead of targeting a specific cell value, this clicks
+ * whatever row appears first.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} [gridName]  Optional widget name to scope the search (e.g. 'dataGrid1')
+ * @param {object} [options]
+ * @param {number} [options.timeout=15000]
+ * @param {boolean} [options.waitForPopup=true]
+ */
+async function clickDataGridFirstRow(page, gridName, options = {}) {
+  const { timeout = 15000, waitForPopup: shouldWaitForPopup = true } = options;
+
+  const gridScope = gridName
+    ? page.locator(`.mx-name-${gridName}`)
+    : page;
+
+  // Try classic DataGrid rows first
+  let row = gridScope.locator('.mx-datagrid-row').first();
+  let found = false;
+  try {
+    await row.waitFor({ state: 'visible', timeout: 3000 });
+    found = true;
+  } catch {
+    // Not a classic DataGrid — try Data Grid 2 (role-based rows)
+  }
+
+  if (!found) {
+    // Data Grid 2 uses role="gridcell" inside role="row" elements.
+    // Click the first gridcell to trigger row selection.
+    row = gridScope.locator('[role="gridcell"]').first();
+    await row.waitFor({ state: 'visible', timeout });
+  }
+
+  await row.click();
+
+  if (shouldWaitForPopup) {
+    try {
+      await waitForPopup(page, { timeout: 5000 });
+    } catch {
+      // No popup opened — that's fine
+    }
+  }
+}
+
 // ── Microflows ────────────────────────────────────────────────────────────────
 
 /**
@@ -1036,6 +1084,7 @@ module.exports = {
   // Data Grid (classic)
   clickDataGridRowButton,
   getDataGridRowCount,
+  clickDataGridFirstRow,
   // Data Grid 2 (Mendix 9+)
   getDataGrid2RowCount,
   clickDataGrid2RowButton,
