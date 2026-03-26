@@ -2062,6 +2062,7 @@ let selectedPlan = null;
 let activePlanRun = null; // { planRunId, scenarioRuns: [...] } — tracks live plan execution
 let currentView = null; // 'scenario' | 'run' | 'health' | 'app' | 'plan' | 'planRun'
 let activeStepRun = null; // { runId, steps: [...] } — tracks live step execution
+const expandedPlanRuns = new Set(); // planRunIds currently expanded in sidebar
 
 const STEP_ACTION_CONFIG = ScriptUtils.STEP_ACTION_CONFIG;
 
@@ -3646,6 +3647,15 @@ async function executePlanToScenario(planId, scenarioIndex) {
   await window.zoniq.executePlan({ ...plan, upToIndex: scenarioIndex });
 }
 
+async function retryPlanFromScenario(planId, scenarioIndex) {
+  const plan = plans.find(p => p.id === planId);
+  if (!plan || !(plan.scenarioIds || []).length) return;
+  const sc = scenarios.find(s => s.id === plan.scenarioIds[scenarioIndex]);
+  const label = sc ? sc.name : `scenario ${scenarioIndex + 1}`;
+  toast(`Retrying plan from "${label}"...`, "info");
+  await window.zoniq.executePlan({ ...plan, fromIndex: scenarioIndex });
+}
+
 // ── Plan Execution Tracker ──
 
 function showLivePlanTracker() {
@@ -3775,6 +3785,11 @@ function showPlanRunDetail(run) {
   const scenarioRuns = run.scenarioRuns || [];
   const summary = run.results?.summary || { total: scenarioRuns.length, passed: 0, failed: 0, skipped: 0 };
 
+  const isFailed = run.status === "failed" || run.status === "error";
+  const firstFailIndex = scenarioRuns.findIndex(sr =>
+    sr.status === "failed" || sr.status === "error" || sr.status === "skipped"
+  );
+
   const scenarioItems = scenarioRuns.map((sr, i) => {
     const sc = scenarios.find(s => s.id === sr.scenarioId);
     const name = sc ? esc(sc.name) : esc(sr.scenarioName || 'Deleted scenario');
@@ -3785,6 +3800,10 @@ function showPlanRunDetail(run) {
     else if (sr.status === "skipped") { statusClass = "step-pending"; indicator = "&#8212;"; }
 
     const clickable = sr.runId ? `onclick="selectRunById('${sr.runId}')" style="cursor:pointer;"` : '';
+    const showRetry = isFailed && firstFailIndex >= 0 && i >= firstFailIndex && i === firstFailIndex;
+    const retryBtn = showRetry && run.planId
+      ? `<button class="btn btn-sm" style="margin-left:auto;font-size:11px;padding:2px 8px;white-space:nowrap;" onclick="event.stopPropagation(); retryPlanFromScenario('${run.planId}', ${i})">&#8635; Retry from here</button>`
+      : '';
     return `
     <div class="step-tracker-item ${statusClass}" ${clickable}>
       <div class="step-indicator">${indicator}</div>
@@ -3793,6 +3812,7 @@ function showPlanRunDetail(run) {
         ${sr.status === "skipped" ? '<div class="step-error" style="color:var(--text-secondary);">Skipped</div>' : ''}
       </div>
       <div class="step-status">${sr.status}</div>
+      ${retryBtn}
     </div>`;
   }).join("");
 
@@ -3843,6 +3863,14 @@ async function loadRuns() {
   renderRunList();
 }
 
+function togglePlanRunExpand(runId) {
+  if (expandedPlanRuns.has(runId)) {
+    expandedPlanRuns.delete(runId);
+  } else {
+    expandedPlanRuns.add(runId);
+  }
+}
+
 function renderRunList() {
   const container = document.getElementById("runList");
   // Hide individual scenario runs that belong to a plan (show only the plan run itself)
@@ -3854,21 +3882,48 @@ function renderRunList() {
   container.innerHTML = visibleRuns.map((r) => {
     const isPlan = !!r.planId;
     const planBadge = isPlan ? '<span class="badge" style="background:var(--primary);color:#fff;font-size:9px;margin-right:4px;">PLAN</span>' : '';
+    const isExpanded = isPlan && expandedPlanRuns.has(r.runId);
+    const expandIcon = isPlan
+      ? `<span style="font-size:9px;margin-right:4px;">${isExpanded ? '&#9660;' : '&#9654;'}</span>`
+      : '';
+
+    let childHtml = '';
+    if (isExpanded && r.scenarioRuns) {
+      childHtml = r.scenarioRuns.map(sr => {
+        const name = esc(sr.scenarioName || 'Scenario');
+        const isChildSelected = selectedRun?.runId === sr.runId;
+        const clickAction = sr.runId ? `onclick="event.stopPropagation(); selectRunById('${sr.runId}')"` : '';
+        const statusBadge = sr.status ? `<span class="badge badge-${sr.status}" style="font-size:9px;">${sr.status}</span>` : '';
+        return `
+        <div class="run-card ${isChildSelected ? 'selected' : ''}" ${clickAction}
+             style="margin-left:16px;padding:6px 10px;font-size:12px;${sr.runId ? 'cursor:pointer;' : 'opacity:0.5;cursor:default;'}">
+          <div class="card-title" style="font-size:12px;">
+            ${statusBadge} ${name}
+          </div>
+        </div>`;
+      }).join('');
+    }
+
     return `
     <div class="run-card ${selectedRun?.runId === r.runId ? 'selected' : ''}" onclick="selectRunById('${r.runId}')">
       <div class="card-title">
-        ${planBadge}<span class="badge badge-${r.status}">${r.status}</span>
+        ${expandIcon}${planBadge}<span class="badge badge-${r.status}">${r.status}</span>
         ${esc(r.testName || 'Unnamed')}
       </div>
       <div class="card-url">${isPlan ? (r.scenarioRuns || []).length + ' scenarios' : esc(r.targetUrl || '')}</div>
       <div class="card-meta">${timeAgo(r.completedAt || r.startedAt)}</div>
     </div>
+    ${childHtml}
   `}).join("");
 }
 
 function selectRunById(runId) {
   selectedRun = runs.find((r) => r.runId === runId);
   if (!selectedRun) return;
+  // Toggle expand/collapse for plan runs in sidebar
+  if (selectedRun.planId && selectedRun.scenarioRuns) {
+    togglePlanRunExpand(runId);
+  }
   // Switch to runs tab
   document.querySelectorAll(".sidebar-tab").forEach((t) => t.classList.remove("active"));
   document.querySelectorAll(".sidebar-panel").forEach((p) => p.classList.remove("active"));
