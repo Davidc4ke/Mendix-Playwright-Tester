@@ -1753,6 +1753,18 @@
   </div>
 </div>
 
+<!-- ── Confirm Dialog ─────────────────────────────── -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal" style="width:400px;">
+    <div class="modal-title" id="confirmModalTitle">Confirm</div>
+    <p id="confirmModalMessage" style="color:var(--text-secondary);font-size:13px;line-height:1.5;margin-bottom:0;"></p>
+    <div class="modal-actions">
+      <button class="btn" id="confirmModalCancel">Cancel</button>
+      <button class="btn btn-danger" id="confirmModalOk">Delete</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Toast Container ────────────────────────────── -->
 <div class="toast-container" id="toastContainer"></div>
 
@@ -2356,7 +2368,7 @@ async function duplicateScenario(id) {
 }
 
 async function deleteScenario(id) {
-  if (!confirm("Delete this scenario?")) return;
+  if (!await confirmDialog("Delete this scenario?")) return;
   await window.zoniq.deleteScenario(id);
   selectedScenario = null;
   await loadScenarios();
@@ -2710,7 +2722,7 @@ async function saveAppFromModal() {
 }
 
 async function deleteApp(appId) {
-  if (!confirm("Delete this app and its element database? Scenarios will NOT be deleted.")) return;
+  if (!await confirmDialog("Delete this app and its element database? Scenarios will NOT be deleted.")) return;
   await window.zoniq.deleteApp(appId);
   selectedApp = null;
   await loadApps();
@@ -3508,10 +3520,36 @@ function closeModal(id) { document.getElementById(id).classList.remove("active")
 
 // Modals must be explicitly dismissed via buttons — no outside-click closing
 
+function confirmDialog(message, { title = "Confirm", okLabel = "Delete" } = {}) {
+  return new Promise((resolve) => {
+    document.getElementById("confirmModalTitle").textContent = title;
+    document.getElementById("confirmModalMessage").textContent = message;
+    const okBtn = document.getElementById("confirmModalOk");
+    okBtn.textContent = okLabel;
+    openModal("confirmModal");
+    function cleanup(result) {
+      closeModal("confirmModal");
+      okBtn.removeEventListener("click", onOk);
+      document.getElementById("confirmModalCancel").removeEventListener("click", onCancel);
+      resolve(result);
+    }
+    function onOk() { cleanup(true); }
+    function onCancel() { cleanup(false); }
+    okBtn.addEventListener("click", onOk);
+    document.getElementById("confirmModalCancel").addEventListener("click", onCancel);
+  });
+}
+
 // Close modals on Escape
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    document.querySelectorAll(".modal-overlay.active").forEach((m) => m.classList.remove("active"));
+    document.querySelectorAll(".modal-overlay.active").forEach((m) => {
+      if (m.id === "confirmModal") {
+        document.getElementById("confirmModalCancel").click();
+      } else {
+        m.classList.remove("active");
+      }
+    });
   }
 });
 
