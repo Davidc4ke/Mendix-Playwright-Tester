@@ -1371,10 +1371,21 @@ ipcMain.handle("launch-recorder-from-step", async (event, { scenario, stepIndex 
       normalizedUrl = "http://" + normalizedUrl;
     }
 
+    // Apply the same transformations that wrapScript() uses for normal execution.
+    // Without these, .selectOption() calls hang on disabled Mendix dropdowns,
+    // fragile #mxui_widget_* selectors fail, and duplicate selectors cause
+    // strict mode violations.
+    const transformedStatements = prefixStatements.map(stmt => {
+      let s = cleanMendixSelectors(stmt);
+      s = transformSelectOptionCalls(s);
+      s = disambiguateSelectors(s);
+      return s;
+    });
+
     // Write prefix data to a temp JSON file for the recorder subprocess
     const prefixJsonPath = path.join(TEMP_DIR, `prefix-${Date.now()}.json`);
     fs.writeFileSync(prefixJsonPath, JSON.stringify({
-      statements: prefixStatements,
+      statements: transformedStatements,
       credentials: scenario.credentials || {},
       targetUrl: normalizedUrl,
     }));
