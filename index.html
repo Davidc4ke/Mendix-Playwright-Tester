@@ -2994,10 +2994,11 @@ function showRunDetail(run) {
                 ${stepFailArtifacts.length ? `
                   <div class="step-artifact-list">
                     ${stepFailArtifacts.map(a => `
-                      <div class="step-artifact" onclick="window.zoniq.openResultsFolder('${run.runId}')">
+                      <div class="step-artifact" onclick="toggleArtifactImage(this)" data-run-id="${run.runId}" data-artifact="${esc(a)}">
                         <div class="step-artifact-icon">&#128247;</div>
                         <span>${esc(a)}</span>
                       </div>
+                      <div class="step-artifact-image-wrap" style="display:none;"></div>
                     `).join("")}
                   </div>
                 ` : ""}
@@ -3068,7 +3069,7 @@ function showRunDetail(run) {
           <div id="images-panel-${run.runId}" class="run-detail-tab-panel">
             <div class="images-grid">
               ${allImages.map(a => `
-                <div class="image-card" data-run-id="${run.runId}" data-artifact="${esc(a)}" onclick="window.zoniq.openResultsFolder('${run.runId}')">
+                <div class="image-card" data-run-id="${run.runId}" data-artifact="${esc(a)}">
                   <img data-src="${esc(a)}" data-run-id="${run.runId}" alt="${esc(a)}" />
                   <div class="image-card-label">${esc(a)}</div>
                 </div>
@@ -3103,7 +3104,8 @@ function showRunDetail(run) {
         <div class="section-header">Artifacts</div>
         <div class="artifact-list">
           ${otherArtifacts.map((a) => `
-            <div class="artifact-chip" onclick="window.zoniq.openResultsFolder('${run.runId}')">&#128247; ${esc(a)}</div>
+            <div class="artifact-chip" onclick="toggleArtifactChip(this)" data-run-id="${run.runId}" data-artifact="${esc(a)}">&#128247; ${esc(a)}</div>
+            <div class="step-artifact-image-wrap" style="display:none;"></div>
           `).join("")}
         </div>
       ` : ''}
@@ -3162,6 +3164,30 @@ async function toggleProofImage(badgeEl) {
   }
   wrap.style.display = 'block';
 }
+
+async function toggleArtifactImage(badgeEl) {
+  const wrap = badgeEl.nextElementSibling; // the .step-artifact-image-wrap right after
+  if (!wrap || !wrap.classList.contains('step-artifact-image-wrap')) return;
+  if (wrap.style.display !== 'none') {
+    wrap.style.display = 'none';
+    return;
+  }
+  if (!wrap.dataset.loaded) {
+    const runId = badgeEl.dataset.runId;
+    const artifact = badgeEl.dataset.artifact;
+    const filePath = await window.zoniq.getArtifactPath(runId, artifact);
+    if (filePath) {
+      wrap.innerHTML = `<img class="step-proof-img" src="file://${filePath}" alt="${artifact}" onclick="window.zoniq.openResultsFolder('${runId}')" title="Click image to open results folder" />`;
+    } else {
+      wrap.innerHTML = `<div style="font-size:11px;color:var(--text-muted);padding:8px;">Screenshot file not found</div>`;
+    }
+    wrap.dataset.loaded = '1';
+  }
+  wrap.style.display = 'block';
+}
+
+// Alias for artifact chips in the Artifacts section (same toggle behavior)
+const toggleArtifactChip = toggleArtifactImage;
 
 function copyRunStepToClipboard(runId, stepIndex) {
   const run = runs.find(r => r.runId === runId);
