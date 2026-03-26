@@ -311,7 +311,8 @@
     padding: 24px;
     display: none;
   }
-  .detail-tab-panel.active { display: block; }
+  .detail-tab-panel.active { display: flex; flex-direction: column; }
+  #dtab-script .script-area { flex: 1; }
   .detail-tab-panel::-webkit-scrollbar { width: 6px; }
   .detail-tab-panel::-webkit-scrollbar-track { background: transparent; }
   .detail-tab-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
