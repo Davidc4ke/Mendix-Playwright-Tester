@@ -291,6 +291,10 @@ function wrapScript(script, targetUrl, credentials) {
   // Mendix apps with nested forms/dialogs containing duplicate button labels).
   scriptBody = disambiguateSelectors(scriptBody);
 
+  // Transform clicks on ListView rows (li[role="button"]) into robust
+  // mx.clickListViewRow() calls that wait for visibility and handle popup opening.
+  scriptBody = transformListViewRowClicks(scriptBody);
+
   // Check if there's still a test() block after stripping
   const hasTestBlock = /\btest\s*\(/.test(scriptBody);
 
@@ -592,6 +596,30 @@ function disambiguateSelectors(script) {
     }
     return `${prefix}${locatorExpr}.first()${actionPart}`;
   });
+}
+
+/**
+ * Transform clicks on Mendix ListView rows into mx.clickListViewRow() calls.
+ *
+ * The recorder injects clicks like:
+ *   await page.locator('li[role="button"]').filter({ hasText: 'Current' }).first().click();
+ * or codegen (with our aria-label enhancement) may produce:
+ *   await page.getByRole('button', { name: 'Current' }).first().click();
+ *   (when the target is a <li role="button" aria-label="Current"> inside .mx-listview-clickable)
+ *
+ * We transform the explicit li[role="button"] pattern to use the robust helper
+ * which waits for visibility and handles popup opening automatically.
+ */
+function transformListViewRowClicks(script) {
+  // Pattern 1: injected by recorder post-processing
+  //   await page.locator('li[role="button"]').filter({ hasText: '...' }).first().click();
+  //   await page.locator('li[role="button"]').filter({ hasText: '...' }).click();
+  return script.replace(
+    /await\s+page\.locator\s*\(\s*['"]li\[role=["']?button["']?\]['"]\s*\)\s*\.filter\s*\(\s*\{\s*hasText:\s*['"]([^'"]+)['"]\s*\}\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
+    (match, rowText) => {
+      return `await mx.clickListViewRow(page, '${rowText.replace(/'/g, "\\'")}');`;
+    }
+  );
 }
 
 // GUID resolution is handled at recording time — recorder.js collects

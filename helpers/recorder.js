@@ -31,6 +31,85 @@ function looksLikeGuid(value) {
 }
 
 /**
+ * Post-recording: inject any listview row clicks that Playwright's codegen
+ * failed to record.  For each tracked click, we check whether the script
+ * already contains a click that targets the same row text.  If not, we try
+ * to insert the click at a reasonable position — just before the first
+ * statement that interacts with popup/dialog elements (which the click
+ * would have opened).
+ */
+function injectMissingListViewClicks(clicks) {
+  const absOutput = path.resolve(outputPath);
+  if (!clicks.length || !fs.existsSync(absOutput)) return;
+
+  let script = fs.readFileSync(absOutput, "utf-8");
+  let injected = 0;
+
+  for (const { text } of clicks) {
+    const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Check if codegen already captured this click
+    const alreadyRecorded = new RegExp(
+      `getByRole\\s*\\(\\s*['"]button['"]\\s*,\\s*\\{[^}]*name:\\s*['"]${escapedText}['"]` +
+      `|getByText\\s*\\(\\s*['"]${escapedText}['"]\\s*\\)[^;]*\\.click` +
+      `|aria-label="${escapedText.replace(/"/g, '\\"')}"[^;]*\\.click` +
+      `|filter\\s*\\(\\s*\\{\\s*hasText:\\s*['"]${escapedText}['"]\\s*\\}\\s*\\)[^;]*\\.click`
+    ).test(script);
+
+    if (alreadyRecorded) continue;
+
+    // Find a good insertion point: look for the first statement after a
+    // non-popup interaction that accesses something likely inside a popup
+    // (e.g. getByRole('textbox'), getByLabel, fill, selectOption).
+    // As a simple heuristic, scan line by line and insert before the first
+    // line that looks like it interacts with a form field that wasn't preceded
+    // by a click on this row.
+    const lines = script.split('\n');
+    let insertIndex = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      // Skip non-action lines
+      if (!line.startsWith('await ')) continue;
+      // Look for form field interactions that are commonly inside popups
+      if (/\.(fill|selectOption|check|uncheck)\s*\(/.test(line) ||
+          /getByRole\s*\(\s*['"]textbox['"]/.test(line) ||
+          /getByRole\s*\(\s*['"]combobox['"]/.test(line)) {
+        // Check that the previous action line wasn't already a click on
+        // something that would open a popup
+        let prevActionLine = '';
+        for (let j = i - 1; j >= 0; j--) {
+          if (lines[j].trim().startsWith('await ')) {
+            prevActionLine = lines[j].trim();
+            break;
+          }
+        }
+        // If the previous action was a selectOption/fill (not a click),
+        // this is likely the transition point where a popup-opening click
+        // was missed
+        if (prevActionLine && !prevActionLine.includes('.click(')) {
+          insertIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (insertIndex === -1) continue;
+
+    // Determine indentation from surrounding lines
+    const indent = lines[insertIndex].match(/^(\s*)/)?.[1] || '  ';
+    const clickLine = `${indent}await page.locator('li[role="button"]').filter({ hasText: '${text.replace(/'/g, "\\'")}' }).first().click();`;
+    lines.splice(insertIndex, 0, clickLine);
+    script = lines.join('\n');
+    injected++;
+    console.log(`[recorder] Injected missing ListView click: "${text}" at line ${insertIndex + 1}`);
+  }
+
+  if (injected > 0) {
+    fs.writeFileSync(absOutput, script);
+    console.log(`[recorder] Injected ${injected} missing ListView row click(s)`);
+  }
+}
+
+/**
  * Post-recording: replace any GUID values in the script with human-readable labels.
  */
 function replaceGuidsInScript(guidToLabel) {
@@ -77,6 +156,8 @@ function replaceGuidsInScript(guidToLabel) {
   // value→textContent pairs WITHOUT mutating the DOM — so Mendix
   // form handling works normally during recording.
   const guidToLabel = new Map();
+  // Track clicks on listview rows so we can inject them if codegen misses them
+  const listViewClicks = [];
 
   // Each page in the context gets the exposed functions
   context.on("page", (newPage) => {
@@ -85,6 +166,12 @@ function replaceGuidsInScript(guidToLabel) {
         guidToLabel.set(value, label);
       }
     }).catch(() => {}); // Ignore if page is already closed
+    newPage.exposeFunction("__zoniqReportListViewClick", (rowText) => {
+      if (rowText) {
+        listViewClicks.push({ text: rowText, ts: Date.now() });
+        console.log(`[recorder] ListView row clicked: "${rowText}"`);
+      }
+    }).catch(() => {});
   });
 
   // Also expose on any existing pages
@@ -92,6 +179,12 @@ function replaceGuidsInScript(guidToLabel) {
     await p.exposeFunction("__zoniqReportOption", (value, label) => {
       if (label && value && value !== label) {
         guidToLabel.set(value, label);
+      }
+    }).catch(() => {});
+    await p.exposeFunction("__zoniqReportListViewClick", (rowText) => {
+      if (rowText) {
+        listViewClicks.push({ text: rowText, ts: Date.now() });
+        console.log(`[recorder] ListView row clicked: "${rowText}"`);
       }
     }).catch(() => {});
   }
@@ -151,6 +244,88 @@ function replaceGuidsInScript(guidToLabel) {
     }
   });
 
+  // ── Enhance ListView rows for reliable recording ────────────────
+  // Playwright's codegen sometimes fails to record clicks on Mendix ListView
+  // rows (<li role="button">) — especially when the click lands on an empty cell
+  // or a nested &nbsp; span.  We add aria-label attributes derived from visible
+  // text so codegen can generate reliable getByRole('button', { name }) selectors.
+  // We also track clicks on these rows so we can inject them post-recording if
+  // codegen still misses them.
+  await context.addInitScript(() => {
+    function labelListViewRows(root) {
+      const container = root || document;
+      const listViews = container.classList?.contains('mx-listview-clickable')
+        ? [container]
+        : container.querySelectorAll('.mx-listview-clickable');
+      for (const lv of listViews) {
+        const rows = lv.querySelectorAll('li[role="button"]');
+        for (const row of rows) {
+          if (row.getAttribute('aria-label')) continue; // already labelled
+          // Extract the primary text content (first non-empty text span)
+          const spans = row.querySelectorAll('span.mx-text');
+          for (const span of spans) {
+            const text = span.textContent.replace(/\u00a0/g, '').trim();
+            if (text) {
+              row.setAttribute('aria-label', text);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Track clicks on listview rows
+    document.addEventListener('click', (e) => {
+      const row = e.target.closest('.mx-listview-clickable li[role="button"]');
+      if (!row) return;
+      const label = row.getAttribute('aria-label') || '';
+      const spans = row.querySelectorAll('span.mx-text');
+      let text = label;
+      if (!text) {
+        for (const span of spans) {
+          const t = span.textContent.replace(/\u00a0/g, '').trim();
+          if (t) { text = t; break; }
+        }
+      }
+      if (text) {
+        window.__zoniqReportListViewClick?.(text);
+      }
+    }, true); // capture phase to fire before codegen's handlers
+
+    // Initial scan + periodic re-scan for dynamically loaded listviews
+    let _lvScanCount = 0;
+    function _scanListViews() {
+      labelListViewRows();
+      if (++_lvScanCount < 30) { // 30 × 200 ms = 6 s
+        setTimeout(_scanListViews, 200);
+      }
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => _scanListViews());
+    } else {
+      _scanListViews();
+    }
+
+    // Watch for dynamically added listview items
+    const lvObserver = new MutationObserver((mutations) => {
+      for (const mut of mutations) {
+        for (const node of mut.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (node.closest?.('.mx-listview-clickable') || node.querySelector?.('.mx-listview-clickable')) {
+            labelListViewRows(node.closest?.('.mx-listview-clickable') || node);
+          }
+        }
+      }
+    });
+    if (document.documentElement) {
+      lvObserver.observe(document.documentElement, { childList: true, subtree: true });
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        lvObserver.observe(document.documentElement, { childList: true, subtree: true });
+      });
+    }
+  });
+
   // Hide Playwright's recorder highlight overlays when not wanted
   if (showHighlights !== "true") {
     await context.addInitScript(() => {
@@ -202,13 +377,19 @@ function replaceGuidsInScript(guidToLabel) {
   // Navigate to the target URL
   const page = context.pages()[0] || (await context.newPage());
 
-  // Ensure __zoniqReportOption is bound before the first navigation so
-  // the context-level addInitScript can call it on DOMContentLoaded.
+  // Ensure exposed functions are bound before the first navigation so
+  // the context-level addInitScript can call them on DOMContentLoaded.
   await page.exposeFunction("__zoniqReportOption", (value, label) => {
     if (looksLikeGuid(value) && label) {
       guidToLabel.set(value, label);
     }
   }).catch(() => {}); // Ignore if already exposed by context "page" handler
+  await page.exposeFunction("__zoniqReportListViewClick", (rowText) => {
+    if (rowText) {
+      listViewClicks.push({ text: rowText, ts: Date.now() });
+      console.log(`[recorder] ListView row clicked: "${rowText}"`);
+    }
+  }).catch(() => {});
 
   if (url) {
     let targetUrl = url;
@@ -304,6 +485,7 @@ function replaceGuidsInScript(guidToLabel) {
     if (guidToLabel.size > 0) {
       console.log(`[ZONIQ_GUID_MAP]${JSON.stringify(Object.fromEntries(guidToLabel))}`);
     }
+    injectMissingListViewClicks(listViewClicks);
     replaceGuidsInScript(guidToLabel);
     process.exit(0);
   }
@@ -366,10 +548,16 @@ function replaceGuidsInScript(guidToLabel) {
 
   // Strategy 5: watch all pages — if every page in the context closes
   context.on("page", (newPage) => {
-    // Expose GUID and echo reporting on new pages too
+    // Expose GUID, echo, and listview click reporting on new pages too
     newPage.exposeFunction("__zoniqReportOption", (value, label) => {
       if (looksLikeGuid(value) && label) {
         guidToLabel.set(value, label);
+      }
+    }).catch(() => {});
+    newPage.exposeFunction("__zoniqReportListViewClick", (rowText) => {
+      if (rowText) {
+        listViewClicks.push({ text: rowText, ts: Date.now() });
+        console.log(`[recorder] ListView row clicked: "${rowText}"`);
       }
     }).catch(() => {});
 
