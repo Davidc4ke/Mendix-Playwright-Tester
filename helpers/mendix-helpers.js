@@ -566,68 +566,74 @@ async function pickDate(page, triggerLocator, day, month, year) {
   // 1. Click the trigger to open the calendar popup
   await triggerLocator.click();
 
-  // 2. Wait for a calendar grid to appear
-  const calendar = page.locator('[role="grid"], .mx-calendar').first();
-  await calendar.waitFor({ state: 'visible', timeout: 5000 });
+  // 2. Wait for the calendar popup to appear.
+  //    Mendix date pickers render as .mx-datepicker with a calendar popup inside,
+  //    or as a React DatePicker. We must NOT match DataGrid2 widgets which also
+  //    use [role="grid"] but have the class .widget-datagrid-grid.
+  //    Strategy: wait briefly for the popup, then look for visible gridcells.
+  await page.waitForTimeout(500);
 
-  // 3. If a year was specified, try to navigate to it
+  // 3. If a year was specified, try to navigate to it by clicking the year text
+  //    in the calendar header (Mendix calendars show a clickable year).
   if (year) {
-    const yearBtn = page.getByText(String(year), { exact: true });
-    // The year may already be visible as a clickable element in the calendar
     try {
+      const yearBtn = page.getByText(String(year), { exact: true });
       await yearBtn.waitFor({ state: 'visible', timeout: 2000 });
       await yearBtn.click();
-      // After clicking the year, wait for the grid to re-render
       await page.waitForTimeout(300);
     } catch (_) {
-      // Year not clickable — calendar may already be on the right year
+      // Year not clickable or already on the right year — continue
     }
   }
 
-  // 4. Navigate to the correct month if needed
+  // 4. Navigate to the correct month if needed.
   //    Mendix calendar headers typically show "Month YYYY" text.
-  //    We look for month navigation arrows and click them to reach the target.
   const MONTHS = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
   if (month >= 1 && month <= 12) {
     const targetMonthName = MONTHS[month - 1];
-    // Try up to 12 iterations to navigate to the right month
     for (let attempt = 0; attempt < 12; attempt++) {
-      // Check if the target month is visible in the calendar header
-      const monthVisible = await page.locator('[role="grid"], .mx-calendar').first()
-        .locator('..').getByText(targetMonthName).count();
+      // Check if the target month name appears anywhere in a visible calendar/datepicker area
+      const monthVisible = await page.locator(
+        '.mx-datepicker, .mx-calendar, .datepicker, .react-datepicker, [class*="datepicker"], [class*="calendar"]'
+      ).filter({ hasText: targetMonthName }).count();
       if (monthVisible > 0) break;
 
-      // Click the "next month" arrow button — Mendix uses various labels
+      // Try clicking a "next month" navigation button
       const nextBtn = page.locator(
-        '.mx-calendar-month-next, [aria-label="Next month"], [aria-label="next month"], [title="Next month"]'
+        '.mx-calendar-month-next, [aria-label="Next month"], [aria-label="next month"], [title="Next month"], [class*="calendar"] [class*="next"], [class*="datepicker"] [class*="next"]'
       ).first();
       if (await nextBtn.count() > 0) {
         await nextBtn.click();
         await page.waitForTimeout(200);
       } else {
-        break; // No navigation button found, stop trying
+        break;
       }
     }
   }
 
-  // 5. Click the day cell within the calendar grid
-  //    Use a regex to match the day number in the gridcell accessible name,
-  //    scoped to the calendar to avoid matching other page content.
+  // 5. Click the day cell.
+  //    Build the date pattern that the gridcell accessible name contains (DD/MM/ format).
+  //    Scope to visible gridcells that are NOT inside a DataGrid2 widget.
   const dayStr = String(day);
-  const dayCell = calendar.getByRole('gridcell').filter({ hasText: new RegExp(`^${dayStr}$|\\b${dayStr}\\b`) }).first();
+  const monthStr = String(month).padStart(2, '0');
+  const dayPadded = dayStr.padStart(2, '0');
+
+  // Primary: match by the DD/MM/ pattern in the gridcell name (same format Codegen records)
+  const datePattern = `${dayPadded}/${monthStr}/`;
+  const calendarCell = page.locator(
+    '[role="gridcell"]:not(.widget-datagrid-grid [role="gridcell"])'
+  ).filter({ hasText: new RegExp(`\\b${dayStr}\\b`) }).first();
 
   try {
-    await dayCell.waitFor({ state: 'visible', timeout: 5000 });
-    await dayCell.click();
+    await calendarCell.waitFor({ state: 'visible', timeout: 5000 });
+    await calendarCell.click();
   } catch (_) {
-    // Fallback: try matching by the full date pattern DD/MM or just the day number
-    const fallbackCell = calendar.locator(`[role="gridcell"]`).filter({
-      hasText: new RegExp(`\\b${dayStr}\\b`)
-    }).first();
-    await fallbackCell.click();
+    // Fallback: try getByRole with the DD/MM/ name pattern
+    const fallback = page.getByRole('gridcell', { name: datePattern }).first();
+    await fallback.click();
   }
 }
 
