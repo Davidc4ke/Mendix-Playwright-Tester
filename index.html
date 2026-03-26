@@ -3146,6 +3146,8 @@ function addScenarioToPlanModal(scenarioId) {
   if (!scenarioId) return;
   _planModalScenarioIds.push(scenarioId);
   _renderPlanModalScenarios();
+  const container = document.getElementById("planScenarioList");
+  container.scrollTop = container.scrollHeight;
 }
 
 function _movePlanModalScenario(index, direction) {
