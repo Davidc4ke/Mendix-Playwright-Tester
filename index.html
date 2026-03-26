@@ -2284,6 +2284,9 @@ function renderStepEditor(sc) {
   return `
     <div class="step-editor-toolbar">
       <span style="font-size:11px;color:var(--text-muted);">${steps.length} step${steps.length !== 1 ? 's' : ''} &mdash; edits update the script directly</span>
+      <button id="undoStepBtn" class="btn btn-sm btn-outline" onclick="undoStepEdit()" disabled title="Nothing to undo" style="font-size:11px;padding:2px 8px;display:inline-flex;align-items:center;gap:4px;">
+        &#8630; Undo${_undoStack.length > 0 ? ' (' + _undoStack.length + ')' : ''}
+      </button>
     </div>
     <div class="step-editor">
       ${body}
@@ -2299,9 +2302,45 @@ function _refreshStepEditor(sc) {
   const scrollTop = scrollParent ? scrollParent.scrollTop : 0;
   container.innerHTML = renderStepEditor(sc);
   if (scrollParent) scrollParent.scrollTop = scrollTop;
+  _updateUndoButton();
 }
 
 // ── Step editing → modifies script directly ──────────
+
+/** Undo history for step edits — stores up to 10 previous script snapshots */
+const _undoStack = [];     // Array of { scenarioId, script }
+const UNDO_MAX = 10;
+
+/** Push current script onto undo stack before a mutation */
+function _pushUndo(sc) {
+  _undoStack.push({ scenarioId: sc.id, script: sc.script });
+  if (_undoStack.length > UNDO_MAX) _undoStack.shift();
+  _updateUndoButton();
+}
+
+/** Undo the last step edit */
+function undoStepEdit() {
+  if (_undoStack.length === 0) return;
+  const entry = _undoStack.pop();
+  const sc = scenarios.find(s => s.id === entry.scenarioId);
+  if (!sc) { _updateUndoButton(); return; }
+  sc.script = entry.script;
+  _refreshStepEditor(sc);
+  _autoSaveScenario(sc);
+  _updateUndoButton();
+  toast('Step edit undone', 'info');
+}
+
+/** Update the undo button's disabled state */
+function _updateUndoButton() {
+  const btn = document.getElementById('undoStepBtn');
+  if (btn) {
+    btn.disabled = _undoStack.length === 0;
+    btn.title = _undoStack.length > 0
+      ? `Undo (${_undoStack.length}/${UNDO_MAX}) — Ctrl+Z`
+      : 'Nothing to undo';
+  }
+}
 
 /** Debounce timer for auto-saving after step edits */
 let _stepSaveTimer = null;
@@ -2335,6 +2374,7 @@ function _updateStepInScript(sc, step) {
 function onStepActionChange(scenarioId, stepIndex, newAction) {
   const sc = scenarios.find(s => s.id === scenarioId);
   if (!sc?.steps?.[stepIndex]) return;
+  _pushUndo(sc);
   const step = sc.steps[stepIndex];
   const config = STEP_ACTION_CONFIG[newAction] || {};
   step.action = newAction;
@@ -2348,6 +2388,7 @@ function onStepActionChange(scenarioId, stepIndex, newAction) {
 function onStepFieldChange(scenarioId, stepIndex, field, value) {
   const sc = scenarios.find(s => s.id === scenarioId);
   if (!sc?.steps?.[stepIndex]) return;
+  _pushUndo(sc);
   const step = sc.steps[stepIndex];
   step[field] = value;
   _updateStepInScript(sc, step);
@@ -2357,6 +2398,7 @@ function onStepFieldChange(scenarioId, stepIndex, field, value) {
 function onStepScreenshotToggle(scenarioId, stepIndex, event) {
   const sc = scenarios.find(s => s.id === scenarioId);
   if (!sc?.steps?.[stepIndex]) return;
+  _pushUndo(sc);
   const step = sc.steps[stepIndex];
   step.screenshot = !step.screenshot;
   _updateStepInScript(sc, step);
@@ -2369,6 +2411,7 @@ function onStepScreenshotToggle(scenarioId, stepIndex, event) {
 function onStepDelete(scenarioId, stepIndex) {
   const sc = scenarios.find(s => s.id === scenarioId);
   if (!sc?.steps?.[stepIndex]) return;
+  _pushUndo(sc);
   const step = sc.steps[stepIndex];
   // Count occurrences of this sourceText before this step (for duplicate handling)
   let occurrence = 0;
@@ -3637,6 +3680,18 @@ function confirmDialog(message, { title = "Confirm", okLabel = "Delete" } = {}) 
     document.getElementById("confirmModalCancel").addEventListener("click", onCancel);
   });
 }
+
+// Ctrl+Z undo for step edits (only when not focused on a text input/textarea)
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+    const tag = document.activeElement?.tagName;
+    const isTextInput = tag === 'TEXTAREA' || (tag === 'INPUT' && ['text','search','url','email','password','number'].includes(document.activeElement.type));
+    if (!isTextInput && _undoStack.length > 0 && document.getElementById('undoStepBtn')) {
+      e.preventDefault();
+      undoStepEdit();
+    }
+  }
+});
 
 // Close modals on Escape
 document.addEventListener("keydown", (e) => {
