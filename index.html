@@ -820,12 +820,17 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 24px;
+    flex: 1;
     min-height: 0;
   }
   .plan-columns .plan-col {
     min-height: 0;
     overflow-y: auto;
+    max-height: 100%;
   }
+  .plan-columns .plan-col::-webkit-scrollbar { width: 6px; }
+  .plan-columns .plan-col::-webkit-scrollbar-track { background: transparent; }
+  .plan-columns .plan-col::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
   .step-tracker {
     margin-top: 12px;
@@ -3321,7 +3326,7 @@ function showLivePlanTracker() {
         <button class="btn btn-danger btn-sm" onclick="stopPlanExecution()">Stop</button>
       </div>
     </div>
-    <div class="detail-body">
+    <div class="detail-body" style="display:flex;flex-direction:column;overflow:hidden;">
       <div class="plan-columns">
         <div class="plan-col">
           <div class="section-header">Scenarios</div>
@@ -3395,6 +3400,20 @@ function renderPlanTracker() {
       stepContainer.innerHTML = "";
     }
   }
+
+  // Auto-scroll each column to the active (running) item
+  requestAnimationFrame(() => {
+    const scenarioCol = document.getElementById("planTrackerList")?.parentElement;
+    if (scenarioCol) {
+      const activeScenario = scenarioCol.querySelector(".step-running");
+      if (activeScenario) activeScenario.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+    const stepCol = document.getElementById("planNestedStepTracker");
+    if (stepCol) {
+      const activeStep = stepCol.querySelector(".step-running") || stepCol.querySelector(".step-failed");
+      if (activeStep) activeStep.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  });
 }
 
 async function stopPlanExecution() {
