@@ -5143,12 +5143,19 @@ async function startCleanup(scenarioId) {
   const result = await window.zoniq.cleanupScript(scenarioId);
 
   if (result.error) { toast(result.error, "error"); showScenarioDetail(selectedScenario); return; }
-  if (result.removedCount === 0) { toast("Script is already clean — no redundancies found", "success"); showScenarioDetail(selectedScenario); return; }
+  if (result.removedCount === 0) {
+    // No rule-based changes, but still show the result view so user can run AI cleanup
+    result.originalScript = result.originalScript || (scenarios.find(s => s.id === scenarioId) || {}).script;
+    result.cleanedScript = result.cleanedScript || result.originalScript;
+    showCleanupResult(result, scenarioId, { noRuleChanges: true });
+    return;
+  }
 
   showCleanupResult(result, scenarioId);
 }
 
-function showCleanupResult(result, scenarioId) {
+function showCleanupResult(result, scenarioId, opts) {
+  const noRuleChanges = opts?.noRuleChanges || false;
   currentView = "cleanup-result";
   const el = document.getElementById("detailContent");
   const empty = document.getElementById("detailEmpty");
@@ -5168,15 +5175,18 @@ function showCleanupResult(result, scenarioId) {
   el.innerHTML = `
     <div class="detail-header">
       <div>
-        <div class="detail-title">Cleanup Results</div>
+        <div class="detail-title">${noRuleChanges ? "No Redundancies Found" : "Cleanup Results"}</div>
         <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
-          <span id="cleanupSelectedCount">${result.removedCount}</span> of ${result.removedCount} change${result.removedCount !== 1 ? 's' : ''} selected
+          ${noRuleChanges
+            ? "Rule-based cleanup found no issues. Try AI cleanup for deeper analysis."
+            : `<span id="cleanupSelectedCount">${result.removedCount}</span> of ${result.removedCount} change${result.removedCount !== 1 ? 's' : ''} selected`
+          }
         </div>
       </div>
       <div class="btn-group">
-        <button class="btn btn-ai" onclick="applyCleanedScript('${scenarioId}')">Apply Cleanup</button>
+        ${noRuleChanges ? "" : `<button class="btn btn-ai" onclick="applyCleanedScript('${scenarioId}')">Apply Cleanup</button>`}
         <button class="btn" onclick="startAICleanup('${scenarioId}')" id="btnAICleanup">&#10024; AI Cleanup</button>
-        <button class="btn" onclick="showScenarioDetail(selectedScenario)">Discard</button>
+        <button class="btn" onclick="showScenarioDetail(selectedScenario)">${noRuleChanges ? "Back" : "Discard"}</button>
       </div>
     </div>
     <div class="detail-body">
