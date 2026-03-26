@@ -1452,7 +1452,7 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
                 // Also enrich from parsed script steps
                 try {
                   const steps = ScriptUtils.parseScriptToSteps(script);
-                  if (steps.length) elDB = ElementDB.enrichFromSteps(elDB, steps);
+                  if (steps.length) elDB = ElementDB.enrichFromSteps(elDB, steps, normalizedUrl);
                 } catch {}
                 saveElementDBForApp(app.id, elDB);
                 console.log(`[recorder] Captured ${discovered.length} elements for app "${app.name}"`);
@@ -1624,7 +1624,7 @@ ipcMain.handle("launch-recorder-from-step", async (event, { scenario, stepIndex 
                 });
                 try {
                   const steps = ScriptUtils.parseScriptToSteps(mergedScript);
-                  if (steps.length) elDB = ElementDB.enrichFromSteps(elDB, steps);
+                  if (steps.length) elDB = ElementDB.enrichFromSteps(elDB, steps, normalizedUrl);
                 } catch {}
                 saveElementDBForApp(app.id, elDB);
                 console.log(`[recorder-from-step] Captured ${discovered.length} elements`);
