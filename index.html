@@ -3074,11 +3074,12 @@ function showPlanDetail(plan) {
     return `
     <div class="step-tracker-item step-pending" style="display:flex;align-items:center;gap:8px;padding:10px 14px;">
       <span style="min-width:24px;text-align:center;font-weight:600;color:var(--text-secondary);">${i + 1}</span>
-      <div style="flex:1;">
+      <div style="flex:1;${sc ? 'cursor:pointer;' : ''}" ${sc ? `onclick="selectScenario('${sid}')"` : ''}>
         <div style="font-size:13px;">${name}</div>
         ${url}
       </div>
       <div class="btn-group" style="gap:2px;">
+        ${sc ? `<button class="btn btn-sm" onclick="event.stopPropagation();selectScenario('${sid}')" title="Go to scenario" style="padding:2px 8px;font-size:13px;">&#10132;</button>` : ''}
         <button class="btn btn-sm" onclick="movePlanScenario('${plan.id}', ${i}, -1)" ${i === 0 ? 'disabled' : ''} title="Move up" style="padding:2px 6px;font-size:14px;">&#9650;</button>
         <button class="btn btn-sm" onclick="movePlanScenario('${plan.id}', ${i}, 1)" ${i === (plan.scenarioIds || []).length - 1 ? 'disabled' : ''} title="Move down" style="padding:2px 6px;font-size:14px;">&#9660;</button>
         <button class="btn btn-sm btn-danger" onclick="removeScenarioFromPlan('${plan.id}', ${i})" title="Remove" style="padding:2px 8px;">&#10005;</button>
