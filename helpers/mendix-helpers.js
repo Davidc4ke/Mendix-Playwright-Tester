@@ -281,7 +281,8 @@ async function smartSelect(page, locator, value, options = {}) {
     const optionLabelsAll = await locator.first().locator("option").allTextContents().catch(() => []);
     const isAlreadyLabel = optionLabelsAll.some(t => t.trim() === value);
     if (!isAlreadyLabel) {
-      const resolved = await locator.first().locator(`option[value="${CSS.escape(value)}"]`).textContent().catch(() => null);
+      const escapedValue = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const resolved = await locator.first().locator(`option[value="${escapedValue}"]`).textContent().catch(() => null);
       if (resolved && resolved.trim()) {
         labelToSelect = resolved.trim();
         // Emit marker so the runner can replace this value in the stored script
