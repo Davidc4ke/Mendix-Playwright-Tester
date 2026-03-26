@@ -2081,8 +2081,61 @@ function _initDetailTabs() {
       document.querySelectorAll('.detail-tab-panel').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById(`dtab-${tab.dataset.dtab}`).classList.add('active');
+
+      // Sync textarea when switching to Script tab
+      if (tab.dataset.dtab === 'script' && selectedScenario) {
+        const ta = document.getElementById('scriptTabTextarea');
+        if (ta) ta.value = selectedScenario.script || '// No script defined';
+      }
+
+      // Re-parse steps when switching to Steps tab (script may have been edited)
+      if (tab.dataset.dtab === 'steps' && selectedScenario) {
+        _refreshStepEditor(selectedScenario);
+      }
     });
   });
+
+  // Wire up script textarea editing
+  const scriptTA = document.getElementById('scriptTabTextarea');
+  if (scriptTA) {
+    let undoPushed = false;
+
+    scriptTA.addEventListener('focus', () => {
+      if (!undoPushed && selectedScenario) {
+        _pushUndo(selectedScenario);
+        undoPushed = true;
+      }
+    });
+
+    scriptTA.addEventListener('input', () => {
+      if (!selectedScenario) return;
+      selectedScenario.script = scriptTA.value;
+      _autoSaveScenario(selectedScenario);
+      // Update step count in the Steps tab button
+      const stepsTab = document.querySelector('.detail-tab[data-dtab="steps"] .tab-count');
+      if (stepsTab) {
+        try {
+          const steps = parseScriptToSteps(scriptTA.value);
+          stepsTab.textContent = `(${steps.length})`;
+        } catch (e) { /* script may be mid-edit and unparseable */ }
+      }
+    });
+
+    scriptTA.addEventListener('blur', () => {
+      undoPushed = false;
+    });
+
+    scriptTA.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const start = scriptTA.selectionStart;
+        const end = scriptTA.selectionEnd;
+        scriptTA.value = scriptTA.value.substring(0, start) + '  ' + scriptTA.value.substring(end);
+        scriptTA.selectionStart = scriptTA.selectionEnd = start + 2;
+        scriptTA.dispatchEvent(new Event('input'));
+      }
+    });
+  }
 }
 
 function toggleStepCode(codeId, btn) {
@@ -2417,7 +2470,7 @@ function showScenarioDetail(sc) {
       <div id="stepEditorContainer">${renderStepEditor(sc)}</div>
     </div>
     <div class="detail-tab-panel" id="dtab-script">
-      <pre class="script-area" style="min-height:60px;max-height:none;overflow-y:auto;cursor:default;resize:none;" readonly>${esc(sc.script || '// No script defined')}</pre>
+      <textarea class="script-area" id="scriptTabTextarea" style="min-height:60px;max-height:none;overflow-y:auto;resize:vertical;" spellcheck="false">${esc(sc.script || '// No script defined')}</textarea>
     </div>
     <div class="detail-tab-panel" id="dtab-runs">
       ${lastRuns.length ? lastRuns.map((r) => `
