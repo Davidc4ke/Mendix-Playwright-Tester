@@ -1259,9 +1259,8 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
       env: getPlaywrightEnv({ ELECTRON_RUN_AS_NODE: "1" }),
     });
 
-    // Collect GUID→label map and value echoes emitted by the recorder
+    // Collect GUID→label map emitted by the recorder
     const recorderGuidMap = new Map();
-    const recorderEchoes = [];
     proc.stdout.on("data", (chunk) => {
       const text = chunk.toString();
       console.log(`[recorder stdout] ${text}`);
@@ -1276,16 +1275,6 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
             }
           } catch (e) {
             console.error("[recorder] Failed to parse GUID map:", e.message);
-          }
-        }
-        // Parse value echoes (for fallback auto-capture)
-        const echoIdx = line.indexOf("[ZONIQ_VALUE_ECHOES]");
-        if (echoIdx !== -1) {
-          try {
-            const arr = JSON.parse(line.slice(echoIdx + "[ZONIQ_VALUE_ECHOES]".length));
-            recorderEchoes.push(...arr);
-          } catch (e) {
-            console.error("[recorder] Failed to parse value echoes:", e.message);
           }
         }
       }
@@ -1316,13 +1305,6 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
               fs.writeFileSync(outputPath, script);
               console.log(`[recorder] Fallback: replaced ${patched} remaining GUID(s) with labels`);
             }
-          }
-
-          // Log value echoes for debugging (recorder already applied them to the script file;
-          // re-read the file to pick up any echo-based rewrites)
-          if (recorderEchoes.length > 0) {
-            console.log(`[recorder] ${recorderEchoes.length} value echo(es) detected during recording`);
-            script = fs.readFileSync(outputPath, "utf-8");
           }
 
           // Process captured elements from sidecar file

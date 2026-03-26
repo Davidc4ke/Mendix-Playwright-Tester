@@ -192,19 +192,6 @@ Use `{{varName}}` in any step's value field to reference a previously captured v
 
 The UI groups steps into phases by login events, making multi-user flows easy to read.
 
-### Automatic Value Echo Detection (Zero-Effort)
-
-The recorder automatically detects dynamic value reuse during recording — no manual Capture steps needed:
-
-1. **Value Observatory** (`recorder.js` init script) — tracks "interesting" text values appearing on the page (ticket IDs, reference numbers, codes) in a Value Bank
-2. **Input echo detection** — when the user types a value that was previously observed on the page, it's flagged as a "value echo"
-3. **Clipboard tracking** — copy/paste events provide the highest-confidence correlation signal
-4. **Post-recording rewrite** — `applyValueEchoes()` automatically inserts `const varName = ...` captures and replaces hardcoded values with variable references
-
-This follows the same pattern as GUID→label replacement: observe during recording, rewrite script after. The output script uses standard `const` + bare variable syntax, fully compatible with the Capture step parser.
-
-**Filtering:** Only values 3+ chars that contain digits or structural patterns (TK-123, REQ-2024-001) are tracked. Common UI words (Yes, No, Save, etc.) are blocklisted.
-
 ## Zero Manual Editing Principle
 
 **Users must NEVER be asked to manually edit steps, selectors, or values to fix targeting issues.** All Mendix quirks (dynamic GUIDs, disabled-while-loading elements, async option loading, fragile widget IDs) must be handled automatically at runtime by `wrapScript()` transformations and `mendix-helpers.js`. If a recorded script doesn't work out of the box, that is a bug in the runtime layer — fix it there, not by telling the user to edit their script. This applies to:
