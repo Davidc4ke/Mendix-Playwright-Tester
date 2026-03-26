@@ -3095,6 +3095,7 @@ function showPlanDetail(plan) {
         ${url}
       </div>
       <div class="btn-group" style="gap:2px;">
+        <button class="btn btn-sm" onclick="executePlanToScenario('${plan.id}', ${i})" title="Run plan up to and including this scenario" style="padding:2px 8px;font-size:11px;">Run to here</button>
         ${sc ? `<button class="btn btn-sm" onclick="event.stopPropagation();selectScenario('${sid}')" title="Go to scenario" style="padding:2px 8px;font-size:13px;">&#10132;</button>` : ''}
         <button class="btn btn-sm" onclick="movePlanScenario('${plan.id}', ${i}, -1)" ${i === 0 ? 'disabled' : ''} title="Move up" style="padding:2px 6px;font-size:14px;">&#9650;</button>
         <button class="btn btn-sm" onclick="movePlanScenario('${plan.id}', ${i}, 1)" ${i === (plan.scenarioIds || []).length - 1 ? 'disabled' : ''} title="Move down" style="padding:2px 6px;font-size:14px;">&#9660;</button>
@@ -3303,6 +3304,19 @@ async function executePlan(planId) {
   }
   toast("Starting plan execution...", "info");
   await window.zoniq.executePlan(plan);
+}
+
+async function executePlanToScenario(planId, scenarioIndex) {
+  const plan = plans.find(p => p.id === planId);
+  if (!plan) return;
+  if (!(plan.scenarioIds || []).length) {
+    toast("Plan has no scenarios to run", "error");
+    return;
+  }
+  const sc = scenarios.find(s => s.id === plan.scenarioIds[scenarioIndex]);
+  const label = sc ? sc.name : `scenario ${scenarioIndex + 1}`;
+  toast(`Running plan up to "${label}"...`, "info");
+  await window.zoniq.executePlan({ ...plan, upToIndex: scenarioIndex });
 }
 
 // ── Plan Execution Tracker ──
