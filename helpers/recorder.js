@@ -151,7 +151,6 @@ function replaceGuidsInScript(guidToLabel) {
     }
   });
 
-
   // Hide Playwright's recorder highlight overlays when not wanted
   if (showHighlights !== "true") {
     await context.addInitScript(() => {
