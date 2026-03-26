@@ -37,6 +37,14 @@ contextBridge.exposeInMainWorld("zoniq", {
   getAnalyses: (opts) => ipcRenderer.invoke("get-analyses", opts),
   deleteAnalysis: (id) => ipcRenderer.invoke("delete-analysis", id),
 
+  // Plans
+  getPlans: () => ipcRenderer.invoke("get-plans"),
+  savePlan: (p) => ipcRenderer.invoke("save-plan", p),
+  deletePlan: (id) => ipcRenderer.invoke("delete-plan", id),
+  duplicatePlan: (id) => ipcRenderer.invoke("duplicate-plan", id),
+  executePlan: (p) => ipcRenderer.invoke("execute-plan", p),
+  stopPlanExecution: () => ipcRenderer.invoke("stop-plan-execution"),
+
   // Script cleanup
   cleanupScript: (scenarioId) => ipcRenderer.invoke("cleanup-script", scenarioId),
   cleanupScriptAI: (scenarioId) => ipcRenderer.invoke("cleanup-script-ai", scenarioId),
@@ -81,5 +89,27 @@ contextBridge.exposeInMainWorld("zoniq", {
     const handler = (_, data) => cb(data);
     ipcRenderer.on("recorder-from-step-status", handler);
     return () => ipcRenderer.removeListener("recorder-from-step-status", handler);
+  },
+
+  // Plan event listeners
+  onPlanRunStarted: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("plan-run-started", handler);
+    return () => ipcRenderer.removeListener("plan-run-started", handler);
+  },
+  onPlanScenarioStarted: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("plan-scenario-started", handler);
+    return () => ipcRenderer.removeListener("plan-scenario-started", handler);
+  },
+  onPlanScenarioCompleted: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("plan-scenario-completed", handler);
+    return () => ipcRenderer.removeListener("plan-scenario-completed", handler);
+  },
+  onPlanRunCompleted: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("plan-run-completed", handler);
+    return () => ipcRenderer.removeListener("plan-run-completed", handler);
   },
 });

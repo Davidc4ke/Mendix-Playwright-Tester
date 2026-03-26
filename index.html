@@ -1555,6 +1555,7 @@
     <div class="sidebar">
       <div class="sidebar-tabs">
         <button class="sidebar-tab active" data-panel="scenarios">Scenarios</button>
+        <button class="sidebar-tab" data-panel="plans">Plans</button>
         <button class="sidebar-tab" data-panel="runs">Test Runs</button>
         <button class="sidebar-tab" data-panel="apps">Apps</button>
       </div>
@@ -1573,6 +1574,19 @@
           <div class="empty-state">
             <div class="empty-state-icon">&#9881;</div>
             <p>No test scenarios yet. Create one or record a browser session.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Plans Panel -->
+      <div class="sidebar-panel" id="panel-plans">
+        <div class="sidebar-actions">
+          <button class="btn btn-primary" onclick="openNewPlanModal()">+ New Plan</button>
+        </div>
+        <div class="sidebar-list" id="planList">
+          <div class="empty-state">
+            <div class="empty-state-icon">&#128209;</div>
+            <p>No plans yet. Create one to chain multiple scenarios together.</p>
           </div>
         </div>
       </div>
@@ -1819,6 +1833,33 @@
   </div>
 </div>
 
+<!-- ── Plan Modal ─────────────────────────────────── -->
+<div class="modal-overlay" id="planModal">
+  <div class="modal" style="width:500px;">
+    <div class="modal-title" id="planModalTitle">New Plan</div>
+    <div class="form-group">
+      <label>Plan Name</label>
+      <input class="form-input" id="planName" placeholder="e.g. Full Regression Suite" />
+    </div>
+    <div class="form-group">
+      <label>Description (optional)</label>
+      <input class="form-input" id="planDescription" placeholder="What this plan tests" />
+    </div>
+    <div class="form-group">
+      <label>Scenarios</label>
+      <div id="planScenarioList" style="margin-bottom:8px;max-height:240px;overflow-y:auto;"></div>
+      <select class="form-input" id="planScenarioAdd" onchange="addScenarioToPlanModal(this.value); this.value='';" style="font-size:12px;">
+        <option value="">+ Add scenario...</option>
+      </select>
+    </div>
+    <input type="hidden" id="planEditId" />
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('planModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="savePlanFromModal()">Save Plan</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Confirm Dialog ─────────────────────────────── -->
 <div class="modal-overlay" id="confirmModal">
   <div class="modal" style="width:400px;">
@@ -1847,7 +1888,10 @@ let selectedScenario = null;
 let selectedRun = null;
 let selectedApp = null;
 let selectedAppFilter = ''; // appId or '' for all
-let currentView = null; // 'scenario' | 'run' | 'health' | 'app'
+let plans = [];
+let selectedPlan = null;
+let activePlanRun = null; // { planRunId, scenarioRuns: [...] } — tracks live plan execution
+let currentView = null; // 'scenario' | 'run' | 'health' | 'app' | 'plan' | 'planRun'
 let activeStepRun = null; // { runId, steps: [...] } — tracks live step execution
 
 const STEP_ACTION_CONFIG = ScriptUtils.STEP_ACTION_CONFIG;
@@ -1900,6 +1944,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       } else if (panel === "runs") {
         if (runs.length) { selectedRun = runs[0]; renderRunList(); showRunDetail(selectedRun); }
         else { selectedRun = null; renderRunList(); document.getElementById("detailContent").style.display = "none"; document.getElementById("detailEmpty").style.display = "flex"; }
+      } else if (panel === "plans") {
+        if (plans.length) { selectPlan(plans[0].id); }
+        else { selectedPlan = null; renderPlanList(); document.getElementById("detailContent").style.display = "none"; document.getElementById("detailEmpty").style.display = "flex"; }
       } else if (panel === "apps") {
         if (apps.length) { selectApp(apps[0].id); }
         else { selectedApp = null; renderAppList(); document.getElementById("detailContent").style.display = "none"; document.getElementById("detailEmpty").style.display = "flex"; }
@@ -1910,16 +1957,24 @@ document.addEventListener("DOMContentLoaded", async () => {
   await runHealthCheck();
   await loadApps();
   await loadScenarios();
+  await loadPlans();
   await loadRuns();
   await loadUrlHistory();
 
   // Listen for run events
   window.zoniq.onRunStarted((run) => {
+    // During plan execution, don't switch to individual runs
+    if (activePlanRun) return;
     toast(`Test started: ${run.testName}`, "info");
     loadRuns().then(() => selectRunById(run.runId));
   });
 
   window.zoniq.onRunCompleted((run) => {
+    // During plan execution, don't show individual run toasts/navigation
+    if (activePlanRun) {
+      activeStepRun = null;
+      return;
+    }
     const type = run.status === "passed" ? "success" : "error";
     const label = run.status === "passed" ? "PASSED" : "FAILED";
     toast(`${run.testName} — ${label}`, type);
@@ -1954,6 +2009,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Step tracking events
   window.zoniq.onStepList(({ runId, steps }) => {
     activeStepRun = { runId, steps: steps.map(s => ({ ...s, status: "pending", startedAt: null, error: null })) };
+    // During plan execution, update plan tracker instead of switching to runs tab
+    if (activePlanRun) {
+      renderPlanTracker();
+      return;
+    }
     // Switch to runs tab so the live step tracker is visible
     document.querySelectorAll(".sidebar-tab").forEach((t) => t.classList.remove("active"));
     document.querySelectorAll(".sidebar-panel").forEach((p) => p.classList.remove("active"));
@@ -1979,7 +2039,54 @@ document.addEventListener("DOMContentLoaded", async () => {
       step.error = error || "Unknown error";
       step.elapsed = step.startedAt ? Date.now() - step.startedAt : null;
     }
-    renderStepTracker();
+    if (activePlanRun) renderPlanTracker();
+    else renderStepTracker();
+  });
+
+  // Plan tracking events
+  window.zoniq.onPlanRunStarted(({ planRunId, planId, planName, scenarioRuns }) => {
+    toast(`Plan started: ${planName}`, "info");
+    activePlanRun = { planRunId, planId, planName, scenarioRuns: scenarioRuns.map(sr => ({ ...sr, status: "pending" })) };
+    showLivePlanTracker();
+  });
+
+  window.zoniq.onPlanScenarioStarted(({ planRunId, scenarioId, scenarioIndex }) => {
+    if (!activePlanRun || activePlanRun.planRunId !== planRunId) return;
+    activePlanRun.scenarioRuns[scenarioIndex].status = "running";
+    renderPlanTracker();
+  });
+
+  window.zoniq.onPlanScenarioCompleted(({ planRunId, scenarioId, scenarioIndex, status, runId }) => {
+    if (!activePlanRun || activePlanRun.planRunId !== planRunId) return;
+    activePlanRun.scenarioRuns[scenarioIndex].status = status;
+    activePlanRun.scenarioRuns[scenarioIndex].runId = runId;
+    activeStepRun = null;
+    renderPlanTracker();
+  });
+
+  window.zoniq.onPlanRunCompleted(({ planRunId, status, scenarioRuns }) => {
+    if (!activePlanRun || activePlanRun.planRunId !== planRunId) return;
+    const type = status === "passed" ? "success" : "error";
+    toast(`Plan ${status === "passed" ? "PASSED" : "FAILED"}`, type);
+    // Update scenario statuses (especially skipped ones)
+    if (scenarioRuns) {
+      scenarioRuns.forEach((sr, i) => {
+        if (activePlanRun.scenarioRuns[i]) {
+          activePlanRun.scenarioRuns[i].status = sr.status;
+          activePlanRun.scenarioRuns[i].runId = sr.runId;
+        }
+      });
+    }
+    renderPlanTracker();
+    // After delay, show completed plan run detail
+    setTimeout(() => {
+      const completedPlanRunId = activePlanRun?.planRunId;
+      activePlanRun = null;
+      activeStepRun = null;
+      loadRuns().then(() => loadPlans()).then(() => {
+        if (completedPlanRunId) selectRunById(completedPlanRunId);
+      });
+    }, 2000);
   });
 });
 
@@ -2921,6 +3028,436 @@ function saveGeneratedScript() {
 }
 
 // ════════════════════════════════════════════════════
+//  Plans
+// ════════════════════════════════════════════════════
+
+async function loadPlans() {
+  plans = await window.zoniq.getPlans();
+  renderPlanList();
+}
+
+function renderPlanList() {
+  const container = document.getElementById("planList");
+  if (!plans.length) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">&#128209;</div><p>No plans yet. Create one to chain multiple scenarios together.</p></div>`;
+    return;
+  }
+  container.innerHTML = plans.map(p => {
+    const count = (p.scenarioIds || []).length;
+    return `
+    <div class="scenario-card ${selectedPlan?.id === p.id ? 'selected' : ''}" onclick="selectPlan('${p.id}')">
+      <div class="card-title">${esc(p.name)}</div>
+      <div class="card-url">${count} scenario${count !== 1 ? 's' : ''}${p.description ? ' — ' + esc(p.description) : ''}</div>
+      <div class="card-meta">${timeAgo(p.updatedAt || p.createdAt)}</div>
+    </div>`;
+  }).join("");
+}
+
+function selectPlan(id) {
+  selectedPlan = plans.find(p => p.id === id);
+  if (!selectedPlan) return;
+  renderPlanList();
+  showPlanDetail(selectedPlan);
+}
+
+function showPlanDetail(plan) {
+  currentView = "plan";
+  const el = document.getElementById("detailContent");
+  const empty = document.getElementById("detailEmpty");
+  empty.style.display = "none";
+  el.style.display = "flex";
+
+  const scenarioItems = (plan.scenarioIds || []).map((sid, i) => {
+    const sc = scenarios.find(s => s.id === sid);
+    const name = sc ? esc(sc.name) : '<em style="color:var(--text-secondary)">Deleted scenario</em>';
+    const url = sc ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${esc(sc.targetUrl || '')}</div>` : '';
+    return `
+    <div class="step-tracker-item step-pending" style="display:flex;align-items:center;gap:8px;padding:10px 14px;">
+      <span style="min-width:24px;text-align:center;font-weight:600;color:var(--text-secondary);">${i + 1}</span>
+      <div style="flex:1;">
+        <div style="font-size:13px;">${name}</div>
+        ${url}
+      </div>
+      <div class="btn-group" style="gap:2px;">
+        <button class="btn btn-sm" onclick="movePlanScenario('${plan.id}', ${i}, -1)" ${i === 0 ? 'disabled' : ''} title="Move up" style="padding:2px 6px;font-size:14px;">&#9650;</button>
+        <button class="btn btn-sm" onclick="movePlanScenario('${plan.id}', ${i}, 1)" ${i === (plan.scenarioIds || []).length - 1 ? 'disabled' : ''} title="Move down" style="padding:2px 6px;font-size:14px;">&#9660;</button>
+        <button class="btn btn-sm btn-danger" onclick="removeScenarioFromPlan('${plan.id}', ${i})" title="Remove" style="padding:2px 8px;">&#10005;</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  // Plan runs (from runs array, filtered by planId)
+  const planRuns = runs.filter(r => r.planId === plan.id).slice(0, 5);
+  const planRunsHtml = planRuns.length ? planRuns.map(r => `
+    <div class="run-card" onclick="selectRunById('${r.runId}')" style="cursor:pointer;">
+      <div class="card-title">
+        <span class="badge badge-${r.status}">${r.status}</span>
+        ${esc(r.testName || 'Plan Run')}
+      </div>
+      <div class="card-meta">${timeAgo(r.completedAt || r.startedAt)}</div>
+    </div>
+  `).join("") : '<div style="color:var(--text-secondary);font-size:12px;padding:8px 0;">No runs yet.</div>';
+
+  el.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">${esc(plan.name)}</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
+          ${(plan.scenarioIds || []).length} scenario${(plan.scenarioIds || []).length !== 1 ? 's' : ''}
+          ${plan.description ? ' — ' + esc(plan.description) : ''}
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary btn-sm" onclick="executePlan('${plan.id}')">&#9654; Run Plan</button>
+        <button class="btn btn-sm" onclick="openEditPlanModal('${plan.id}')">Edit</button>
+        <button class="btn btn-sm" onclick="duplicatePlan('${plan.id}')">Duplicate</button>
+        <button class="btn btn-sm btn-danger" onclick="deletePlan('${plan.id}')">Delete</button>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="section-header">Scenarios</div>
+      <div class="step-tracker" style="margin-bottom:16px;">
+        ${scenarioItems || '<div style="color:var(--text-secondary);font-size:12px;padding:8px;">No scenarios added yet. Click Edit to add scenarios.</div>'}
+      </div>
+      <div style="margin-bottom:16px;">
+        <select class="form-input" onchange="addScenarioToPlanDirect('${plan.id}', this.value); this.value='';" style="font-size:12px;max-width:300px;">
+          <option value="">+ Add scenario...</option>
+          ${scenarios.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="section-header">Recent Runs</div>
+      ${planRunsHtml}
+    </div>
+  `;
+}
+
+// ── Plan CRUD helpers ──
+
+function openNewPlanModal() {
+  document.getElementById("planModalTitle").textContent = "New Plan";
+  document.getElementById("planName").value = "";
+  document.getElementById("planDescription").value = "";
+  document.getElementById("planEditId").value = "";
+  _planModalScenarioIds = [];
+  _renderPlanModalScenarios();
+  _populatePlanScenarioDropdown();
+  openModal("planModal");
+}
+
+function openEditPlanModal(id) {
+  const plan = plans.find(p => p.id === id);
+  if (!plan) return;
+  document.getElementById("planModalTitle").textContent = "Edit Plan";
+  document.getElementById("planName").value = plan.name || "";
+  document.getElementById("planDescription").value = plan.description || "";
+  document.getElementById("planEditId").value = plan.id;
+  _planModalScenarioIds = [...(plan.scenarioIds || [])];
+  _renderPlanModalScenarios();
+  _populatePlanScenarioDropdown();
+  openModal("planModal");
+}
+
+let _planModalScenarioIds = [];
+
+function _populatePlanScenarioDropdown() {
+  const select = document.getElementById("planScenarioAdd");
+  select.innerHTML = `<option value="">+ Add scenario...</option>` +
+    scenarios.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("");
+}
+
+function _renderPlanModalScenarios() {
+  const container = document.getElementById("planScenarioList");
+  if (!_planModalScenarioIds.length) {
+    container.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:4px;">No scenarios added.</div>';
+    return;
+  }
+  container.innerHTML = _planModalScenarioIds.map((sid, i) => {
+    const sc = scenarios.find(s => s.id === sid);
+    const name = sc ? esc(sc.name) : 'Deleted scenario';
+    return `
+    <div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;margin-bottom:4px;">
+      <span style="min-width:20px;text-align:center;font-size:11px;color:var(--text-secondary);font-weight:600;">${i + 1}</span>
+      <span style="flex:1;font-size:12px;">${name}</span>
+      <button class="btn btn-sm" onclick="_movePlanModalScenario(${i}, -1)" ${i === 0 ? 'disabled' : ''} style="padding:1px 5px;font-size:12px;">&#9650;</button>
+      <button class="btn btn-sm" onclick="_movePlanModalScenario(${i}, 1)" ${i === _planModalScenarioIds.length - 1 ? 'disabled' : ''} style="padding:1px 5px;font-size:12px;">&#9660;</button>
+      <button class="btn btn-sm" onclick="_removePlanModalScenario(${i})" style="padding:1px 5px;font-size:12px;color:var(--danger);">&#10005;</button>
+    </div>`;
+  }).join("");
+}
+
+function addScenarioToPlanModal(scenarioId) {
+  if (!scenarioId) return;
+  _planModalScenarioIds.push(scenarioId);
+  _renderPlanModalScenarios();
+}
+
+function _movePlanModalScenario(index, direction) {
+  const newIdx = index + direction;
+  if (newIdx < 0 || newIdx >= _planModalScenarioIds.length) return;
+  const temp = _planModalScenarioIds[index];
+  _planModalScenarioIds[index] = _planModalScenarioIds[newIdx];
+  _planModalScenarioIds[newIdx] = temp;
+  _renderPlanModalScenarios();
+}
+
+function _removePlanModalScenario(index) {
+  _planModalScenarioIds.splice(index, 1);
+  _renderPlanModalScenarios();
+}
+
+async function savePlanFromModal() {
+  const name = document.getElementById("planName").value.trim();
+  if (!name) { toast("Plan name is required", "error"); return; }
+  const plan = {
+    id: document.getElementById("planEditId").value || undefined,
+    name,
+    description: document.getElementById("planDescription").value.trim(),
+    scenarioIds: _planModalScenarioIds,
+  };
+  const saved = await window.zoniq.savePlan(plan);
+  closeModal("planModal");
+  toast("Plan saved", "success");
+  await loadPlans();
+  selectPlan(saved.id);
+}
+
+async function deletePlan(id) {
+  const plan = plans.find(p => p.id === id);
+  if (!plan) return;
+  const confirmed = await confirmDialog(`Delete "${plan.name}"? This cannot be undone.`, { title: "Delete Plan" });
+  if (!confirmed) return;
+  await window.zoniq.deletePlan(id);
+  toast("Plan deleted", "success");
+  selectedPlan = null;
+  await loadPlans();
+  if (plans.length) selectPlan(plans[0].id);
+  else { document.getElementById("detailContent").style.display = "none"; document.getElementById("detailEmpty").style.display = "flex"; }
+}
+
+async function duplicatePlan(id) {
+  const dup = await window.zoniq.duplicatePlan(id);
+  if (!dup) return;
+  toast("Plan duplicated", "success");
+  await loadPlans();
+  selectPlan(dup.id);
+}
+
+async function addScenarioToPlanDirect(planId, scenarioId) {
+  if (!scenarioId) return;
+  const plan = plans.find(p => p.id === planId);
+  if (!plan) return;
+  plan.scenarioIds = plan.scenarioIds || [];
+  plan.scenarioIds.push(scenarioId);
+  await window.zoniq.savePlan(plan);
+  await loadPlans();
+  selectPlan(planId);
+}
+
+async function removeScenarioFromPlan(planId, index) {
+  const plan = plans.find(p => p.id === planId);
+  if (!plan || !plan.scenarioIds) return;
+  plan.scenarioIds.splice(index, 1);
+  await window.zoniq.savePlan(plan);
+  await loadPlans();
+  selectPlan(planId);
+}
+
+async function movePlanScenario(planId, index, direction) {
+  const plan = plans.find(p => p.id === planId);
+  if (!plan || !plan.scenarioIds) return;
+  const newIdx = index + direction;
+  if (newIdx < 0 || newIdx >= plan.scenarioIds.length) return;
+  const temp = plan.scenarioIds[index];
+  plan.scenarioIds[index] = plan.scenarioIds[newIdx];
+  plan.scenarioIds[newIdx] = temp;
+  await window.zoniq.savePlan(plan);
+  await loadPlans();
+  selectPlan(planId);
+}
+
+async function executePlan(planId) {
+  const plan = plans.find(p => p.id === planId);
+  if (!plan) return;
+  if (!(plan.scenarioIds || []).length) {
+    toast("Plan has no scenarios to run", "error");
+    return;
+  }
+  toast("Starting plan execution...", "info");
+  await window.zoniq.executePlan(plan);
+}
+
+// ── Plan Execution Tracker ──
+
+function showLivePlanTracker() {
+  currentView = "planRun";
+  const el = document.getElementById("detailContent");
+  const empty = document.getElementById("detailEmpty");
+  empty.style.display = "none";
+  el.style.display = "flex";
+
+  el.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">Running Plan: ${esc(activePlanRun?.planName || 'Plan')}</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
+          Live plan progress
+        </div>
+      </div>
+      <div class="btn-group">
+        <span class="badge badge-running" style="font-size:12px;padding:4px 12px;">RUNNING</span>
+        <button class="btn btn-danger btn-sm" onclick="stopPlanExecution()">Stop</button>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="section-header">Scenarios</div>
+      <div class="step-tracker" id="planTrackerList"></div>
+      <div id="planStepTrackerContainer" style="margin-top:16px;"></div>
+    </div>
+  `;
+  renderPlanTracker();
+}
+
+function renderPlanTracker() {
+  const container = document.getElementById("planTrackerList");
+  if (!container || !activePlanRun) return;
+
+  container.innerHTML = activePlanRun.scenarioRuns.map((sr, i) => {
+    const sc = scenarios.find(s => s.id === sr.scenarioId);
+    const name = sc ? esc(sc.name) : esc(sr.scenarioName || 'Scenario');
+    let statusClass = "step-pending";
+    let indicator = String(i + 1);
+    if (sr.status === "running") { statusClass = "step-running"; indicator = ""; }
+    else if (sr.status === "passed") { statusClass = "step-done"; indicator = "&#10003;"; }
+    else if (sr.status === "failed" || sr.status === "error") { statusClass = "step-failed"; indicator = "&#10007;"; }
+    else if (sr.status === "skipped") { statusClass = "step-pending"; indicator = "&#8212;"; }
+
+    return `
+    <div class="step-tracker-item ${statusClass}">
+      <div class="step-indicator">${indicator}</div>
+      <div class="step-info">
+        <div class="step-desc">${name}</div>
+        ${sr.status === "skipped" ? '<div class="step-error" style="color:var(--text-secondary);">Skipped</div>' : ''}
+      </div>
+      <div class="step-status">${sr.status || 'pending'}</div>
+    </div>`;
+  }).join("");
+
+  // Show nested step tracker for the currently running scenario
+  const stepContainer = document.getElementById("planStepTrackerContainer");
+  if (stepContainer && activeStepRun) {
+    const runningIdx = activePlanRun.scenarioRuns.findIndex(sr => sr.status === "running");
+    if (runningIdx >= 0) {
+      const sc = scenarios.find(s => s.id === activePlanRun.scenarioRuns[runningIdx].scenarioId);
+      stepContainer.innerHTML = `
+        <div class="section-header">Steps — ${esc(sc?.name || 'Current Scenario')}</div>
+        <div class="step-tracker" id="planNestedStepTracker"></div>
+      `;
+      const nestedContainer = document.getElementById("planNestedStepTracker");
+      if (nestedContainer) {
+        nestedContainer.innerHTML = activeStepRun.steps.map((step) => {
+          const statusClass = `step-${step.status}`;
+          let indicator = "";
+          if (step.status === "pending") indicator = step.index < 0 ? "0" : String(step.index + 1);
+          else if (step.status === "running") indicator = "";
+          else if (step.status === "done") indicator = "&#10003;";
+          else if (step.status === "failed") indicator = "&#10007;";
+
+          const elapsedStr = step.elapsed != null ? `${(step.elapsed / 1000).toFixed(1)}s` : "";
+          return `
+          <div class="step-tracker-item ${statusClass}">
+            <div class="step-indicator">${indicator}</div>
+            <div class="step-info">
+              <div class="step-desc">${esc(step.description || step.action || '')}</div>
+              ${step.error ? `<div class="step-error">${esc(step.error)}</div>` : ''}
+            </div>
+            <div class="step-status">${elapsedStr || step.status}</div>
+          </div>`;
+        }).join("");
+      }
+    } else {
+      stepContainer.innerHTML = "";
+    }
+  }
+}
+
+async function stopPlanExecution() {
+  await window.zoniq.stopPlanExecution();
+  toast("Stopping plan after current scenario...", "info");
+}
+
+// ── Plan Run Detail (for completed plan runs) ──
+
+function showPlanRunDetail(run) {
+  currentView = "planRun";
+  const el = document.getElementById("detailContent");
+  const empty = document.getElementById("detailEmpty");
+  empty.style.display = "none";
+  el.style.display = "flex";
+
+  const scenarioRuns = run.scenarioRuns || [];
+  const summary = run.results?.summary || { total: scenarioRuns.length, passed: 0, failed: 0, skipped: 0 };
+
+  const scenarioItems = scenarioRuns.map((sr, i) => {
+    const sc = scenarios.find(s => s.id === sr.scenarioId);
+    const name = sc ? esc(sc.name) : esc(sr.scenarioName || 'Deleted scenario');
+    let statusClass = "step-pending";
+    let indicator = String(i + 1);
+    if (sr.status === "passed") { statusClass = "step-done"; indicator = "&#10003;"; }
+    else if (sr.status === "failed" || sr.status === "error") { statusClass = "step-failed"; indicator = "&#10007;"; }
+    else if (sr.status === "skipped") { statusClass = "step-pending"; indicator = "&#8212;"; }
+
+    const clickable = sr.runId ? `onclick="selectRunById('${sr.runId}')" style="cursor:pointer;"` : '';
+    return `
+    <div class="step-tracker-item ${statusClass}" ${clickable}>
+      <div class="step-indicator">${indicator}</div>
+      <div class="step-info">
+        <div class="step-desc">${name}</div>
+        ${sr.status === "skipped" ? '<div class="step-error" style="color:var(--text-secondary);">Skipped</div>' : ''}
+      </div>
+      <div class="step-status">${sr.status}</div>
+    </div>`;
+  }).join("");
+
+  el.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">${esc(run.testName || 'Plan Run')}</div>
+        <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
+          ${new Date(run.startedAt).toLocaleString()}
+        </div>
+      </div>
+      <div class="btn-group">
+        <span class="badge badge-${run.status}" style="font-size:12px;padding:4px 12px;">${run.status.toUpperCase()}</span>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
+        <div style="text-align:center;padding:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;">
+          <div style="font-size:20px;font-weight:700;">${summary.total}</div>
+          <div style="font-size:11px;color:var(--text-secondary);">Total</div>
+        </div>
+        <div style="text-align:center;padding:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;">
+          <div style="font-size:20px;font-weight:700;color:var(--success);">${summary.passed}</div>
+          <div style="font-size:11px;color:var(--text-secondary);">Passed</div>
+        </div>
+        <div style="text-align:center;padding:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;">
+          <div style="font-size:20px;font-weight:700;color:var(--danger);">${summary.failed}</div>
+          <div style="font-size:11px;color:var(--text-secondary);">Failed</div>
+        </div>
+        <div style="text-align:center;padding:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;">
+          <div style="font-size:20px;font-weight:700;color:var(--text-secondary);">${summary.skipped || 0}</div>
+          <div style="font-size:11px;color:var(--text-secondary);">Skipped</div>
+        </div>
+      </div>
+      <div class="section-header">Scenarios</div>
+      <div class="step-tracker">
+        ${scenarioItems}
+      </div>
+    </div>
+  `;
+}
+
+// ════════════════════════════════════════════════════
 //  Runs
 // ════════════════════════════════════════════════════
 async function loadRuns() {
@@ -2930,20 +3467,25 @@ async function loadRuns() {
 
 function renderRunList() {
   const container = document.getElementById("runList");
-  if (!runs.length) {
+  // Hide individual scenario runs that belong to a plan (show only the plan run itself)
+  const visibleRuns = runs.filter(r => !r.planRunId);
+  if (!visibleRuns.length) {
     container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">&#9654;</div><p>No test runs yet.</p></div>`;
     return;
   }
-  container.innerHTML = runs.map((r) => `
+  container.innerHTML = visibleRuns.map((r) => {
+    const isPlan = !!r.planId;
+    const planBadge = isPlan ? '<span class="badge" style="background:var(--primary);color:#fff;font-size:9px;margin-right:4px;">PLAN</span>' : '';
+    return `
     <div class="run-card ${selectedRun?.runId === r.runId ? 'selected' : ''}" onclick="selectRunById('${r.runId}')">
       <div class="card-title">
-        <span class="badge badge-${r.status}">${r.status}</span>
+        ${planBadge}<span class="badge badge-${r.status}">${r.status}</span>
         ${esc(r.testName || 'Unnamed')}
       </div>
-      <div class="card-url">${esc(r.targetUrl || '')}</div>
+      <div class="card-url">${isPlan ? (r.scenarioRuns || []).length + ' scenarios' : esc(r.targetUrl || '')}</div>
       <div class="card-meta">${timeAgo(r.completedAt || r.startedAt)}</div>
     </div>
-  `).join("");
+  `}).join("");
 }
 
 function selectRunById(runId) {
@@ -2964,6 +3506,11 @@ function selectRunById(runId) {
 }
 
 function showRunDetail(run) {
+  // Route plan runs to the plan run detail view
+  if (run.planId && run.scenarioRuns) {
+    showPlanRunDetail(run);
+    return;
+  }
   currentView = "run";
   const el = document.getElementById("detailContent");
   const empty = document.getElementById("detailEmpty");
