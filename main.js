@@ -282,6 +282,10 @@ function wrapScript(script, targetUrl, credentials) {
   // custom combobox widgets (non-native dropdowns).
   scriptBody = transformSelectOptionCalls(scriptBody);
 
+  // Collapse fragile date picker sequences (Show date picker → year nav → gridcell)
+  // into robust mx.pickDate() helper calls.
+  scriptBody = transformDatePickerClicks(scriptBody);
+
   // Add .first() to bare locator calls that don't already have disambiguation,
   // preventing strict mode violations when multiple elements match (common in
   // Mendix apps with nested forms/dialogs containing duplicate button labels).
@@ -481,6 +485,79 @@ function transformSelectOptionCalls(script) {
       return `await mx.smartSelect(page, ${locatorExpr}, ${valueExpr});`;
     }
   );
+}
+
+/**
+ * Detect date picker interaction sequences recorded by Playwright Codegen and
+ * collapse them into a single mx.pickDate() helper call.
+ *
+ * Recorded pattern (2–3 lines):
+ *   await page.getByRole('button', { name: 'Show date picker' })...click();
+ *   await page.getByText('2027').click();          // optional year nav
+ *   await page.getByRole('gridcell', { name: '10/04/' })...click();
+ *
+ * Replacement:
+ *   await mx.pickDate(page, <triggerLocator>, day, month, year);
+ */
+function transformDatePickerClicks(script) {
+  const lines = script.split('\n');
+  const result = [];
+
+  // Trigger: "Show date picker" button click — capture the full locator expression
+  const triggerRe = /^(\s*)await\s+(page\.getByRole\s*\(\s*['"]button['"]\s*,\s*\{[^}]*['"]Show date picker['"][^}]*\}\s*\)(?:\.\w+\s*\([^)]*\))*)\s*\.click\s*\([^)]*\)\s*;/;
+  // Year navigation: getByText with a 4-digit year
+  const yearNavRe = /^\s*await\s+page\.getByText\s*\(\s*['"](\d{4})['"]\s*(?:,\s*\{[^}]*\})?\s*\)[^;]*\.click\s*\([^)]*\)\s*;/;
+  // Gridcell click: getByRole('gridcell', { name: 'DD/MM/...' })
+  const gridcellRe = /^\s*await\s+page\.getByRole\s*\(\s*['"]gridcell['"]\s*,\s*\{\s*name:\s*['"](\d{1,2})\/(\d{1,2})\/(\d{0,4})['"]\s*\}\s*\)[^;]*\.click\s*\([^)]*\)\s*;/;
+
+  let i = 0;
+  while (i < lines.length) {
+    const triggerMatch = lines[i].match(triggerRe);
+    if (!triggerMatch) {
+      result.push(lines[i]);
+      i++;
+      continue;
+    }
+
+    const indent = triggerMatch[1];
+    const triggerExpr = triggerMatch[2];
+    let year = null;
+    let consumed = 1; // lines consumed so far (trigger line)
+
+    // Look ahead for optional year navigation
+    if (i + consumed < lines.length) {
+      const yearMatch = lines[i + consumed].match(yearNavRe);
+      if (yearMatch) {
+        year = yearMatch[1];
+        consumed++;
+      }
+    }
+
+    // Look ahead for gridcell click
+    if (i + consumed < lines.length) {
+      const gridcellMatch = lines[i + consumed].match(gridcellRe);
+      if (gridcellMatch) {
+        const day = parseInt(gridcellMatch[1], 10);
+        const month = parseInt(gridcellMatch[2], 10);
+        // Year from gridcell name (if full date) or from year nav click
+        const gridcellYear = gridcellMatch[3] ? parseInt(gridcellMatch[3], 10) : null;
+        const finalYear = year || gridcellYear;
+        consumed++;
+
+        // Build replacement
+        const yearArg = finalYear ? `, ${finalYear}` : '';
+        result.push(`${indent}await mx.pickDate(page, ${triggerExpr}, ${day}, ${month}${yearArg});`);
+        i += consumed;
+        continue;
+      }
+    }
+
+    // No gridcell found after trigger — leave original lines untouched
+    result.push(lines[i]);
+    i++;
+  }
+
+  return result.join('\n');
 }
 
 /**

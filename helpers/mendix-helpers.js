@@ -549,6 +549,88 @@ async function fillDatePicker(page, widgetName, dateValue) {
   await page.keyboard.press("Escape");
 }
 
+/**
+ * Pick a date from an open calendar widget by navigating to the correct
+ * month/year and clicking the day cell.
+ *
+ * This replaces fragile recorded sequences of "Show date picker" button clicks,
+ * year text clicks, and gridcell clicks with a single robust helper.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').Locator} triggerLocator  The button/icon that opens the calendar
+ * @param {number} day    Day of month (1-31)
+ * @param {number} month  Month (1-12)
+ * @param {number} [year] Optional 4-digit year
+ */
+async function pickDate(page, triggerLocator, day, month, year) {
+  // 1. Click the trigger to open the calendar popup
+  await triggerLocator.click();
+
+  // 2. Wait for a calendar grid to appear
+  const calendar = page.locator('[role="grid"], .mx-calendar').first();
+  await calendar.waitFor({ state: 'visible', timeout: 5000 });
+
+  // 3. If a year was specified, try to navigate to it
+  if (year) {
+    const yearBtn = page.getByText(String(year), { exact: true });
+    // The year may already be visible as a clickable element in the calendar
+    try {
+      await yearBtn.waitFor({ state: 'visible', timeout: 2000 });
+      await yearBtn.click();
+      // After clicking the year, wait for the grid to re-render
+      await page.waitForTimeout(300);
+    } catch (_) {
+      // Year not clickable — calendar may already be on the right year
+    }
+  }
+
+  // 4. Navigate to the correct month if needed
+  //    Mendix calendar headers typically show "Month YYYY" text.
+  //    We look for month navigation arrows and click them to reach the target.
+  const MONTHS = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  if (month >= 1 && month <= 12) {
+    const targetMonthName = MONTHS[month - 1];
+    // Try up to 12 iterations to navigate to the right month
+    for (let attempt = 0; attempt < 12; attempt++) {
+      // Check if the target month is visible in the calendar header
+      const monthVisible = await page.locator('[role="grid"], .mx-calendar').first()
+        .locator('..').getByText(targetMonthName).count();
+      if (monthVisible > 0) break;
+
+      // Click the "next month" arrow button — Mendix uses various labels
+      const nextBtn = page.locator(
+        '.mx-calendar-month-next, [aria-label="Next month"], [aria-label="next month"], [title="Next month"]'
+      ).first();
+      if (await nextBtn.count() > 0) {
+        await nextBtn.click();
+        await page.waitForTimeout(200);
+      } else {
+        break; // No navigation button found, stop trying
+      }
+    }
+  }
+
+  // 5. Click the day cell within the calendar grid
+  //    Use a regex to match the day number in the gridcell accessible name,
+  //    scoped to the calendar to avoid matching other page content.
+  const dayStr = String(day);
+  const dayCell = calendar.getByRole('gridcell').filter({ hasText: new RegExp(`^${dayStr}$|\\b${dayStr}\\b`) }).first();
+
+  try {
+    await dayCell.waitFor({ state: 'visible', timeout: 5000 });
+    await dayCell.click();
+  } catch (_) {
+    // Fallback: try matching by the full date pattern DD/MM or just the day number
+    const fallbackCell = calendar.locator(`[role="gridcell"]`).filter({
+      hasText: new RegExp(`\\b${dayStr}\\b`)
+    }).first();
+    await fallbackCell.click();
+  }
+}
+
 // ── Dialogs / Popups ──────────────────────────────────────────────────────────
 
 /**
@@ -896,6 +978,7 @@ module.exports = {
   selectAutoComplete,
   smartSelect,
   fillDatePicker,
+  pickDate,
   // Dialogs
   waitForPopup,
   closePopup,
