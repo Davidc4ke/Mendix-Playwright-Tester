@@ -93,7 +93,7 @@ Step editing flow:
 - LLM orchestration loop with tool use for live page inspection
 
 ### Test Execution Flow
-1. `wrapScript()` — strips Codegen imports, cleans fragile `#mxui_widget_*` selectors, wraps bare code in `test()` block, adds `require` for Playwright and Mendix helpers
+1. `wrapScript()` — strips Codegen imports, cleans fragile `#mxui_widget_*` selectors, transforms ListView row clicks into `mx.clickListViewRow()` calls, wraps bare code in `test()` block, adds `require` for Playwright and Mendix helpers
 2. `injectStepMarkers()` — parses test body into statements, wraps each with progress markers (`[ZONIQ_STEP:START/DONE/FAIL]`)
 3. `runPlaywright()` — spawns `npx playwright test` with JSON reporter, parses stdout for real-time step progress
 4. Results parsed from JSON report and stored in `scenarios.json`
@@ -106,6 +106,7 @@ Utility functions for Mendix-specific testing:
 - `fillWidget(page, widgetName, value)` — Fill text inputs
 - `selectDropdown(page, widgetName, value)` — Select dropdown option
 - `waitForPopup(page)` / `closePopup(page)` — Dialog handling
+- `clickListViewRow(page, rowText, options)` — Click a ListView row by visible text; auto-waits for popup
 - `waitForMicroflow(page)` — Wait for microflow completion
 - `assertWidgetText`, `assertWidgetVisible`, `assertWidgetEnabled`, `assertWidgetDisabled` — Assertion helpers
 

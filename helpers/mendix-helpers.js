@@ -703,6 +703,48 @@ async function closePopup(page) {
   }
 }
 
+// ── List View ─────────────────────────────────────────────────────────────────
+
+/**
+ * Click a row in a Mendix ListView by its visible text content.
+ *
+ * Mendix ListViews render clickable rows as `<li role="button">` inside
+ * `.mx-listview-clickable`.  Playwright's codegen sometimes fails to record
+ * clicks on these rows (especially when the click lands on an empty cell or a
+ * nested `&nbsp;` span).  This helper reliably locates the row by text content
+ * and clicks it, then optionally waits for the popup/dialog that the click
+ * typically opens.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} rowText           Visible text that uniquely identifies the row (partial match)
+ * @param {{ listViewName?: string, timeout?: number, waitForPopup?: boolean }} [options]
+ */
+async function clickListViewRow(page, rowText, options = {}) {
+  const { listViewName, timeout = 15000, waitForPopup: shouldWaitForPopup = true } = options;
+
+  // Scope to a specific listview if given, otherwise search all clickable listviews
+  const listViewScope = listViewName
+    ? page.locator(`.mx-name-${listViewName}`)
+    : page.locator('.mx-listview-clickable');
+
+  const row = listViewScope
+    .locator('li[role="button"]')
+    .filter({ hasText: rowText })
+    .first();
+
+  await row.waitFor({ state: 'visible', timeout });
+  await row.click();
+
+  // Many listview row clicks open a popup/dialog — wait for it unless opted out
+  if (shouldWaitForPopup) {
+    try {
+      await waitForPopup(page, { timeout: 5000 });
+    } catch {
+      // No popup appeared — that is fine, not every row click opens one
+    }
+  }
+}
+
 // ── Data Grid ─────────────────────────────────────────────────────────────────
 
 /**
@@ -989,6 +1031,8 @@ module.exports = {
   // Dialogs
   waitForPopup,
   closePopup,
+  // List View
+  clickListViewRow,
   // Data Grid (classic)
   clickDataGridRowButton,
   getDataGridRowCount,
