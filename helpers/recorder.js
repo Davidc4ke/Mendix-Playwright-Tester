@@ -401,10 +401,16 @@ function replaceGuidsInScript(guidToLabel) {
     });
   }
 
-  // ── Capture all visible Mendix elements for the element DB ──────
-  async function captureElements() {
+  // ── Capture visible Mendix elements per page for the element DB ──
+  // Accumulate elements across all page navigations so each element is
+  // tagged with the URL of the page where it was first seen.
+  const _accumulatedElements = new Map(); // name → element object (with pageUrl)
+  let _captureTimer = null;
+
+  async function captureElementsForCurrentPage() {
     try {
       if (page.isClosed()) return;
+      const currentUrl = page.url();
       const elements = await page.evaluate(() => {
         const widgets = [];
         const els = document.querySelectorAll("[class*='mx-name-']");
@@ -445,15 +451,44 @@ function replaceGuidsInScript(guidToLabel) {
         return widgets;
       });
 
+      // Merge into accumulated map — keep the first pageUrl per element
+      for (const el of elements) {
+        if (!_accumulatedElements.has(el.name)) {
+          el.pageUrl = currentUrl;
+          _accumulatedElements.set(el.name, el);
+        }
+      }
       if (elements.length) {
-        const elementsPath = path.resolve(outputPath) + ".elements.json";
-        fs.writeFileSync(elementsPath, JSON.stringify(elements, null, 2));
-        console.log(`[recorder] Captured ${elements.length} elements for element DB`);
+        console.log(`[recorder] Captured ${elements.length} elements on ${currentUrl}`);
       }
     } catch (err) {
-      console.log(`[recorder] Element capture skipped: ${err.message}`);
+      // Silently skip — page may have navigated away during capture
     }
   }
+
+  function scheduleDebouncedCapture() {
+    if (_captureTimer) clearTimeout(_captureTimer);
+    _captureTimer = setTimeout(() => captureElementsForCurrentPage(), 800);
+  }
+
+  async function writeAccumulatedElements() {
+    // Final sweep of whatever page is currently open
+    await captureElementsForCurrentPage();
+
+    const allElements = Array.from(_accumulatedElements.values());
+    if (allElements.length) {
+      const elementsPath = path.resolve(outputPath) + ".elements.json";
+      fs.writeFileSync(elementsPath, JSON.stringify(allElements, null, 2));
+      console.log(`[recorder] Wrote ${allElements.length} accumulated elements across pages`);
+    }
+  }
+
+  // Capture elements on every page navigation (SPA route changes, full navigations)
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) {
+      scheduleDebouncedCapture();
+    }
+  });
 
   // ── Detect browser/page closure ─────────────────────────────────
   // In Chromium headful mode, closing the last tab does NOT terminate
@@ -465,7 +500,7 @@ function replaceGuidsInScript(guidToLabel) {
   async function shutdown() {
     if (_shutdownCalled) return;
     _shutdownCalled = true;
-    await captureElements();
+    await writeAccumulatedElements();
 
     // Save a copy of the raw codegen output BEFORE any post-processing
     // so we can debug what Playwright actually recorded vs what we modified.

@@ -271,10 +271,14 @@ function replaceGuidsInScript(guidToLabel) {
 
   console.log("[recorder-from-step] Recorder enabled. User can now record new actions.");
 
-  // ── Capture elements (same as recorder.js) ─────────────
-  async function captureElements() {
+  // ── Capture visible Mendix elements per page for the element DB ──
+  const _accumulatedElements = new Map();
+  let _captureTimer = null;
+
+  async function captureElementsForCurrentPage() {
     try {
       if (page.isClosed()) return;
+      const currentUrl = page.url();
       const elements = await page.evaluate(() => {
         const widgets = [];
         const els = document.querySelectorAll("[class*='mx-name-']");
@@ -315,22 +319,47 @@ function replaceGuidsInScript(guidToLabel) {
         return widgets;
       });
 
+      for (const el of elements) {
+        if (!_accumulatedElements.has(el.name)) {
+          el.pageUrl = currentUrl;
+          _accumulatedElements.set(el.name, el);
+        }
+      }
       if (elements.length) {
-        const elementsPath = path.resolve(outputPath) + ".elements.json";
-        fs.writeFileSync(elementsPath, JSON.stringify(elements, null, 2));
-        console.log(`[recorder-from-step] Captured ${elements.length} elements for element DB`);
+        console.log(`[recorder-from-step] Captured ${elements.length} elements on ${currentUrl}`);
       }
     } catch (err) {
-      console.log(`[recorder-from-step] Element capture skipped: ${err.message}`);
+      // Silently skip — page may have navigated away during capture
     }
   }
+
+  function scheduleDebouncedCapture() {
+    if (_captureTimer) clearTimeout(_captureTimer);
+    _captureTimer = setTimeout(() => captureElementsForCurrentPage(), 800);
+  }
+
+  async function writeAccumulatedElements() {
+    await captureElementsForCurrentPage();
+    const allElements = Array.from(_accumulatedElements.values());
+    if (allElements.length) {
+      const elementsPath = path.resolve(outputPath) + ".elements.json";
+      fs.writeFileSync(elementsPath, JSON.stringify(allElements, null, 2));
+      console.log(`[recorder-from-step] Wrote ${allElements.length} accumulated elements across pages`);
+    }
+  }
+
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) {
+      scheduleDebouncedCapture();
+    }
+  });
 
   // ── Detect browser closure (same strategies as recorder.js) ──
   let _shutdownCalled = false;
   async function shutdown() {
     if (_shutdownCalled) return;
     _shutdownCalled = true;
-    await captureElements();
+    await writeAccumulatedElements();
     if (guidToLabel.size > 0) {
       console.log(`[ZONIQ_GUID_MAP]${JSON.stringify(Object.fromEntries(guidToLabel))}`);
     }
