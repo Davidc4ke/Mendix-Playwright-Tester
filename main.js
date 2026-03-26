@@ -295,6 +295,10 @@ function wrapScript(script, targetUrl, credentials) {
   // mx.clickListViewRow() calls that wait for visibility and handle popup opening.
   scriptBody = transformListViewRowClicks(scriptBody);
 
+  // Transform DataGrid gridcell clicks with dynamic IDs (e.g. 'DB00000772')
+  // into mx.clickDataGridFirstRow() calls that click the first row.
+  scriptBody = transformDataGridRowClicks(scriptBody);
+
   // Check if there's still a test() block after stripping
   const hasTestBlock = /\btest\s*\(/.test(scriptBody);
 
@@ -618,6 +622,23 @@ function transformListViewRowClicks(script) {
     /await\s+page\.locator\s*\(\s*['"]li\[role=["']?button["']?\]['"]\s*\)\s*\.filter\s*\(\s*\{\s*hasText:\s*['"]([^'"]+)['"]\s*\}\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
     (match, rowText) => {
       return `await mx.clickListViewRow(page, '${rowText.replace(/'/g, "\\'")}');`;
+    }
+  );
+}
+
+/**
+ * Transform DataGrid gridcell clicks with dynamic-looking IDs (e.g. 'DB00000772')
+ * into mx.clickDataGridFirstRow() calls.  Human-readable cell names are left as-is.
+ */
+function transformDataGridRowClicks(script) {
+  const ScriptUtils = require('./lib/script-utils');
+  return script.replace(
+    /await\s+page\.getByRole\s*\(\s*['"]gridcell['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
+    (match, cellName) => {
+      if (ScriptUtils.looksLikeDynamicId(cellName)) {
+        return `await mx.clickDataGridFirstRow(page);`;
+      }
+      return match;
     }
   );
 }
