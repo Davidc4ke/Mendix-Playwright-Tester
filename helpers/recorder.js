@@ -111,10 +111,15 @@ function applyValueEchoes(echoes) {
     const captureCode = `${indent}const ${varName} = (await page.locator('${echo.sourceSelector}').textContent()).trim();`;
     lines.splice(insertAt, 0, captureCode);
 
-    // Rejoin and replace all occurrences of the hardcoded value with the variable
+    // Rejoin and replace the hardcoded value ONLY inside fill/type/selectOption
+    // call arguments — not everywhere in the script. Blind global replacement
+    // can corrupt selectors, comments, or other unrelated code.
     script = lines.join('\n');
-    script = script.split(`'${echo.value}'`).join(varName);
-    script = script.split(`"${echo.value}"`).join(varName);
+    const actionRe = new RegExp(
+      `(\\.(fill|type|selectOption)\\s*\\()\\s*['"]${escapedValue}['"]`,
+      'g'
+    );
+    script = script.replace(actionRe, `$1${varName}`);
 
     applied++;
     console.log(`[recorder] Auto-captured: "${echo.value}" → ${varName} (from ${echo.sourceSelector})`);
@@ -565,6 +570,20 @@ function replaceGuidsInScript(guidToLabel) {
     if (_shutdownCalled) return;
     _shutdownCalled = true;
     await captureElements();
+
+    // Save a copy of the raw codegen output BEFORE any post-processing
+    // so we can debug what Playwright actually recorded vs what we modified.
+    const absOutputDebug = path.resolve(outputPath);
+    if (fs.existsSync(absOutputDebug)) {
+      const debugPath = absOutputDebug.replace(/\.js$/, '.raw.js');
+      try {
+        fs.copyFileSync(absOutputDebug, debugPath);
+        console.log(`[recorder] Raw codegen output saved to: ${debugPath}`);
+      } catch (e) {
+        console.error(`[recorder] Failed to save raw debug copy: ${e.message}`);
+      }
+    }
+
     // Output the GUID map so the main process can apply a fallback
     // replacement after the recorder exits (defense in depth).
     if (guidToLabel.size > 0) {
