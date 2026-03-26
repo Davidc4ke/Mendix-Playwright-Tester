@@ -73,10 +73,12 @@ Key functions:
 Exposes `window.zoniq` API to renderer:
 - Scenario CRUD: `getScenarios`, `saveScenario`, `deleteScenario`
 - Execution: `executeScenario`, `launchRecorder`, `launchRecorderFromStep`, `importScript`
+- Plans: `getPlans`, `savePlan`, `deletePlan`, `duplicatePlan`, `executePlan`, `stopPlanExecution`
 - Settings: `getSettings`, `saveSettings`, `testLLMConnection`
 - Agent operations: `agentHeal`, `agentHealApply`, `agentCancel`, `agentAnalyze`
 - Analysis history: `getAnalyses`, `deleteAnalysis`
 - Events: `onRunStarted`, `onRunCompleted`, `onRunsUpdated`, `onStepList`, `onStepProgress`, `onAgentProgress`, `onRecorderFromStepProgress`, `onRecorderFromStepStatus`
+- Plan events: `onPlanRunStarted`, `onPlanScenarioStarted`, `onPlanScenarioCompleted`, `onPlanRunCompleted`
 
 ### Renderer (`index.html`)
 Single-file UI with embedded `<script>`. Imports `ScriptUtils` from `lib/script-utils.js`.
@@ -129,7 +131,7 @@ User data stored in platform-specific directories:
 - Linux: `~/.config/zoniq-test-runner/`
 
 Files:
-- `scenarios.json` — Test scenarios, run history, and AI analysis history (steps are NOT stored, only scripts)
+- `scenarios.json` — Test scenarios, plans, run history, and AI analysis history (steps are NOT stored, only scripts)
 - `scripts/` — Recorded/imported script files
 - `results/` — Test artifacts (screenshots, videos, traces, debug logs)
 
@@ -146,6 +148,25 @@ Files:
 }
 ```
 Note: `steps` is never persisted. It is always derived from `script` via `parseScriptToSteps()`.
+
+### Plan Data Model
+Plans chain multiple scenarios into an ordered sequence for sequential execution. Stored in `scenarios.json` under the `plans` array.
+```json
+{
+  "id": "uuid",
+  "name": "Full Regression Suite",
+  "description": "Optional description",
+  "scenarioIds": ["scenario-uuid-1", "scenario-uuid-2"],
+  "createdAt": "ISO8601",
+  "updatedAt": "ISO8601"
+}
+```
+- `scenarioIds` is an ordered array of scenario IDs (references, not copies)
+- Plan runs are stored in the `runs` array with a `planId` field and a `scenarioRuns` array tracking per-scenario status
+- Individual scenario runs within a plan get a `planRunId` field and are hidden from the main runs list
+- Execution stops on first failure; remaining scenarios are marked as `skipped`
+- Each scenario runs in an isolated browser context (fresh session)
+- `executeScenarioInternal()` is the shared execution function used by both single scenario runs and plan runs
 
 ### Analysis History Data Model
 AI analysis and heal results are persisted in `scenarios.json` under the `analyses` array. This tracks all AI interactions over time so users can review past analyses and script changes.

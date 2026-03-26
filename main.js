@@ -131,7 +131,7 @@ function loadDB() {
       return JSON.parse(fs.readFileSync(DB_PATH, "utf-8"));
     }
   } catch {}
-  return { scenarios: [], runs: [], savedUrls: [], analyses: [] };
+  return { scenarios: [], runs: [], savedUrls: [], analyses: [], plans: [] };
 }
 
 function saveDB(db) {
@@ -1216,6 +1216,63 @@ ipcMain.handle("delete-scenario", (event, id) => {
   return true;
 });
 
+// ── Plan CRUD ────────────────────────────────────────────
+
+ipcMain.handle("get-plans", () => {
+  const db = loadDB();
+  return db.plans || [];
+});
+
+ipcMain.handle("save-plan", (event, plan) => {
+  const db = loadDB();
+  if (!db.plans) db.plans = [];
+
+  // Validate scenarioIds reference existing scenarios
+  if (plan.scenarioIds) {
+    plan.scenarioIds = plan.scenarioIds.filter(id =>
+      db.scenarios.some(s => s.id === id)
+    );
+  }
+
+  const existing = db.plans.findIndex(p => p.id === plan.id);
+  if (existing >= 0) {
+    db.plans[existing] = { ...db.plans[existing], ...plan, updatedAt: new Date().toISOString() };
+  } else {
+    plan.id = plan.id || uuidv4();
+    plan.createdAt = new Date().toISOString();
+    plan.updatedAt = plan.createdAt;
+    db.plans.push(plan);
+  }
+  saveDB(db);
+  return plan;
+});
+
+ipcMain.handle("delete-plan", (event, id) => {
+  const db = loadDB();
+  if (!db.plans) return true;
+  db.plans = db.plans.filter(p => p.id !== id);
+  saveDB(db);
+  return true;
+});
+
+ipcMain.handle("duplicate-plan", (event, id) => {
+  const db = loadDB();
+  if (!db.plans) return null;
+  const original = db.plans.find(p => p.id === id);
+  if (!original) return null;
+  const now = new Date().toISOString();
+  const duplicate = {
+    ...original,
+    id: uuidv4(),
+    name: `${original.name} (copy)`,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.plans.push(duplicate);
+  saveDB(db);
+  return duplicate;
+});
+
 // Get all runs
 ipcMain.handle("get-runs", () => {
   return loadDB().runs.slice(-100).reverse();
@@ -1667,8 +1724,10 @@ ipcMain.handle("import-script", async () => {
   return { filename: path.basename(filePaths[0]), script };
 });
 
-// Execute a scenario
-ipcMain.handle("execute-scenario", async (event, scenario) => {
+// ── Shared scenario execution logic ──────────────────────
+// Used by both the IPC handler and plan execution.
+// planRunId is optional — set when executing as part of a plan.
+async function executeScenarioInternal(scenario, planRunId) {
   const runId = uuidv4();
   const scriptPath = path.join(TEMP_DIR, `run-${runId}.spec.js`);
 
@@ -1690,6 +1749,7 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
     completedAt: null,
     results: null,
   };
+  if (planRunId) run.planRunId = planRunId;
   db.runs.push(run);
   saveDB(db);
 
@@ -1755,18 +1815,12 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
     run.results = results;
 
     // ── Auto-heal script: replace GUIDs with resolved label text ──
-    // smartSelect emits [ZONIQ_GUID_RESOLVED:guid:label] markers when it
-    // resolves a GUID to a human-readable label. Apply those replacements
-    // to the stored scenario script so GUIDs are permanently eliminated.
     if (results.guidResolutions && results.guidResolutions.size > 0 && scenario.id) {
       const db2pre = loadDB();
       const sc = db2pre.scenarios.find(s => s.id === scenario.id);
       if (sc && sc.script) {
         let updated = sc.script;
         for (const [guid, label] of results.guidResolutions) {
-          // Replace the GUID value in selectOption / smartSelect calls
-          // e.g. .selectOption('7149464409836204') → .selectOption('Dennis Blok')
-          //      mx.smartSelect(page, locator, '7149464409836204') → mx.smartSelect(page, locator, 'Dennis Blok')
           const escaped = label.replace(/'/g, "\\'");
           updated = updated.split(`'${guid}'`).join(`'${escaped}'`);
           updated = updated.split(`"${guid}"`).join(`"${escaped}"`);
@@ -1804,6 +1858,141 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
   } finally {
     try { fs.unlinkSync(scriptPath); } catch {}
   }
+}
+
+// Execute a scenario
+ipcMain.handle("execute-scenario", async (event, scenario) => {
+  return executeScenarioInternal(scenario);
+});
+
+// ── Plan Execution ───────────────────────────────────────
+let activePlanExecution = null; // { planRunId, cancelled }
+
+ipcMain.handle("execute-plan", async (event, plan) => {
+  const planRunId = uuidv4();
+  const db = loadDB();
+  if (!db.plans) db.plans = [];
+  const resolvedScenarios = (plan.scenarioIds || [])
+    .map(id => db.scenarios.find(s => s.id === id))
+    .filter(Boolean);
+
+  if (!resolvedScenarios.length) {
+    return { runId: planRunId, status: "error", errors: [{ message: "No valid scenarios in plan" }] };
+  }
+
+  const planRun = {
+    runId: planRunId,
+    planId: plan.id,
+    testName: `Plan: ${plan.name}`,
+    status: "running",
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+    results: null,
+    scenarioRuns: resolvedScenarios.map(s => ({
+      scenarioId: s.id,
+      scenarioName: s.name,
+      runId: null,
+      status: "pending",
+    })),
+  };
+
+  const db2 = loadDB();
+  db2.runs.push(planRun);
+  saveDB(db2);
+
+  mainWindow.webContents.send("plan-run-started", {
+    planRunId, planId: plan.id, planName: plan.name,
+    scenarioRuns: planRun.scenarioRuns,
+  });
+
+  activePlanExecution = { planRunId, cancelled: false };
+
+  for (let i = 0; i < resolvedScenarios.length; i++) {
+    if (activePlanExecution?.cancelled) {
+      // Mark remaining as skipped
+      const dbSkip = loadDB();
+      const prSkip = dbSkip.runs.find(r => r.runId === planRunId);
+      if (prSkip) {
+        for (let j = i; j < prSkip.scenarioRuns.length; j++) {
+          prSkip.scenarioRuns[j].status = "skipped";
+        }
+        saveDB(dbSkip);
+      }
+      break;
+    }
+
+    const scenario = resolvedScenarios[i];
+    mainWindow.webContents.send("plan-scenario-started", {
+      planRunId, scenarioId: scenario.id, scenarioIndex: i,
+      totalScenarios: resolvedScenarios.length,
+    });
+
+    const run = await executeScenarioInternal(scenario, planRunId);
+
+    // Update plan run record
+    const db3 = loadDB();
+    const pr = db3.runs.find(r => r.runId === planRunId);
+    if (pr) {
+      pr.scenarioRuns[i].runId = run.runId;
+      pr.scenarioRuns[i].status = run.status;
+      saveDB(db3);
+    }
+
+    mainWindow.webContents.send("plan-scenario-completed", {
+      planRunId, scenarioId: scenario.id, scenarioIndex: i,
+      status: run.status, runId: run.runId,
+    });
+
+    // Stop on failure
+    if (run.status !== "passed") {
+      const db4 = loadDB();
+      const pr2 = db4.runs.find(r => r.runId === planRunId);
+      if (pr2) {
+        for (let j = i + 1; j < pr2.scenarioRuns.length; j++) {
+          pr2.scenarioRuns[j].status = "skipped";
+        }
+        saveDB(db4);
+      }
+      break;
+    }
+  }
+
+  // Finalize plan run
+  const dbFinal = loadDB();
+  const prFinal = dbFinal.runs.find(r => r.runId === planRunId);
+  if (prFinal) {
+    const allStatuses = prFinal.scenarioRuns.map(sr => sr.status);
+    prFinal.status = allStatuses.every(s => s === "passed") ? "passed"
+      : allStatuses.some(s => s === "failed" || s === "error") ? "failed"
+      : "error";
+    prFinal.completedAt = new Date().toISOString();
+    prFinal.results = {
+      status: prFinal.status,
+      summary: {
+        total: prFinal.scenarioRuns.length,
+        passed: prFinal.scenarioRuns.filter(sr => sr.status === "passed").length,
+        failed: prFinal.scenarioRuns.filter(sr => sr.status === "failed" || sr.status === "error").length,
+        skipped: prFinal.scenarioRuns.filter(sr => sr.status === "skipped").length,
+      },
+    };
+    saveDB(dbFinal);
+  }
+
+  activePlanExecution = null;
+  mainWindow.webContents.send("plan-run-completed", {
+    planRunId, status: prFinal?.status, scenarioRuns: prFinal?.scenarioRuns,
+  });
+  mainWindow.webContents.send("runs-updated");
+
+  return prFinal;
+});
+
+ipcMain.handle("stop-plan-execution", () => {
+  if (activePlanExecution) {
+    activePlanExecution.cancelled = true;
+    return true;
+  }
+  return false;
 });
 
 // Get absolute path for a run artifact (for displaying images in the renderer)
