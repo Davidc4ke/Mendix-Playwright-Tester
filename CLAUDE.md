@@ -74,7 +74,8 @@ Exposes `window.zoniq` API to renderer:
 - Scenario CRUD: `getScenarios`, `saveScenario`, `deleteScenario`
 - Execution: `executeScenario`, `launchRecorder`, `launchRecorderFromStep`, `importScript`
 - Settings: `getSettings`, `saveSettings`, `testLLMConnection`
-- Agent operations: `agentHeal`, `agentHealApply`, `agentCancel`
+- Agent operations: `agentHeal`, `agentHealApply`, `agentCancel`, `agentAnalyze`
+- Analysis history: `getAnalyses`, `deleteAnalysis`
 - Events: `onRunStarted`, `onRunCompleted`, `onRunsUpdated`, `onStepList`, `onStepProgress`, `onAgentProgress`, `onRecorderFromStepProgress`, `onRecorderFromStepStatus`
 
 ### Renderer (`index.html`)
@@ -127,7 +128,7 @@ User data stored in platform-specific directories:
 - Linux: `~/.config/zoniq-test-runner/`
 
 Files:
-- `scenarios.json` — Test scenarios and run history (steps are NOT stored, only scripts)
+- `scenarios.json` — Test scenarios, run history, and AI analysis history (steps are NOT stored, only scripts)
 - `scripts/` — Recorded/imported script files
 - `results/` — Test artifacts (screenshots, videos, traces, debug logs)
 
@@ -144,6 +145,25 @@ Files:
 }
 ```
 Note: `steps` is never persisted. It is always derived from `script` via `parseScriptToSteps()`.
+
+### Analysis History Data Model
+AI analysis and heal results are persisted in `scenarios.json` under the `analyses` array. This tracks all AI interactions over time so users can review past analyses and script changes.
+```json
+{
+  "id": "uuid",
+  "scenarioId": "uuid",
+  "runId": "uuid",
+  "type": "analysis | heal",
+  "analysis": "Free-text LLM analysis of the failure",
+  "confidence": "high | medium | low",
+  "changes": [{ "reason": "...", "original": "...", "replacement": "..." }],
+  "healedScript": "Full patched script (if available)",
+  "applied": false,
+  "appliedAt": "ISO8601 (set when fix is applied)",
+  "createdAt": "ISO8601"
+}
+```
+Accessible via "AI History" tab on the scenario detail view, or the "AI History" button on run detail pages.
 
 ## Mendix Widget Selectors
 

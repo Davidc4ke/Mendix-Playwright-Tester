@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld("zoniq", {
   agentAnalyze: (opts) => ipcRenderer.invoke("agent-analyze", opts),
   agentHealApply: (opts) => ipcRenderer.invoke("agent-heal-apply", opts),
   agentCancel: () => ipcRenderer.invoke("agent-cancel"),
+  getAnalyses: (opts) => ipcRenderer.invoke("get-analyses", opts),
+  deleteAnalysis: (id) => ipcRenderer.invoke("delete-analysis", id),
 
   // Script cleanup
   cleanupScript: (scenarioId) => ipcRenderer.invoke("cleanup-script", scenarioId),
