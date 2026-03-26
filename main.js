@@ -1229,6 +1229,17 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
     addSavedUrl(db, normalizedUrl);
     saveDB(db);
 
+    // Clean up old .raw.js debug files from previous recordings (keep last 5)
+    try {
+      const rawFiles = fs.readdirSync(SCRIPTS_DIR)
+        .filter(f => f.endsWith('.raw.js'))
+        .map(f => ({ name: f, mtime: fs.statSync(path.join(SCRIPTS_DIR, f)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime);
+      for (const old of rawFiles.slice(5)) {
+        fs.unlinkSync(path.join(SCRIPTS_DIR, old.name));
+      }
+    } catch (e) { /* ignore cleanup errors */ }
+
     // Use our custom recorder which injects a script to swap <option> GUID
     // values with visible text BEFORE the user interacts — so codegen records
     // human-readable labels instead of Mendix GUIDs. No post-processing needed.
@@ -1288,6 +1299,7 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
       try {
         if (fs.existsSync(outputPath)) {
           let script = fs.readFileSync(outputPath, "utf-8");
+          console.log(`[recorder] Script after recorder post-processing: ${script.length} chars, ${script.split('\n').length} lines`);
 
           // Fallback: if the recorder's own replacement missed any GUIDs
           // (race with codegen file write), apply them here.
