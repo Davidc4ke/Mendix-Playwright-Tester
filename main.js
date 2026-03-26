@@ -386,19 +386,23 @@ function injectStepMarkers(scriptBody) {
     // Detect screenshot marker and strip it from the executed statement
     const wantsScreenshot = /\/\/\s*@zoniq:screenshot/.test(stmt.text);
     const cleanStmt = wantsScreenshot ? stmt.text.replace(/\s*\/\/\s*@zoniq:screenshot\s*$/, '') : stmt.text;
-    const screenshotLine = wantsScreenshot && idx >= 0
-      ? `\n    await page.screenshot({ path: require('path').join(process.env.ZONIQ_RUN_RESULTS_DIR || 'results', 'step-${idx}-proof.png'), fullPage: true });`
+    // Screenshot: wait for page to settle, then capture BEFORE marking step done.
+    // This prevents race conditions where the browser tears down (last step) or
+    // the next step fires before the screenshot is written to disk.
+    const screenshotBlock = wantsScreenshot && idx >= 0
+      ? `\n    await page.waitForLoadState('load');\n` +
+        `    await page.screenshot({ path: require('path').join(process.env.ZONIQ_RUN_RESULTS_DIR || 'results', 'step-${idx}-proof.png'), fullPage: true });`
       : '';
     const isRaw = /^(?:const|let|var)\s/.test(cleanStmt);
     if (isRaw) {
       return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
-        `  ${cleanStmt}\n` +
+        `  ${cleanStmt}${screenshotBlock}\n` +
         `  console.log('[ZONIQ_STEP:DONE:${idx}]');`;
     }
     const errVar = `_stepErr_${stmtIdx}`;
     return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
-      `  try {\n    ${cleanStmt}\n` +
-      `    console.log('[ZONIQ_STEP:DONE:${idx}]');${screenshotLine}\n` +
+      `  try {\n    ${cleanStmt}${screenshotBlock}\n` +
+      `    console.log('[ZONIQ_STEP:DONE:${idx}]');\n` +
       `  } catch (${errVar}) {\n` +
       `    console.log('[ZONIQ_STEP:FAIL:${idx}:' + ${errVar}.message.replace(/\\n/g, ' ') + ']');\n` +
       `    throw ${errVar};\n` +
