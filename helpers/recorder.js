@@ -303,8 +303,10 @@ function replaceGuidsInScript(guidToLabel) {
       if (BLOCKLIST.has(lower)) return false;
       // Reject pure alphabetic short phrases (common UI labels)
       if (/^[A-Za-z\s]{1,25}$/.test(text) && text.split(/\s+/).length <= 3) return false;
-      // Accept: contains digits, has separators like dashes/dots, looks structured
-      return true;
+      // Reject multi-line text (container elements with composite content)
+      if (text.includes('\n') || text.split(/\s+/).length > 8) return false;
+      // Only accept values that contain digits or structural patterns (TK-123, REQ-2024-001)
+      return /\d/.test(text) || /[A-Za-z]+-[A-Za-z0-9]/.test(text);
     }
 
     function getBestSelector(el) {
@@ -327,6 +329,25 @@ function replaceGuidsInScript(guidToLabel) {
       return null;
     }
 
+    // Container widget prefixes that hold composite content — never useful as value sources
+    const CONTAINER_PREFIXES = [
+      'layoutGrid', 'layout', 'container', 'dataView', 'listView', 'templateGrid',
+      'tabContainer', 'tab', 'groupBox', 'scrollContainer', 'navigationLayout',
+      'header', 'footer', 'sidebar', 'content', 'section', 'panel', 'row', 'col',
+    ];
+
+    function isContainerWidget(el) {
+      const classes = el.classList ? Array.from(el.classList) : [];
+      for (const cls of classes) {
+        if (!cls.startsWith('mx-name-')) continue;
+        const name = cls.slice(8); // strip 'mx-name-'
+        for (const prefix of CONTAINER_PREFIXES) {
+          if (name.startsWith(prefix)) return true;
+        }
+      }
+      return false;
+    }
+
     function scanElement(el) {
       if (!el || el.nodeType !== 1) return;
       // Scan .mx-name-* elements for their text content
@@ -335,6 +356,8 @@ function replaceGuidsInScript(guidToLabel) {
         : el.querySelectorAll?.("[class*='mx-name-']") || [];
 
       for (const w of widgets) {
+        // Skip container/layout widgets — they hold composite text from children
+        if (isContainerWidget(w)) continue;
         const text = w.textContent?.trim();
         if (text && isInterestingValue(text)) {
           // Don't overwrite if we already have this value with a better selector
