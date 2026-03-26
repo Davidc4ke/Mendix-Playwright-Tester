@@ -632,7 +632,8 @@ function transformListViewRowClicks(script) {
  */
 function transformDataGridRowClicks(script) {
   const ScriptUtils = require('./lib/script-utils');
-  return script.replace(
+  // Pattern 1: getByRole('gridcell', { name: 'DB00000772' }).click()
+  let result = script.replace(
     /await\s+page\.getByRole\s*\(\s*['"]gridcell['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
     (match, cellName) => {
       if (ScriptUtils.looksLikeDynamicId(cellName)) {
@@ -641,6 +642,18 @@ function transformDataGridRowClicks(script) {
       return match;
     }
   );
+  // Pattern 2: getByText('DB00000777').first().click() or getByText('DB00000777').click()
+  // Codegen sometimes records datagrid row clicks as getByText() with the cell value.
+  result = result.replace(
+    /await\s+page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
+    (match, textValue) => {
+      if (ScriptUtils.looksLikeDynamicId(textValue)) {
+        return `await mx.clickDataGridFirstRow(page);`;
+      }
+      return match;
+    }
+  );
+  return result;
 }
 
 // GUID resolution is handled at recording time — recorder.js collects
