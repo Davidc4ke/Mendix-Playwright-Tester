@@ -775,6 +775,27 @@
     border-top: 1px solid var(--border);
   }
 
+  /* ── Image Lightbox ────────────────────────────────── */
+  .image-lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    cursor: zoom-out;
+    backdrop-filter: blur(4px);
+  }
+  .image-lightbox.active { display: flex; }
+  .image-lightbox img {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  }
+
   /* ── Toast ──────────────────────────────────────────── */
   .toast-container {
     position: fixed;
@@ -4673,9 +4694,35 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// Image lightbox
+function openImageLightbox(src) {
+  const lightbox = document.getElementById('imageLightbox');
+  const img = document.getElementById('lightboxImg');
+  img.src = src;
+  lightbox.classList.add('active');
+}
+function closeImageLightbox() {
+  const lightbox = document.getElementById('imageLightbox');
+  lightbox.classList.remove('active');
+  document.getElementById('lightboxImg').src = '';
+}
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('.image-card');
+  if (!card) return;
+  const img = card.querySelector('img');
+  if (img && img.src && !img.src.endsWith('/')) {
+    openImageLightbox(img.src);
+  }
+});
+
 // Close modals on Escape
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    const lightbox = document.getElementById('imageLightbox');
+    if (lightbox.classList.contains('active')) {
+      closeImageLightbox();
+      return;
+    }
     document.querySelectorAll(".modal-overlay.active").forEach((m) => {
       if (m.id === "confirmModal") {
         document.getElementById("confirmModalCancel").click();
@@ -5475,6 +5522,10 @@ async function cancelAgent() {
   }
 }
 </script>
+
+<div class="image-lightbox" id="imageLightbox" onclick="closeImageLightbox()">
+  <img id="lightboxImg" src="" alt="Enlarged image" onclick="event.stopPropagation()" />
+</div>
 
 </body>
 </html>
