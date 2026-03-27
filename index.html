@@ -2291,7 +2291,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Plan tracking events
   window.zoniq.onPlanRunStarted(({ planRunId, planId, planName, scenarioRuns }) => {
     toast(`Plan started: ${planName}`, "info");
-    activePlanRun = { planRunId, planId, planName, scenarioRuns: scenarioRuns.map(sr => ({ ...sr, status: "pending" })) };
+    activePlanRun = { planRunId, planId, planName, scenarioRuns: scenarioRuns.map(sr => ({ ...sr })) };
     showLivePlanTracker();
   });
 
@@ -3668,13 +3668,13 @@ async function executePlanToScenario(planId, scenarioIndex) {
   await window.zoniq.executePlan({ ...plan, upToIndex: scenarioIndex });
 }
 
-async function retryPlanFromScenario(planId, scenarioIndex) {
+async function retryPlanFromScenario(planId, scenarioIndex, retryRunId) {
   const plan = plans.find(p => p.id === planId);
   if (!plan || !(plan.scenarioIds || []).length) return;
   const sc = scenarios.find(s => s.id === plan.scenarioIds[scenarioIndex]);
   const label = sc ? sc.name : `scenario ${scenarioIndex + 1}`;
   toast(`Retrying plan from "${label}"...`, "info");
-  await window.zoniq.executePlan({ ...plan, fromIndex: scenarioIndex });
+  await window.zoniq.executePlan({ ...plan, fromIndex: scenarioIndex, retryRunId });
 }
 
 // ── Plan Execution Tracker ──
@@ -3823,7 +3823,7 @@ function showPlanRunDetail(run) {
     const clickable = sr.runId ? `onclick="selectRunById('${sr.runId}')" style="cursor:pointer;"` : '';
     const showRetry = isFailed && firstFailIndex >= 0 && i >= firstFailIndex && i === firstFailIndex;
     const retryBtn = showRetry && run.planId
-      ? `<button class="btn btn-sm" style="margin-left:auto;font-size:11px;padding:2px 8px;white-space:nowrap;" onclick="event.stopPropagation(); retryPlanFromScenario('${run.planId}', ${i})">&#8635; Retry from here</button>`
+      ? `<button class="btn btn-sm" style="margin-left:auto;font-size:11px;padding:2px 8px;white-space:nowrap;" onclick="event.stopPropagation(); retryPlanFromScenario('${run.planId}', ${i}, '${run.runId}')">&#8635; Retry from here</button>`
       : '';
     return `
     <div class="step-tracker-item ${statusClass}" ${clickable}>

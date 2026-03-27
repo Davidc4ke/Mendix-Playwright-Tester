@@ -1892,11 +1892,11 @@ ipcMain.handle("execute-scenario", async (event, scenario) => {
 let activePlanExecution = null; // { planRunId, cancelled }
 
 ipcMain.handle("execute-plan", async (event, plan) => {
-  const planRunId = uuidv4();
   const db = loadDB();
   if (!db.plans) db.plans = [];
   const fromIndex = plan.fromIndex != null ? plan.fromIndex : 0;
   const upToIndex = plan.upToIndex != null ? plan.upToIndex : null;
+  const retryRunId = plan.retryRunId || null;
   const scenarioIds = upToIndex != null
     ? (plan.scenarioIds || []).slice(0, upToIndex + 1)
     : (plan.scenarioIds || []);
@@ -1904,29 +1904,53 @@ ipcMain.handle("execute-plan", async (event, plan) => {
     .map(id => db.scenarios.find(s => s.id === id))
     .filter(Boolean);
 
+  const planRunId = retryRunId || uuidv4();
+
   if (!resolvedScenarios.length) {
     return { runId: planRunId, status: "error", errors: [{ message: "No valid scenarios in plan" }] };
   }
 
-  const planRun = {
-    runId: planRunId,
-    planId: plan.id,
-    testName: `Plan: ${plan.name}`,
-    status: "running",
-    startedAt: new Date().toISOString(),
-    completedAt: null,
-    results: null,
-    scenarioRuns: resolvedScenarios.map(s => ({
-      scenarioId: s.id,
-      scenarioName: s.name,
-      runId: null,
-      status: "pending",
-    })),
-  };
-
+  // Reuse existing plan run on retry, or create a new one
   const db2 = loadDB();
-  db2.runs.push(planRun);
-  saveDB(db2);
+  let planRun;
+  if (retryRunId) {
+    planRun = db2.runs.find(r => r.runId === retryRunId);
+    if (planRun) {
+      planRun.status = "running";
+      planRun.startedAt = new Date().toISOString();
+      planRun.completedAt = null;
+      planRun.results = null;
+      // Reset scenarios from fromIndex onward; keep earlier results
+      for (let i = fromIndex; i < planRun.scenarioRuns.length; i++) {
+        // Delete old child runs for retried scenarios
+        if (planRun.scenarioRuns[i].runId) {
+          db2.runs = db2.runs.filter(r => r.runId !== planRun.scenarioRuns[i].runId);
+        }
+        planRun.scenarioRuns[i].runId = null;
+        planRun.scenarioRuns[i].status = "pending";
+      }
+      saveDB(db2);
+    }
+  }
+  if (!planRun) {
+    planRun = {
+      runId: planRunId,
+      planId: plan.id,
+      testName: `Plan: ${plan.name}`,
+      status: "running",
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+      results: null,
+      scenarioRuns: resolvedScenarios.map(s => ({
+        scenarioId: s.id,
+        scenarioName: s.name,
+        runId: null,
+        status: "pending",
+      })),
+    };
+    db2.runs.push(planRun);
+    saveDB(db2);
+  }
 
   mainWindow.webContents.send("plan-run-started", {
     planRunId, planId: plan.id, planName: plan.name,
@@ -1956,12 +1980,17 @@ ipcMain.handle("execute-plan", async (event, plan) => {
       const dbSkipPre = loadDB();
       const prSkipPre = dbSkipPre.runs.find(r => r.runId === planRunId);
       if (prSkipPre) {
-        prSkipPre.scenarioRuns[i].status = "skipped";
-        saveDB(dbSkipPre);
+        // On retry, preserve existing results for pre-fromIndex scenarios
+        if (!retryRunId || !prSkipPre.scenarioRuns[i].status || prSkipPre.scenarioRuns[i].status === "pending") {
+          prSkipPre.scenarioRuns[i].status = "skipped";
+          saveDB(dbSkipPre);
+        }
       }
+      const prevStatus = retryRunId ? (prSkipPre?.scenarioRuns[i]?.status || "skipped") : "skipped";
+      const prevRunId = retryRunId ? (prSkipPre?.scenarioRuns[i]?.runId || null) : null;
       mainWindow.webContents.send("plan-scenario-completed", {
         planRunId, scenarioId: scenario.id, scenarioIndex: i,
-        status: "skipped", runId: null,
+        status: prevStatus, runId: prevRunId,
       });
       continue;
     }
