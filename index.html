@@ -1744,14 +1744,14 @@
     <!-- ── Sidebar ────────────────────────────────── -->
     <div class="sidebar">
       <div class="sidebar-tabs">
-        <button class="sidebar-tab active" data-panel="scenarios">Scenarios</button>
+        <button class="sidebar-tab active" data-panel="apps">Apps</button>
         <button class="sidebar-tab" data-panel="plans">Plans</button>
+        <button class="sidebar-tab" data-panel="scenarios">Scenarios</button>
         <button class="sidebar-tab" data-panel="runs">Test Runs</button>
-        <button class="sidebar-tab" data-panel="apps">Apps</button>
       </div>
 
       <!-- Scenarios Panel -->
-      <div class="sidebar-panel active" id="panel-scenarios">
+      <div class="sidebar-panel" id="panel-scenarios">
         <div class="sidebar-actions">
           <button class="btn btn-primary" onclick="openNewScenarioModal()">+ New</button>
           <button class="btn btn-record" onclick="launchRecorderPrompt()">Record</button>
@@ -1795,7 +1795,7 @@
       </div>
 
       <!-- Apps Panel -->
-      <div class="sidebar-panel" id="panel-apps">
+      <div class="sidebar-panel active" id="panel-apps">
         <div class="sidebar-actions">
           <button class="btn btn-primary btn-sm" onclick="openNewAppModal()">+ New App</button>
         </div>
