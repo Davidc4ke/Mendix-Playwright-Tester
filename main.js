@@ -2006,8 +2006,8 @@ ipcMain.handle("execute-plan", async (event, plan) => {
   const prFinal = dbFinal.runs.find(r => r.runId === planRunId);
   if (prFinal) {
     const allStatuses = prFinal.scenarioRuns.map(sr => sr.status);
-    prFinal.status = allStatuses.every(s => s === "passed") ? "passed"
-      : allStatuses.some(s => s === "failed" || s === "error") ? "failed"
+    prFinal.status = allStatuses.some(s => s === "failed" || s === "error") ? "failed"
+      : allStatuses.every(s => s === "passed" || s === "skipped") ? "passed"
       : "error";
     prFinal.completedAt = new Date().toISOString();
     prFinal.results = {
