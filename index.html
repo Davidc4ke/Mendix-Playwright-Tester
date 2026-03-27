@@ -3500,8 +3500,11 @@ function showPlanDetail(plan) {
         <button class="btn btn-sm btn-danger" onclick="deletePlan('${plan.id}')">Delete</button>
       </div>
     </div>
-    <div class="detail-body">
-      <div class="section-header">Scenarios</div>
+    <div class="detail-tabs" id="planDetailTabs">
+      <button class="detail-tab active" data-plan-tab="scenarios">Scenarios <span class="tab-count">(${(plan.scenarioIds || []).length})</span></button>
+      <button class="detail-tab" data-plan-tab="runs">Recent Runs <span class="tab-count">(${planRuns.length})</span></button>
+    </div>
+    <div class="detail-tab-panel active" id="planTab-scenarios" style="padding:24px;">
       <div class="step-tracker" style="margin-bottom:16px;">
         ${scenarioItems || '<div style="color:var(--text-secondary);font-size:12px;padding:8px;">No scenarios added yet. Click Edit to add scenarios.</div>'}
       </div>
@@ -3511,10 +3514,21 @@ function showPlanDetail(plan) {
           ${scenarios.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}
         </select>
       </div>
-      <div class="section-header">Recent Runs</div>
+    </div>
+    <div class="detail-tab-panel" id="planTab-runs" style="padding:24px;">
       ${planRunsHtml}
     </div>
   `;
+
+  // Wire up plan detail tab switching
+  el.querySelectorAll('#planDetailTabs .detail-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      el.querySelectorAll('#planDetailTabs .detail-tab').forEach(t => t.classList.remove('active'));
+      el.querySelectorAll('[id^="planTab-"]').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('planTab-' + tab.dataset.planTab).classList.add('active');
+    });
+  });
 }
 
 // ── Plan CRUD helpers ──
