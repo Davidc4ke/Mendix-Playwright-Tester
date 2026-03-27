@@ -3787,7 +3787,7 @@ function showPlanRunDetail(run) {
 
   const isFailed = run.status === "failed" || run.status === "error";
   const firstFailIndex = scenarioRuns.findIndex(sr =>
-    sr.status === "failed" || sr.status === "error" || sr.status === "skipped"
+    sr.status === "failed" || sr.status === "error"
   );
 
   const scenarioItems = scenarioRuns.map((sr, i) => {
