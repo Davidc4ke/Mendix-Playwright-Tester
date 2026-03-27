@@ -45,6 +45,14 @@ contextBridge.exposeInMainWorld("zoniq", {
   executePlan: (p) => ipcRenderer.invoke("execute-plan", p),
   stopPlanExecution: () => ipcRenderer.invoke("stop-plan-execution"),
 
+  // Workflow config import & generation
+  importWorkflowConfig: () => ipcRenderer.invoke("import-workflow-config"),
+  generateWorkflowPlan: (opts) => ipcRenderer.invoke("generate-workflow-plan", opts),
+  getWorkflowCredentials: (appId) => ipcRenderer.invoke("get-workflow-credentials", appId),
+  saveWorkflowCredentials: (appId, creds) => ipcRenderer.invoke("save-workflow-credentials", appId, creds),
+  getWorkflowAdminConfig: (appId) => ipcRenderer.invoke("get-workflow-admin-config", appId),
+  saveWorkflowAdminConfig: (appId, config) => ipcRenderer.invoke("save-workflow-admin-config", appId, config),
+
   // Script cleanup
   cleanupScript: (scenarioId) => ipcRenderer.invoke("cleanup-script", scenarioId),
   cleanupScriptAI: (scenarioId) => ipcRenderer.invoke("cleanup-script-ai", scenarioId),
