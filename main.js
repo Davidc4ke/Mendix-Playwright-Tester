@@ -1296,6 +1296,318 @@ ipcMain.handle("duplicate-plan", (event, id) => {
   return duplicate;
 });
 
+// ── Workflow Config Import & Generation ───────────────────
+
+/**
+ * Compute a unique credential key for a workflow status.
+ * Same UserRole.Name can be different people at different levels/roles.
+ */
+function getWorkflowCredentialKey(status) {
+  const role = status.UserRole?.Name || status.UserRole || '';
+  const level = status.Level || '';
+  const decisionRole = status.Role || status.GroupRole || '';
+  if (!decisionRole && !level) return role;
+  return [role, level, decisionRole].filter(Boolean).join(':');
+}
+
+/**
+ * Classify a workflow status for inclusion in the main flow.
+ * Returns: 'main' | 'multi-sub' | 'feedback' | 'terminal' | 'multi-parent'
+ */
+function classifyWorkflowStatus(status, allStatuses) {
+  const order = status.Order;
+  const isWholeNumber = Math.floor(order) === order;
+  const hasActions = status.WorkFlowActions && status.WorkFlowActions.length > 0;
+
+  if (!hasActions) return 'terminal';
+  if (status.UserAccessType === 'Multiple') return 'multi-parent';
+  if (!isWholeNumber) {
+    // Check if parent is Multiple
+    const parentOrder = Math.floor(order);
+    const parent = allStatuses.find(s => s.Order === parentOrder);
+    if (parent && parent.UserAccessType === 'Multiple') return 'multi-sub';
+    if (status.UserAccessType === 'Dynamic') return 'feedback';
+    return 'feedback'; // Default sub-status to feedback
+  }
+  return 'main';
+}
+
+/**
+ * Pick the default action index for the full escalation path.
+ */
+function getDefaultEscalationAction(status) {
+  const actions = status.WorkFlowActions || [];
+  if (actions.length <= 1) return 0;
+
+  const patterns = [
+    /push.*(for|escalation)/i,
+    /validate\s*proposal/i,
+    /no\s*further\s*escalation/i,
+    /ready\s*for\s*escalation/i,
+    /accept/i,
+  ];
+  for (const pattern of patterns) {
+    const idx = actions.findIndex(a => pattern.test(a.Name));
+    if (idx >= 0) return idx;
+  }
+  return 0;
+}
+
+/**
+ * Load workflow credentials for an app.
+ */
+function loadWorkflowCredentials(appId) {
+  const filePath = path.join(USER_DATA, `workflow-credentials-${appId}.json`);
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch { return {}; }
+}
+
+/**
+ * Save workflow credentials for an app.
+ */
+function saveWorkflowCredentials(appId, creds) {
+  const filePath = path.join(USER_DATA, `workflow-credentials-${appId}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(creds, null, 2));
+}
+
+/**
+ * Load workflow admin config (BU setup widget names) for an app.
+ */
+function loadWorkflowAdminConfig(appId) {
+  const filePath = path.join(USER_DATA, `workflow-admin-${appId}.json`);
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch { return {}; }
+}
+
+/**
+ * Save workflow admin config for an app.
+ */
+function saveWorkflowAdminConfigFile(appId, config) {
+  const filePath = path.join(USER_DATA, `workflow-admin-${appId}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(config, null, 2));
+}
+
+// Import workflow config JSON from file
+ipcMain.handle("import-workflow-config", async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: "Import Workflow Configuration",
+    filters: [{ name: "JSON", extensions: ["json"] }],
+    properties: ["openFile"],
+  });
+  if (canceled || !filePaths.length) return null;
+
+  try {
+    const raw = fs.readFileSync(filePaths[0], "utf-8");
+    const jsonArray = JSON.parse(raw);
+
+    // Handle both array and object-with-array formats
+    const statuses = Array.isArray(jsonArray) ? jsonArray : (jsonArray.statuses || jsonArray.data || []);
+    if (!statuses.length) return { error: "No statuses found in JSON" };
+
+    // Deduplicate by UUID
+    const seen = new Set();
+    const unique = statuses.filter(s => {
+      const key = s.UUID || s.uuid || s.Id || JSON.stringify({ o: s.Order, d: s.DisplayValue });
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    // Sort by Order
+    unique.sort((a, b) => (a.Order || 0) - (b.Order || 0));
+
+    // Classify and compute credential keys
+    const enriched = unique.map(s => ({
+      ...s,
+      _classification: classifyWorkflowStatus(s, unique),
+      _credentialKey: getWorkflowCredentialKey(s),
+      _defaultActionIndex: getDefaultEscalationAction(s),
+      _included: false, // will be set by UI
+    }));
+
+    // Auto-include: main flow + multi-sub statuses
+    enriched.forEach(s => {
+      if (s._classification === 'main' || s._classification === 'multi-sub') {
+        s._included = true;
+      }
+    });
+
+    return {
+      filename: path.basename(filePaths[0]),
+      statuses: enriched,
+      ticketType: unique[0]?.TicketType || '',
+    };
+  } catch (err) {
+    return { error: `Failed to parse JSON: ${err.message}` };
+  }
+});
+
+// Generate a workflow plan from wizard data
+ipcMain.handle("generate-workflow-plan", (event, opts) => {
+  const {
+    statuses,        // Selected statuses (Order > 1 only, or all non-requestor)
+    firstScenarioId, // Existing recorded Requestor scenario
+    actionSelections, // { statusUUID_or_order: actionIndex }
+    credentialMap,   // { credKey: { username, password } }
+    commentWidget,   // e.g. 'mx:txtDBComment'
+    planName,
+    targetUrl,
+    appId,
+    buSetup,         // Optional: { targetBU, adminCredentials, widgets }
+  } = opts;
+
+  const db = loadDB();
+  if (!db.plans) db.plans = [];
+  const now = new Date().toISOString();
+  const scenarioIds = [];
+
+  // 1. Generate BU Setup scenario if requested
+  if (buSetup && buSetup.targetBU) {
+    const uniqueUsernames = [...new Set(
+      Object.values(credentialMap).map(c => c.username).filter(Boolean)
+    )];
+
+    const userListStr = uniqueUsernames.map(u => `    '${ScriptUtils.escapeJsString(u)}'`).join(',\n');
+    const adminUser = ScriptUtils.escapeJsString(buSetup.adminCredentials?.username || '');
+    const adminPass = ScriptUtils.escapeJsString(buSetup.adminCredentials?.password || '');
+    const navWidget = (buSetup.widgets?.nav || '').replace(/^mx:/, '');
+    const searchWidget = (buSetup.widgets?.search || '').replace(/^mx:/, '');
+    const buDropdown = (buSetup.widgets?.buDropdown || '').replace(/^mx:/, '');
+    const saveWidget = (buSetup.widgets?.save || '').replace(/^mx:/, '');
+    const targetBU = ScriptUtils.escapeJsString(buSetup.targetBU);
+
+    const buScript = `test('BU Setup - Assign users to ${targetBU}', async ({ page }) => {
+  await page.goto(TARGET_URL);
+  await mx.login(page, TARGET_URL, '${adminUser}', '${adminPass}');
+  await mx.waitForMendix(page);
+
+  const users = [
+${userListStr}
+  ];
+  const targetBU = '${targetBU}';
+
+  for (const username of users) {
+    ${navWidget ? `await mx.clickWidget(page, '${navWidget}');` : '// Navigate to user management page'}
+    await mx.waitForMendix(page);
+    ${searchWidget ? `await mx.fillWidget(page, '${searchWidget}', username);` : '// Search for user by username'}
+    await mx.waitForMendix(page);
+    await mx.clickDataGridFirstRow(page);
+    await mx.waitForMendix(page);
+    ${buDropdown ? `await mx.selectDropdown(page, '${buDropdown}', targetBU);` : '// Select target BU from dropdown'}
+    await mx.waitForMendix(page);
+    ${saveWidget ? `await mx.clickWidget(page, '${saveWidget}');` : '// Click save button'}
+    await mx.waitForMendix(page);
+  }
+});`;
+
+    const buScenario = {
+      id: uuidv4(),
+      name: `BU Setup - ${buSetup.targetBU}`,
+      targetUrl,
+      appId,
+      credentials: buSetup.adminCredentials || {},
+      script: buScript,
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.scenarios.push(buScenario);
+    scenarioIds.push(buScenario.id);
+  }
+
+  // 2. Add the existing Requestor scenario
+  if (firstScenarioId) {
+    scenarioIds.push(firstScenarioId);
+  }
+
+  // 3. Generate a scenario for each workflow status
+  for (const status of statuses) {
+    const credKey = status._credentialKey || getWorkflowCredentialKey(status);
+    const creds = credentialMap[credKey] || {};
+    const statusKey = status.UUID || status.uuid || String(status.Order);
+    const actionIndex = actionSelections?.[statusKey] ?? status._defaultActionIndex ?? 0;
+    const action = (status.WorkFlowActions || [])[actionIndex];
+
+    const steps = [];
+
+    // Login
+    steps.push({ action: 'Login', username: creds.username || '', password: creds.password || '' });
+    steps.push({ action: 'WaitForMendix' });
+
+    // Click first row (most recent ticket)
+    steps.push({ action: 'ClickFirstDataGridRow' });
+    steps.push({ action: 'WaitForMendix' });
+
+    // Fill comment if required
+    if (status.HasDBComment && commentWidget) {
+      steps.push({ action: 'Fill', selector: commentWidget, value: 'Auto-test comment' });
+    }
+
+    // Click the action button by visible text
+    if (action && action.Name) {
+      steps.push({ action: 'Click', selector: `text:${action.Name}` });
+      steps.push({ action: 'WaitForMendix' });
+    }
+
+    // Screenshot
+    const safeStatusName = (status.DisplayValue || status.EnumSelection || `Step_${status.Order}`)
+      .replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+    steps.push({ action: 'Screenshot', value: `${status.Order}-${safeStatusName}` });
+
+    // Build scenario
+    const scenarioName = `${status.DisplayValue || status.EnumSelection} (${credKey})`;
+    const script = ScriptUtils.buildScriptFromSteps(steps, scenarioName);
+
+    const scenario = {
+      id: uuidv4(),
+      name: scenarioName,
+      targetUrl,
+      appId,
+      credentials: creds,
+      script,
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.scenarios.push(scenario);
+    scenarioIds.push(scenario.id);
+  }
+
+  // 4. Create the plan
+  const plan = {
+    id: uuidv4(),
+    name: planName || 'Generated Workflow Plan',
+    description: `Auto-generated from workflow config. ${statuses.length} statuses.`,
+    scenarioIds,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.plans.push(plan);
+  saveDB(db);
+
+  return { plan, scenarioCount: scenarioIds.length };
+});
+
+// Workflow credential CRUD
+ipcMain.handle("get-workflow-credentials", (event, appId) => {
+  return loadWorkflowCredentials(appId);
+});
+
+ipcMain.handle("save-workflow-credentials", (event, appId, creds) => {
+  saveWorkflowCredentials(appId, creds);
+  return true;
+});
+
+// Workflow admin config CRUD (BU setup widget names)
+ipcMain.handle("get-workflow-admin-config", (event, appId) => {
+  return loadWorkflowAdminConfig(appId);
+});
+
+ipcMain.handle("save-workflow-admin-config", (event, appId, config) => {
+  saveWorkflowAdminConfigFile(appId, config);
+  return true;
+});
+
 // Get all runs
 ipcMain.handle("get-runs", () => {
   return loadDB().runs.slice(-100).reverse();

@@ -766,6 +766,52 @@
     margin-bottom: 20px;
   }
 
+  /* Workflow wizard step indicators */
+  .wf-step-indicator {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: default;
+  }
+  .wf-step-indicator.active {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .wf-step-indicator.done {
+    background: #2e7d32;
+    color: #fff;
+  }
+
+  /* Workflow wizard tables */
+  .wf-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .wf-table th {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .wf-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--bg-tertiary);
+  }
+  .wf-table tr.excluded td {
+    opacity: 0.4;
+  }
+  .wf-btn-type-Success { color: #4caf50; }
+  .wf-btn-type-Danger { color: #f44336; }
+  .wf-btn-type-Warning { color: #ff9800; }
+
   .modal-actions {
     display: flex;
     justify-content: flex-end;
@@ -1770,8 +1816,9 @@
 
       <!-- Plans Panel -->
       <div class="sidebar-panel" id="panel-plans">
-        <div class="sidebar-actions">
+        <div class="sidebar-actions" style="display:flex;gap:6px;">
           <button class="btn btn-primary" onclick="openNewPlanModal()">+ New Plan</button>
+          <button class="btn" onclick="openWorkflowImportWizard()" title="Auto-generate a plan from a workflow configuration JSON">Import Workflow</button>
         </div>
         <div class="sidebar-list" id="planList">
           <div class="empty-state">
@@ -2046,6 +2093,136 @@
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('planModal')">Cancel</button>
       <button class="btn btn-primary" onclick="savePlanFromModal()">Save Plan</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Workflow Import Wizard ────────────────────── -->
+<div class="modal-overlay" id="workflowImportModal">
+  <div class="modal" style="width:800px;max-height:85vh;display:flex;flex-direction:column;">
+    <div class="modal-title">Import Workflow Configuration</div>
+
+    <!-- Step indicators -->
+    <div id="wfWizardSteps" style="display:flex;gap:4px;margin-bottom:12px;">
+      <span class="wf-step-indicator active" data-step="1">1. Import</span>
+      <span class="wf-step-indicator" data-step="2">2. BU Setup</span>
+      <span class="wf-step-indicator" data-step="3">3. Actions</span>
+      <span class="wf-step-indicator" data-step="4">4. Credentials</span>
+      <span class="wf-step-indicator" data-step="5">5. Review</span>
+    </div>
+
+    <!-- Step 1: Import & Preview -->
+    <div class="wf-wizard-page" id="wfStep1" style="flex:1;overflow-y:auto;">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button class="btn btn-primary" onclick="wfImportFile()">Choose JSON File...</button>
+        <span id="wfFileName" style="color:var(--text-secondary);font-size:12px;align-self:center;"></span>
+      </div>
+      <div class="form-group">
+        <label>Plan Name</label>
+        <input class="form-input" id="wfPlanName" placeholder="e.g. Renewal Full Escalation Workflow" />
+      </div>
+      <div class="form-group">
+        <label>Target App</label>
+        <select class="form-input" id="wfTargetApp" onchange="_wfPopulateFirstScenario()">
+          <option value="">Select an app...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>First Scenario (Requestor — already recorded)</label>
+        <select class="form-input" id="wfFirstScenario">
+          <option value="">Select existing scenario...</option>
+        </select>
+      </div>
+      <div id="wfStatusTable" style="margin-top:8px;"></div>
+    </div>
+
+    <!-- Step 2: BU Setup -->
+    <div class="wf-wizard-page" id="wfStep2" style="display:none;flex:1;overflow-y:auto;">
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="wfBUEnabled" checked onchange="wfToggleBUSetup()" />
+          Generate BU Setup scenario (auto-assign test users to target BU)
+        </label>
+      </div>
+      <div id="wfBUFields">
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <button class="btn btn-sm" onclick="wfLoadAdminConfig()">Load Saved Config</button>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);">
+            <input type="checkbox" id="wfSaveAdminConfig" checked /> Save config for this app
+          </label>
+        </div>
+        <div class="form-group">
+          <label>Target Business Unit</label>
+          <input class="form-input" id="wfTargetBU" placeholder="e.g. APAC, China, EMEA" />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="form-group">
+            <label>Admin Username</label>
+            <input class="form-input" id="wfAdminUser" placeholder="admin@test.com" />
+          </div>
+          <div class="form-group">
+            <label>Admin Password</label>
+            <input class="form-input" id="wfAdminPass" type="password" placeholder="Password" />
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);margin:8px 0 4px;">Widget names for the admin user management page:</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="form-group">
+            <label>Navigation Widget</label>
+            <input class="form-input" id="wfNavWidget" placeholder="mx:btnUserManagement" />
+          </div>
+          <div class="form-group">
+            <label>Search Widget</label>
+            <input class="form-input" id="wfSearchWidget" placeholder="mx:searchBox" />
+          </div>
+          <div class="form-group">
+            <label>BU Dropdown Widget</label>
+            <input class="form-input" id="wfBUDropdown" placeholder="mx:ddlBusinessUnit" />
+          </div>
+          <div class="form-group">
+            <label>Save Button Widget</label>
+            <input class="form-input" id="wfSaveWidget" placeholder="mx:btnSave" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Action Selection -->
+    <div class="wf-wizard-page" id="wfStep3" style="display:none;flex:1;overflow-y:auto;">
+      <div class="form-group">
+        <label>Comment Widget (for statuses requiring a DB comment)</label>
+        <input class="form-input" id="wfCommentWidget" placeholder="mx:txtDBComment" style="max-width:300px;" />
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">
+        Select which action button to click for each workflow status. Color coding: <span style="color:#4caf50;">Success</span> / <span style="color:#f44336;">Danger</span> / <span style="color:#ff9800;">Warning</span>
+      </div>
+      <div id="wfActionTable"></div>
+    </div>
+
+    <!-- Step 4: Credential Mapping -->
+    <div class="wf-wizard-page" id="wfStep4" style="display:none;flex:1;overflow-y:auto;">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button class="btn btn-sm" onclick="wfLoadCredentials()">Load Saved</button>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);">
+          <input type="checkbox" id="wfSaveCreds" checked /> Save credentials for this app
+        </label>
+      </div>
+      <div id="wfCredentialTable"></div>
+    </div>
+
+    <!-- Step 5: Review & Generate -->
+    <div class="wf-wizard-page" id="wfStep5" style="display:none;flex:1;overflow-y:auto;">
+      <div id="wfReviewSummary"></div>
+    </div>
+
+    <!-- Navigation buttons -->
+    <div class="modal-actions" style="margin-top:12px;display:flex;justify-content:space-between;">
+      <button class="btn" onclick="closeModal('workflowImportModal')">Cancel</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" id="wfBtnPrev" onclick="wfPrevStep()" style="display:none;">&larr; Back</button>
+        <button class="btn btn-primary" id="wfBtnNext" onclick="wfNextStep()">Next &rarr;</button>
+        <button class="btn btn-primary" id="wfBtnGenerate" onclick="wfGenerate()" style="display:none;">Generate Plan</button>
+      </div>
     </div>
   </div>
 </div>
@@ -3529,6 +3706,389 @@ function showPlanDetail(plan) {
       document.getElementById('planTab-' + tab.dataset.planTab).classList.add('active');
     });
   });
+}
+
+// ── Workflow Import Wizard ──────────────────────────────────
+
+let _wfStep = 1;
+let _wfStatuses = [];        // Parsed statuses from JSON
+let _wfTicketType = '';
+
+function openWorkflowImportWizard() {
+  _wfStep = 1;
+  _wfStatuses = [];
+  _wfTicketType = '';
+  document.getElementById('wfFileName').textContent = '';
+  document.getElementById('wfPlanName').value = '';
+  document.getElementById('wfStatusTable').innerHTML = '';
+  document.getElementById('wfActionTable').innerHTML = '';
+  document.getElementById('wfCredentialTable').innerHTML = '';
+  document.getElementById('wfReviewSummary').innerHTML = '';
+
+  // Populate app dropdown
+  const appSelect = document.getElementById('wfTargetApp');
+  appSelect.innerHTML = '<option value="">Select an app...</option>';
+  (apps || []).forEach(a => {
+    appSelect.innerHTML += `<option value="${a.id}" data-url="${a.baseUrl}">${a.name} — ${a.baseUrl}</option>`;
+  });
+
+  // Populate first scenario dropdown
+  _wfPopulateFirstScenario();
+
+  _wfUpdateNav();
+  openModal('workflowImportModal');
+}
+
+function _wfPopulateFirstScenario() {
+  const sel = document.getElementById('wfFirstScenario');
+  const appId = document.getElementById('wfTargetApp').value;
+  sel.innerHTML = '<option value="">Select existing scenario...</option>';
+  (scenarios || [])
+    .filter(s => !appId || s.appId === appId)
+    .forEach(s => {
+      sel.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+    });
+}
+
+// App change listener is set up via onchange in the HTML below
+// The wfTargetApp select triggers _wfPopulateFirstScenario on change
+
+async function wfImportFile() {
+  const result = await window.zoniq.importWorkflowConfig();
+  if (!result) return;
+  if (result.error) {
+    toast(result.error, 'error');
+    return;
+  }
+  _wfStatuses = result.statuses;
+  _wfTicketType = result.ticketType || '';
+  document.getElementById('wfFileName').textContent = result.filename;
+  if (!document.getElementById('wfPlanName').value) {
+    document.getElementById('wfPlanName').value = `${_wfTicketType || 'Workflow'} Full Escalation`.trim();
+  }
+  _wfRenderStatusTable();
+}
+
+function _wfRenderStatusTable() {
+  const container = document.getElementById('wfStatusTable');
+  if (!_wfStatuses.length) {
+    container.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;">No statuses loaded. Import a JSON file above.</div>';
+    return;
+  }
+  let html = `<table class="wf-table"><thead><tr>
+    <th></th><th>Order</th><th>Status</th><th>User Role</th><th>Level</th><th>Actions</th><th>Type</th>
+  </tr></thead><tbody>`;
+
+  _wfStatuses.forEach((s, i) => {
+    const cls = s._included ? '' : 'excluded';
+    const checked = s._included ? 'checked' : '';
+    const roleName = s.UserRole?.Name || s.UserRole || '—';
+    const actionNames = (s.WorkFlowActions || []).map(a => a.Name).join(', ') || '—';
+    const badge = s._classification === 'feedback' ? '<span style="color:var(--text-secondary);">(feedback)</span>'
+                : s._classification === 'terminal' ? '<span style="color:var(--text-secondary);">(terminal)</span>'
+                : s._classification === 'multi-parent' ? '<span style="color:var(--text-secondary);">(multi-parent)</span>'
+                : s._classification === 'multi-sub' ? '<span style="color:#ff9800;">(multi-sub)</span>'
+                : '';
+    html += `<tr class="${cls}">
+      <td><input type="checkbox" ${checked} onchange="_wfToggleStatus(${i}, this.checked)" /></td>
+      <td>${s.Order}</td>
+      <td>${s.DisplayValue || s.EnumSelection || '—'}</td>
+      <td>${roleName}</td>
+      <td>${s.Level || '—'}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${actionNames}">${actionNames}</td>
+      <td>${badge}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function _wfToggleStatus(index, included) {
+  _wfStatuses[index]._included = included;
+  _wfRenderStatusTable();
+}
+
+function wfToggleBUSetup() {
+  const enabled = document.getElementById('wfBUEnabled').checked;
+  document.getElementById('wfBUFields').style.display = enabled ? '' : 'none';
+}
+
+async function wfLoadAdminConfig() {
+  const appId = document.getElementById('wfTargetApp').value;
+  if (!appId) { toast('Select an app first', 'error'); return; }
+  const config = await window.zoniq.getWorkflowAdminConfig(appId);
+  if (config.adminUser) document.getElementById('wfAdminUser').value = config.adminUser;
+  if (config.adminPass) document.getElementById('wfAdminPass').value = config.adminPass;
+  if (config.navWidget) document.getElementById('wfNavWidget').value = config.navWidget;
+  if (config.searchWidget) document.getElementById('wfSearchWidget').value = config.searchWidget;
+  if (config.buDropdown) document.getElementById('wfBUDropdown').value = config.buDropdown;
+  if (config.saveWidget) document.getElementById('wfSaveWidget').value = config.saveWidget;
+  toast('Admin config loaded');
+}
+
+function _wfGetIncludedStatuses() {
+  // Exclude Order 1 (Requestor) since user picks an existing scenario for that
+  return _wfStatuses.filter(s => s._included && s.Order > 1);
+}
+
+function _wfRenderActionTable() {
+  const statuses = _wfGetIncludedStatuses();
+  let html = `<table class="wf-table"><thead><tr>
+    <th>Order</th><th>Status</th><th>Comment?</th><th>Action to Click</th>
+  </tr></thead><tbody>`;
+
+  statuses.forEach(s => {
+    const actions = s.WorkFlowActions || [];
+    const statusKey = s.UUID || s.uuid || String(s.Order);
+    const selIdx = s._selectedActionIndex ?? s._defaultActionIndex ?? 0;
+    const needsComment = s.HasDBComment ? '<span style="color:#ff9800;">Yes</span>' : 'No';
+
+    let opts = '';
+    actions.forEach((a, ai) => {
+      const sel = ai === selIdx ? 'selected' : '';
+      const color = a.ButtonType === 'Success' ? '#4caf50' : a.ButtonType === 'Danger' ? '#f44336' : a.ButtonType === 'Warning' ? '#ff9800' : 'inherit';
+      opts += `<option value="${ai}" ${sel} style="color:${color};">${a.Name} (${a.ButtonType || ''})</option>`;
+    });
+
+    html += `<tr>
+      <td>${s.Order}</td>
+      <td>${s.DisplayValue || '—'}</td>
+      <td>${needsComment}</td>
+      <td><select class="form-input" style="font-size:11px;padding:2px 4px;" onchange="_wfSetAction('${statusKey}', this.value)">${opts}</select></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('wfActionTable').innerHTML = html;
+}
+
+function _wfSetAction(statusKey, actionIndex) {
+  const s = _wfStatuses.find(s => (s.UUID || s.uuid || String(s.Order)) === statusKey);
+  if (s) s._selectedActionIndex = parseInt(actionIndex, 10);
+}
+
+function _wfGetUniqueCredentialKeys() {
+  const statuses = _wfGetIncludedStatuses();
+  const keys = new Map();
+  statuses.forEach(s => {
+    const key = s._credentialKey;
+    if (!keys.has(key)) {
+      const roleName = s.UserRole?.Name || s.UserRole || '';
+      const level = s.Level || '';
+      const decisionRole = s.Role || s.GroupRole || '';
+      let label = roleName;
+      if (level) label += ` — ${level} level`;
+      if (decisionRole) label += `, ${decisionRole.replace(/_/g, ' ')} role`;
+      keys.set(key, { key, label });
+    }
+  });
+  return [...keys.values()];
+}
+
+function _wfRenderCredentialTable() {
+  const credKeys = _wfGetUniqueCredentialKeys();
+  let html = `<table class="wf-table"><thead><tr>
+    <th>Role</th><th>Description</th><th>Username</th><th>Password</th>
+  </tr></thead><tbody>`;
+
+  credKeys.forEach(({ key, label }) => {
+    html += `<tr>
+      <td style="font-weight:600;white-space:nowrap;">${key}</td>
+      <td style="color:var(--text-secondary);font-size:11px;">${label}</td>
+      <td><input class="form-input wf-cred-user" data-key="${key}" placeholder="username" style="font-size:11px;padding:3px 6px;" /></td>
+      <td><input class="form-input wf-cred-pass" data-key="${key}" type="password" placeholder="password" style="font-size:11px;padding:3px 6px;" /></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('wfCredentialTable').innerHTML = html;
+}
+
+async function wfLoadCredentials() {
+  const appId = document.getElementById('wfTargetApp').value;
+  if (!appId) { toast('Select an app first', 'error'); return; }
+  const creds = await window.zoniq.getWorkflowCredentials(appId);
+  document.querySelectorAll('.wf-cred-user').forEach(el => {
+    const key = el.dataset.key;
+    if (creds[key]?.username) el.value = creds[key].username;
+  });
+  document.querySelectorAll('.wf-cred-pass').forEach(el => {
+    const key = el.dataset.key;
+    if (creds[key]?.password) el.value = creds[key].password;
+  });
+  toast('Credentials loaded');
+}
+
+function _wfCollectCredentials() {
+  const creds = {};
+  document.querySelectorAll('.wf-cred-user').forEach(el => {
+    const key = el.dataset.key;
+    if (!creds[key]) creds[key] = {};
+    creds[key].username = el.value.trim();
+  });
+  document.querySelectorAll('.wf-cred-pass').forEach(el => {
+    const key = el.dataset.key;
+    if (!creds[key]) creds[key] = {};
+    creds[key].password = el.value.trim();
+  });
+  return creds;
+}
+
+function _wfRenderReview() {
+  const included = _wfGetIncludedStatuses();
+  const credKeys = _wfGetUniqueCredentialKeys();
+  const buEnabled = document.getElementById('wfBUEnabled').checked;
+  const firstScName = document.getElementById('wfFirstScenario').selectedOptions[0]?.textContent || '(none)';
+  const totalScenarios = included.length + (buEnabled ? 1 : 0) + 1; // +1 for first scenario
+
+  let html = `<div style="margin-bottom:16px;">
+    <div style="font-size:14px;font-weight:600;margin-bottom:8px;">${document.getElementById('wfPlanName').value || 'Workflow Plan'}</div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">
+      ${totalScenarios} scenarios &middot; ${credKeys.length} unique users &middot; Ticket type: ${_wfTicketType || '—'}
+    </div>
+  </div>`;
+
+  html += '<div style="font-size:12px;"><ol style="margin:0;padding-left:20px;">';
+  if (buEnabled) {
+    html += `<li style="margin-bottom:4px;color:#ff9800;">BU Setup — Assign ${_wfGetIncludedStatuses().length > 0 ? credKeys.length : 0} users to ${document.getElementById('wfTargetBU').value || '?'}</li>`;
+  }
+  html += `<li style="margin-bottom:4px;color:var(--accent);">${firstScName} <span style="color:var(--text-secondary);">(existing recording)</span></li>`;
+  included.forEach(s => {
+    const actionIdx = s._selectedActionIndex ?? s._defaultActionIndex ?? 0;
+    const action = (s.WorkFlowActions || [])[actionIdx];
+    const actionName = action?.Name || '—';
+    html += `<li style="margin-bottom:4px;">${s.DisplayValue} <span style="color:var(--text-secondary);">(${s._credentialKey}) — ${actionName}</span></li>`;
+  });
+  html += '</ol></div>';
+
+  document.getElementById('wfReviewSummary').innerHTML = html;
+}
+
+function _wfUpdateNav() {
+  // Update step indicators
+  document.querySelectorAll('.wf-step-indicator').forEach(el => {
+    const step = parseInt(el.dataset.step, 10);
+    el.classList.remove('active', 'done');
+    if (step === _wfStep) el.classList.add('active');
+    else if (step < _wfStep) el.classList.add('done');
+  });
+
+  // Show/hide pages
+  for (let i = 1; i <= 5; i++) {
+    document.getElementById(`wfStep${i}`).style.display = i === _wfStep ? '' : 'none';
+  }
+
+  // Show/hide nav buttons
+  document.getElementById('wfBtnPrev').style.display = _wfStep > 1 ? '' : 'none';
+  document.getElementById('wfBtnNext').style.display = _wfStep < 5 ? '' : 'none';
+  document.getElementById('wfBtnGenerate').style.display = _wfStep === 5 ? '' : 'none';
+}
+
+function wfNextStep() {
+  if (_wfStep === 1) {
+    if (!_wfStatuses.length) { toast('Import a workflow JSON first', 'error'); return; }
+    if (!document.getElementById('wfTargetApp').value) { toast('Select a target app', 'error'); return; }
+    if (!document.getElementById('wfFirstScenario').value) { toast('Select the first (Requestor) scenario', 'error'); return; }
+  }
+  if (_wfStep === 2) {
+    // Moving to action selection - render the table
+    _wfRenderActionTable();
+  }
+  if (_wfStep === 3) {
+    // Moving to credentials - render the table
+    _wfRenderCredentialTable();
+  }
+  if (_wfStep === 4) {
+    // Moving to review
+    _wfRenderReview();
+  }
+  _wfStep = Math.min(_wfStep + 1, 5);
+  _wfUpdateNav();
+}
+
+function wfPrevStep() {
+  _wfStep = Math.max(_wfStep - 1, 1);
+  _wfUpdateNav();
+}
+
+async function wfGenerate() {
+  const appId = document.getElementById('wfTargetApp').value;
+  const appOpt = document.getElementById('wfTargetApp').selectedOptions[0];
+  const targetUrl = appOpt?.dataset?.url || '';
+  const firstScenarioId = document.getElementById('wfFirstScenario').value;
+  const planName = document.getElementById('wfPlanName').value;
+  const commentWidget = document.getElementById('wfCommentWidget').value.trim();
+
+  const included = _wfGetIncludedStatuses();
+  const credentialMap = _wfCollectCredentials();
+
+  // Build action selections map
+  const actionSelections = {};
+  included.forEach(s => {
+    const key = s.UUID || s.uuid || String(s.Order);
+    actionSelections[key] = s._selectedActionIndex ?? s._defaultActionIndex ?? 0;
+  });
+
+  // BU setup
+  let buSetup = null;
+  if (document.getElementById('wfBUEnabled').checked) {
+    buSetup = {
+      targetBU: document.getElementById('wfTargetBU').value.trim(),
+      adminCredentials: {
+        username: document.getElementById('wfAdminUser').value.trim(),
+        password: document.getElementById('wfAdminPass').value.trim(),
+      },
+      widgets: {
+        nav: document.getElementById('wfNavWidget').value.trim(),
+        search: document.getElementById('wfSearchWidget').value.trim(),
+        buDropdown: document.getElementById('wfBUDropdown').value.trim(),
+        save: document.getElementById('wfSaveWidget').value.trim(),
+      },
+    };
+
+    // Save admin config if requested
+    if (document.getElementById('wfSaveAdminConfig').checked && appId) {
+      await window.zoniq.saveWorkflowAdminConfig(appId, {
+        adminUser: buSetup.adminCredentials.username,
+        adminPass: buSetup.adminCredentials.password,
+        ...buSetup.widgets,
+      });
+    }
+  }
+
+  // Save credentials if requested
+  if (document.getElementById('wfSaveCreds').checked && appId) {
+    await window.zoniq.saveWorkflowCredentials(appId, credentialMap);
+  }
+
+  // Generate
+  try {
+    const result = await window.zoniq.generateWorkflowPlan({
+      statuses: included,
+      firstScenarioId,
+      actionSelections,
+      credentialMap,
+      commentWidget,
+      planName,
+      targetUrl,
+      appId,
+      buSetup,
+    });
+
+    closeModal('workflowImportModal');
+    toast(`Plan "${result.plan.name}" created with ${result.scenarioCount} scenarios`);
+
+    // Reload data and switch to the new plan
+    await loadPlans();
+    await loadScenarios();
+    // Switch to Plans tab
+    document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.sidebar-panel').forEach(p => p.classList.remove('active'));
+    const plansTab = document.querySelector('.sidebar-tab[data-panel="plans"]');
+    if (plansTab) plansTab.classList.add('active');
+    document.getElementById('panel-plans').classList.add('active');
+    selectPlan(result.plan.id);
+  } catch (err) {
+    toast(`Generation failed: ${err.message}`, 'error');
+  }
 }
 
 // ── Plan CRUD helpers ──

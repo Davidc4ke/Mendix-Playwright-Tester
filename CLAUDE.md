@@ -68,12 +68,14 @@ Key functions:
 - `resolveLocator(selector)` — converts selector strings (mx:, label:, text:, role:Name) to Playwright locator code
 - `resolveValue(rawValue)` — handles `{{varName}}` references in step values, returns `{ expr, isDynamic }` for code generation
 - `describeStatement(stmtText)` — short human-readable description for progress markers
+- `buildScriptFromSteps(steps, testName)` — builds a complete test script from an array of step objects, each passed through `generateStepCode()`
 
 ### IPC Bridge (`preload.js`)
 Exposes `window.zoniq` API to renderer:
 - Scenario CRUD: `getScenarios`, `saveScenario`, `deleteScenario`
 - Execution: `executeScenario`, `launchRecorder`, `launchRecorderFromStep`, `importScript`
 - Plans: `getPlans`, `savePlan`, `deletePlan`, `duplicatePlan`, `executePlan`, `stopPlanExecution`
+- Workflow import: `importWorkflowConfig`, `generateWorkflowPlan`, `getWorkflowCredentials`, `saveWorkflowCredentials`, `getWorkflowAdminConfig`, `saveWorkflowAdminConfig`
 - Settings: `getSettings`, `saveSettings`, `testLLMConnection`
 - Agent operations: `agentHeal`, `agentHealApply`, `agentCancel`, `agentAnalyze`
 - Analysis history: `getAnalyses`, `deleteAnalysis`
@@ -233,6 +235,23 @@ Use `{{varName}}` in any step's value field to reference a previously captured v
 ```
 
 The UI groups steps into phases by login events, making multi-user flows easy to read.
+
+## Workflow Config Import
+
+Auto-generates test plans from exported workflow configuration JSON files (e.g., ticket escalation systems like Dealbreaker). Accessible via "Import Workflow" button on the Plans tab.
+
+### 5-Step Wizard Flow
+1. **Import & Preview** — Load JSON, deduplicate by UUID, sort by Order, classify statuses (main/feedback/terminal/multi-sub). User selects which statuses to include and picks their existing Requestor scenario as step 1.
+2. **BU Setup** (optional) — Generate a pre-flight scenario that logs in as admin and reassigns test users to the target Business Unit via a loop.
+3. **Action Selection** — Per-status dropdown to choose which `WorkFlowActions` button to click. Color-coded by ButtonType. Smart defaults for escalation path.
+4. **Credential Mapping** — Map each unique UserRole+Level+Role combo to test account credentials. Saveable per app.
+5. **Review & Generate** — Creates one scenario per status + a plan wiring them all together.
+
+### Key Design Decisions
+- Each generated scenario: Login → WaitForMendix → ClickFirstDataGridRow → optional comment → Click action by `text:ButtonName` → Screenshot
+- First scenario (Requestor) is user's existing recording, not auto-generated
+- No cross-scenario variable sharing needed — most recent ticket is always at the top of the DataGrid
+- Credentials and BU admin config persist per app in `USER_DATA/workflow-credentials-{appId}.json` and `USER_DATA/workflow-admin-{appId}.json`
 
 ## Zero Manual Editing Principle
 
