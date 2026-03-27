@@ -19,6 +19,7 @@ npm start                 # Launch the Electron app
 npm run build:win         # Build Windows portable .exe
 npm run build:mac         # Build macOS .dmg
 npm run build:linux       # Build Linux AppImage
+npm run start:sync-server # Start sync server locally (port 3200)
 ```
 
 ## Architecture
@@ -79,6 +80,7 @@ Exposes `window.zoniq` API to renderer:
 - Analysis history: `getAnalyses`, `deleteAnalysis`
 - Events: `onRunStarted`, `onRunCompleted`, `onRunsUpdated`, `onStepList`, `onStepProgress`, `onAgentProgress`, `onRecorderFromStepProgress`, `onRecorderFromStepStatus`
 - Plan events: `onPlanRunStarted`, `onPlanScenarioStarted`, `onPlanScenarioCompleted`, `onPlanRunCompleted`
+- Sync: `syncNow`, `testSyncConnection`, `onSyncStatus`
 
 ### Renderer (`index.html`)
 Single-file UI with embedded `<script>`. Imports `ScriptUtils` from `lib/script-utils.js`.
@@ -123,6 +125,34 @@ Utility functions for Mendix-specific testing:
 - `GET /api/agent/status` — Check if an agent is running
 - `POST /api/agent/cancel` — Cancel running agent
 
+### Team Sync (`server/sync-server.js` + `lib/sync-client.js`)
+
+Optional server for sharing test data across team members. Deployable to Railway, Render, Fly.io, or locally.
+
+**Server** (`server/sync-server.js`):
+- Standalone Express app on `PORT` (default 3200)
+- JSON file storage in `data/sync-data.json`
+- Optional auth via `ZONIQ_SYNC_KEY` env var
+- Endpoints: `GET /api/sync/status`, `POST /api/sync/pull`, `POST /api/sync/push`
+- Last-write-wins conflict resolution by `updatedAt` timestamp
+- Soft deletes propagated via `deleted` array (pruned after 30 days)
+
+**Client** (`lib/sync-client.js`):
+- `createSyncClient(serverUrl, apiKey)` — creates client instance
+- `fullSync(opts)` — complete pull/merge/push cycle
+- Triggered: on app startup, after save/delete (debounced 2s), background interval (60s default), manual "Sync Now"
+- Sync state persisted in `sync-state.json` (lastSyncedAt, pendingDeletes)
+
+**What syncs:** Scenarios, plans, apps, element DBs, runs, analyses
+**What stays local:** Settings (API keys), saved URLs, result artifacts (screenshots/videos)
+
+**Deploy to Railway:**
+1. Push repo to GitHub
+2. Create new Railway project → "Deploy from GitHub repo"
+3. Railway uses `railway.json` to build and start the server
+4. Set `ZONIQ_SYNC_KEY` env var in Railway dashboard (optional)
+5. Copy the public URL into the Electron app's Settings → Team Sync → Server URL
+
 ## Data Storage
 
 User data stored in platform-specific directories:
@@ -134,6 +164,7 @@ Files:
 - `scenarios.json` — Test scenarios, plans, run history, and AI analysis history (steps are NOT stored, only scripts)
 - `scripts/` — Recorded/imported script files
 - `results/` — Test artifacts (screenshots, videos, traces, debug logs)
+- `sync-state.json` — Sync tracking (lastSyncedAt, pendingDeletes)
 
 ### Scenario Data Model
 ```json

@@ -11,7 +11,8 @@
     "install-browsers": "npx playwright install chromium ffmpeg",
     "install-browsers:local": "cross-env PLAYWRIGHT_BROWSERS_PATH=./browsers npx playwright install chromium ffmpeg",
     "install-browsers:china": "cross-env PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright PLAYWRIGHT_BROWSERS_PATH=./browsers npx playwright install chromium ffmpeg",
-    "postinstall": "echo \"Run 'npm run install-browsers' to install Playwright Chromium\""
+    "postinstall": "echo \"Run 'npm run install-browsers' to install Playwright Chromium\"",
+    "start:sync-server": "cd server && npm install && node sync-server.js"
   },
   "build": {
     "appId": "com.zoniq.testrunner",

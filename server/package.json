@@ -1,0 +1,14 @@
+{
+  "name": "zoniq-sync-server",
+  "version": "1.0.0",
+  "description": "Sync server for Zoniq Test Runner — share test scenarios across your team",
+  "main": "sync-server.js",
+  "scripts": {
+    "start": "node sync-server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "uuid": "^10.0.0"
+  }
+}

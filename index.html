@@ -1711,6 +1711,7 @@
       <h1>Zoniq Test Runner <span>v1.0</span></h1>
     </div>
     <div style="display:flex;align-items:center;gap:4px;">
+      <span id="syncStatusIndicator" style="font-size:10px;margin-right:6px;"></span>
       <button class="settings-btn" onclick="openSettingsModal()" title="Settings">&#9881; Settings</button>
       <div class="health-indicator" id="healthIndicator" onclick="runHealthCheck()">
         <div class="health-dot" id="healthDot"></div>
@@ -1932,6 +1933,47 @@
     <div style="margin-bottom:8px;">
       <button class="btn btn-sm" id="testConnectionBtn" onclick="testLLMConnection()">Test Connection</button>
       <span id="connectionResult" style="font-size:11px;margin-left:8px;font-family:var(--font);"></span>
+    </div>
+    <div style="border-top:1px solid var(--border);margin:14px 0 10px;padding-top:10px;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px;">Team Sync</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">
+        Sync scenarios, plans, and apps with your team via a shared server.
+        <a href="https://railway.com" target="_blank" style="color:var(--primary);">Deploy on Railway</a> or run locally.
+      </div>
+      <div class="form-group">
+        <label>Sync</label>
+        <select class="form-input" id="settingsSyncEnabled">
+          <option value="false">Disabled</option>
+          <option value="true">Enabled</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Server URL</label>
+        <input class="form-input" id="settingsSyncUrl" placeholder="https://your-sync-server.up.railway.app" />
+      </div>
+      <div class="form-group">
+        <label>API Key (optional)</label>
+        <input class="form-input" id="settingsSyncApiKey" type="password" placeholder="Shared team key" />
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div class="form-group">
+          <label>Auto-sync on Save</label>
+          <select class="form-input" id="settingsSyncAutoSync">
+            <option value="true">On</option>
+            <option value="false">Off</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Sync Interval (seconds)</label>
+          <input class="form-input" id="settingsSyncInterval" type="number" min="10" max="3600" value="60" />
+        </div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <button class="btn btn-sm" onclick="testSyncConnectionFromModal()">Test Connection</button>
+        <button class="btn btn-sm" onclick="syncNowFromModal()" style="margin-left:6px;">Sync Now</button>
+        <span id="syncConnectionResult" style="font-size:11px;margin-left:8px;font-family:var(--font);"></span>
+      </div>
+      <div id="lastSyncTime" style="font-size:10px;color:var(--text-muted);"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('settingsModal')">Cancel</button>
@@ -4672,6 +4714,13 @@ async function openSettingsModal() {
   document.getElementById("settingsRetryOnFailure").value = String(settings.testExecution?.retryOnFailure || false);
   document.getElementById("settingsStepTimeout").value = settings.testExecution?.stepTimeout || 30;
   document.getElementById("connectionResult").textContent = "";
+  // Sync settings
+  document.getElementById("settingsSyncEnabled").value = String(settings.sync?.enabled || false);
+  document.getElementById("settingsSyncUrl").value = settings.sync?.serverUrl || "";
+  document.getElementById("settingsSyncApiKey").value = settings.sync?.apiKey || "";
+  document.getElementById("settingsSyncAutoSync").value = String(settings.sync?.autoSync !== false);
+  document.getElementById("settingsSyncInterval").value = settings.sync?.intervalSeconds || 60;
+  document.getElementById("syncConnectionResult").textContent = "";
   onProviderChange();
   openModal("settingsModal");
 }
@@ -4703,6 +4752,13 @@ function getSettingsFromModal() {
       retryOnFailure: document.getElementById("settingsRetryOnFailure").value === "true",
       stepTimeout: parseInt(document.getElementById("settingsStepTimeout").value) || 30,
     },
+    sync: {
+      enabled: document.getElementById("settingsSyncEnabled").value === "true",
+      serverUrl: document.getElementById("settingsSyncUrl").value.trim(),
+      apiKey: document.getElementById("settingsSyncApiKey").value.trim(),
+      autoSync: document.getElementById("settingsSyncAutoSync").value === "true",
+      intervalSeconds: parseInt(document.getElementById("settingsSyncInterval").value) || 60,
+    },
   };
 }
 
@@ -4732,6 +4788,66 @@ async function testLLMConnection() {
     result.style.color = "var(--red)";
   }
 }
+
+async function testSyncConnectionFromModal() {
+  const result = document.getElementById("syncConnectionResult");
+  result.textContent = "Testing...";
+  result.style.color = "var(--text-secondary)";
+  const url = document.getElementById("settingsSyncUrl").value.trim();
+  const key = document.getElementById("settingsSyncApiKey").value.trim();
+  if (!url) {
+    result.textContent = "Enter a server URL first";
+    result.style.color = "var(--red)";
+    return;
+  }
+  const res = await window.zoniq.testSyncConnection(url, key);
+  if (res.ok) {
+    result.textContent = `Connected! (v${res.version || "?"})`;
+    result.style.color = "var(--green)";
+  } else {
+    result.textContent = res.error || "Connection failed";
+    result.style.color = "var(--red)";
+  }
+}
+
+async function syncNowFromModal() {
+  const result = document.getElementById("syncConnectionResult");
+  result.textContent = "Syncing...";
+  result.style.color = "var(--text-secondary)";
+  const res = await window.zoniq.syncNow();
+  if (res.ok) {
+    result.textContent = "Sync completed!";
+    result.style.color = "var(--green)";
+    // Refresh the current view
+    showScenarioList();
+  } else {
+    result.textContent = res.error || "Sync failed";
+    result.style.color = "var(--red)";
+  }
+}
+
+// Listen for sync status events
+let _unsubSyncStatus = null;
+function initSyncStatusListener() {
+  if (_unsubSyncStatus) _unsubSyncStatus();
+  _unsubSyncStatus = window.zoniq.onSyncStatus((data) => {
+    const el = document.getElementById("syncStatusIndicator");
+    if (!el) return;
+    if (data.status === "syncing") {
+      el.textContent = "Syncing...";
+      el.style.color = "var(--text-secondary)";
+    } else if (data.status === "synced") {
+      el.textContent = "Synced " + timeAgo(data.time);
+      el.style.color = "var(--green)";
+      // Refresh scenario list if visible
+      showScenarioList();
+    } else if (data.status === "error") {
+      el.textContent = "Sync error";
+      el.style.color = "var(--red)";
+    }
+  });
+}
+initSyncStatusListener();
 
 // ════════════════════════════════════════════════════
 //  AI Heal Agent

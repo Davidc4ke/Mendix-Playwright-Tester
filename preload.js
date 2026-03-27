@@ -49,6 +49,15 @@ contextBridge.exposeInMainWorld("zoniq", {
   cleanupScript: (scenarioId) => ipcRenderer.invoke("cleanup-script", scenarioId),
   cleanupScriptAI: (scenarioId) => ipcRenderer.invoke("cleanup-script-ai", scenarioId),
 
+  // Sync
+  syncNow: () => ipcRenderer.invoke("sync-now"),
+  testSyncConnection: (url, key) => ipcRenderer.invoke("test-sync-connection", url, key),
+  onSyncStatus: (cb) => {
+    const handler = (_, data) => cb(data);
+    ipcRenderer.on("sync-status", handler);
+    return () => ipcRenderer.removeListener("sync-status", handler);
+  },
+
   // Event listeners — each returns an unsubscribe function to prevent memory leaks
   onRunStarted: (cb) => {
     const handler = (_, data) => cb(data);

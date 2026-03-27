@@ -17,6 +17,7 @@ const { LLMClient } = require("./agents/llm-client");
 const { HealerAgent } = require("./agents/healer-agent");
 const ScriptUtils = require("./lib/script-utils");
 const ElementDB = require("./lib/element-db");
+const { createSyncClient, fullSync } = require("./lib/sync-client");
 
 // ── Paths ────────────────────────────────────────────────
 const USER_DATA = app.getPath("userData");
@@ -27,6 +28,7 @@ const HELPERS_DIR = path.join(__dirname, "helpers");
 const DB_PATH = path.join(USER_DATA, "scenarios.json");
 const APPS_PATH = path.join(USER_DATA, "apps.json");
 const APPS_DIR = path.join(USER_DATA, "apps");
+const SYNC_STATE_PATH = path.join(USER_DATA, "sync-state.json");
 
 // ── Playwright paths ────────────────────────────────────
 const PLAYWRIGHT_CLI = path.resolve(
@@ -1209,6 +1211,7 @@ ipcMain.handle("save-scenario", (event, scenario) => {
     } catch {}
   }
 
+  triggerSync();
   return scenario;
 });
 
@@ -1228,6 +1231,7 @@ ipcMain.handle("duplicate-scenario", (event, id) => {
   delete duplicate.steps;
   db.scenarios.push(duplicate);
   saveDB(db);
+  triggerSync();
   return duplicate;
 });
 
@@ -1236,6 +1240,8 @@ ipcMain.handle("delete-scenario", (event, id) => {
   const db = loadDB();
   db.scenarios = db.scenarios.filter((s) => s.id !== id);
   saveDB(db);
+  addPendingDelete(id, "scenarios");
+  triggerSync();
   return true;
 });
 
@@ -1267,6 +1273,7 @@ ipcMain.handle("save-plan", (event, plan) => {
     db.plans.push(plan);
   }
   saveDB(db);
+  triggerSync();
   return plan;
 });
 
@@ -1275,6 +1282,8 @@ ipcMain.handle("delete-plan", (event, id) => {
   if (!db.plans) return true;
   db.plans = db.plans.filter(p => p.id !== id);
   saveDB(db);
+  addPendingDelete(id, "plans");
+  triggerSync();
   return true;
 });
 
@@ -1293,6 +1302,7 @@ ipcMain.handle("duplicate-plan", (event, id) => {
   };
   db.plans.push(duplicate);
   saveDB(db);
+  triggerSync();
   return duplicate;
 });
 
@@ -1330,6 +1340,7 @@ ipcMain.handle("create-app", (event, appData) => {
   };
   apps.push(newApp);
   saveApps(apps);
+  triggerSync();
   return newApp;
 });
 
@@ -1339,6 +1350,7 @@ ipcMain.handle("update-app", (event, appData) => {
   if (idx < 0) return { error: "App not found" };
   apps[idx] = { ...apps[idx], ...appData, updatedAt: new Date().toISOString() };
   saveApps(apps);
+  triggerSync();
   return apps[idx];
 });
 
@@ -1346,6 +1358,8 @@ ipcMain.handle("delete-app", (event, appId) => {
   let apps = loadApps();
   apps = apps.filter(a => a.id !== appId);
   saveApps(apps);
+  addPendingDelete(appId, "apps");
+  triggerSync();
   // Remove element DB directory
   const appDir = path.join(APPS_DIR, appId);
   try { fs.rmSync(appDir, { recursive: true, force: true }); } catch {}
@@ -2279,6 +2293,114 @@ ipcMain.handle("agent-cancel", () => {
   return { ok: false, error: "No agent running" };
 });
 
+// ── Sync ──────────────────────────────────────────────────────
+
+function loadSyncState() {
+  try {
+    if (fs.existsSync(SYNC_STATE_PATH)) {
+      return JSON.parse(fs.readFileSync(SYNC_STATE_PATH, "utf-8"));
+    }
+  } catch {}
+  return { lastSyncedAt: null, pendingDeletes: [] };
+}
+
+function saveSyncState(state) {
+  fs.writeFileSync(SYNC_STATE_PATH, JSON.stringify(state, null, 2));
+}
+
+function addPendingDelete(id, type) {
+  const state = loadSyncState();
+  state.pendingDeletes.push({ id, type, deletedAt: new Date().toISOString() });
+  saveSyncState(state);
+}
+
+let _syncTimer = null;
+let _syncDebounceTimer = null;
+let _syncing = false;
+
+function emitSyncStatus(status, detail) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("sync-status", { status, detail, time: new Date().toISOString() });
+  }
+}
+
+async function performSync() {
+  const settings = loadSettings();
+  if (!settings.sync || !settings.sync.enabled || !settings.sync.serverUrl) return;
+  if (_syncing) return;
+  _syncing = true;
+
+  try {
+    emitSyncStatus("syncing");
+    const client = createSyncClient(settings.sync.serverUrl, settings.sync.apiKey);
+    const syncState = loadSyncState();
+    const result = await fullSync({
+      client,
+      lastSyncedAt: syncState.lastSyncedAt,
+      loadDB,
+      saveDB,
+      loadApps,
+      saveApps,
+      loadElementDB: loadElementDBForApp,
+      saveElementDB: saveElementDBForApp,
+      pendingDeletes: syncState.pendingDeletes,
+      onConflict: (conflicts) => {
+        console.log("[sync] Conflicts resolved (server wins):", JSON.stringify(conflicts));
+      },
+    });
+    saveSyncState(result);
+    emitSyncStatus("synced", "Sync completed");
+  } catch (err) {
+    console.error("[sync] Sync failed:", err.message);
+    emitSyncStatus("error", err.message);
+  } finally {
+    _syncing = false;
+  }
+}
+
+function triggerSync() {
+  const settings = loadSettings();
+  if (!settings.sync || !settings.sync.enabled || !settings.sync.autoSync) return;
+  clearTimeout(_syncDebounceTimer);
+  _syncDebounceTimer = setTimeout(() => performSync(), 2000);
+}
+
+function startSyncInterval() {
+  stopSyncInterval();
+  const settings = loadSettings();
+  if (!settings.sync || !settings.sync.enabled) return;
+  const ms = (settings.sync.intervalSeconds || 60) * 1000;
+  _syncTimer = setInterval(() => performSync(), ms);
+  // Initial sync on startup
+  performSync();
+}
+
+function stopSyncInterval() {
+  if (_syncTimer) {
+    clearInterval(_syncTimer);
+    _syncTimer = null;
+  }
+}
+
+ipcMain.handle("sync-now", async () => {
+  try {
+    await performSync();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle("test-sync-connection", async (event, url, key) => {
+  try {
+    const client = createSyncClient(url, key);
+    const result = await client.testConnection();
+    return { ok: true, ...result };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 // ── Script Cleanup ─────────────────────────────────────────
 
 ipcMain.handle("cleanup-script", async (event, scenarioId) => {
@@ -2365,6 +2487,7 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
   startAPIServer();
+  startSyncInterval();
 });
 
 app.on("window-all-closed", () => {
@@ -2373,6 +2496,7 @@ app.on("window-all-closed", () => {
     if (activeAgent.agent) activeAgent.agent.cancel();
     activeAgent = null;
   }
+  stopSyncInterval();
   if (apiServer) apiServer.close();
   app.quit();
 });

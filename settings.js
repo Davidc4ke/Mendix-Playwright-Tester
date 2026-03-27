@@ -29,13 +29,20 @@ const DEFAULT_SETTINGS = {
     retryOnFailure: false,        // Retry failed tests once
     stepTimeout: 30,              // Seconds before a step times out and fails the test
   },
+  sync: {
+    enabled: false,
+    serverUrl: "",                // e.g. "https://my-sync.up.railway.app"
+    apiKey: "",                   // Optional shared API key
+    autoSync: true,               // Sync after every save/delete
+    intervalSeconds: 60,          // Background sync interval
+  },
 };
 
 function loadSettings() {
   try {
     if (fs.existsSync(SETTINGS_PATH)) {
       const data = JSON.parse(fs.readFileSync(SETTINGS_PATH, "utf-8"));
-      return { ...DEFAULT_SETTINGS, ...data, llm: { ...DEFAULT_SETTINGS.llm, ...data.llm }, agent: { ...DEFAULT_SETTINGS.agent, ...data.agent }, recorder: { ...DEFAULT_SETTINGS.recorder, ...data.recorder }, testExecution: { ...DEFAULT_SETTINGS.testExecution, ...data.testExecution } };
+      return { ...DEFAULT_SETTINGS, ...data, llm: { ...DEFAULT_SETTINGS.llm, ...data.llm }, agent: { ...DEFAULT_SETTINGS.agent, ...data.agent }, recorder: { ...DEFAULT_SETTINGS.recorder, ...data.recorder }, testExecution: { ...DEFAULT_SETTINGS.testExecution, ...data.testExecution }, sync: { ...DEFAULT_SETTINGS.sync, ...data.sync } };
     }
   } catch {}
   return { ...DEFAULT_SETTINGS };
@@ -47,6 +54,7 @@ function saveSettings(settings) {
     agent: { ...DEFAULT_SETTINGS.agent, ...settings.agent },
     recorder: { ...DEFAULT_SETTINGS.recorder, ...settings.recorder },
     testExecution: { ...DEFAULT_SETTINGS.testExecution, ...settings.testExecution },
+    sync: { ...DEFAULT_SETTINGS.sync, ...settings.sync },
   };
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(merged, null, 2));
   return merged;

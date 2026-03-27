@@ -6,3 +6,5 @@ test-results/
 *.spec.js.tmp
 .env
 browsers/
+server/node_modules/
+server/data/
