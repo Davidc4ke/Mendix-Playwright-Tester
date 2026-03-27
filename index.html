@@ -3031,6 +3031,7 @@ async function showAppDetail(app) {
   const appScenarios = scenarios.filter(s => s.appId === app.id);
   const appScenarioIds = new Set(appScenarios.map(s => s.id));
   const appRuns = runs.filter(r => appScenarioIds.has(r.scenarioId));
+  const appPlans = plans.filter(p => (p.scenarioIds || []).some(sid => appScenarioIds.has(sid)));
 
   el.innerHTML = `
     <div class="detail-header">
@@ -3050,16 +3051,27 @@ async function showAppDetail(app) {
       </div>
     ` : ''}
     <div class="detail-tabs">
-      <button class="detail-tab active" data-dtab="app-elements">Elements<span class="tab-count">(${elements.length})</span></button>
+      <button class="detail-tab active" data-dtab="app-plans">Plans<span class="tab-count">(${appPlans.length})</span></button>
       <button class="detail-tab" data-dtab="app-scenarios">Scenarios<span class="tab-count">(${appScenarios.length})</span></button>
       <button class="detail-tab" data-dtab="app-runs">Runs<span class="tab-count">(${appRuns.length})</span></button>
+      <button class="detail-tab" data-dtab="app-elements">Elements<span class="tab-count">(${elements.length})</span></button>
     </div>
-    <div class="detail-tab-panel active" id="dtab-app-elements">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 0 8px;">
-        <div class="section-header" style="margin-bottom:0;">Element Database</div>
-        <button class="btn btn-sm" onclick="generateElements('${app.id}')">Generate</button>
-      </div>
-      ${renderElementBrowser(elements)}
+    <div class="detail-tab-panel active" id="dtab-app-plans">
+      ${appPlans.length ? appPlans.map(p => {
+        const count = (p.scenarioIds || []).length;
+        const lastPlanRun = runs.filter(r => r.planId === p.id)[0];
+        return `
+        <div class="run-card" onclick="selectPlan('${p.id}')" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);">${esc(p.name)}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${count} scenario${count !== 1 ? 's' : ''}${p.description ? ' — ' + esc(p.description) : ''}</div>
+          </div>
+          <div style="text-align:right;">
+            ${lastPlanRun ? `<span class="badge badge-${lastPlanRun.status}">${lastPlanRun.status.toUpperCase()}</span>` : '<span style="font-size:10px;color:var(--text-muted);">Not run</span>'}
+            <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${timeAgo(p.updatedAt || p.createdAt)}</div>
+          </div>
+        </div>`;
+      }).join('') : '<p style="color:var(--text-muted);font-size:12px;padding:12px 0;">No plans for this app yet.</p>'}
     </div>
     <div class="detail-tab-panel" id="dtab-app-scenarios">
       ${appScenarios.length ? appScenarios.map(s => {
@@ -3090,6 +3102,13 @@ async function showAppDetail(app) {
           ${r.results?.summary ? `<span style="font-size:11px;font-family:var(--font);color:var(--text-secondary);">${r.results.summary.passed}/${r.results.summary.total} passed</span>` : ''}
         </div>`;
       }).join('') : '<p style="color:var(--text-muted);font-size:12px;padding:12px 0;">No test runs yet.</p>'}
+    </div>
+    <div class="detail-tab-panel" id="dtab-app-elements">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 0 8px;">
+        <div class="section-header" style="margin-bottom:0;">Element Database</div>
+        <button class="btn btn-sm" onclick="generateElements('${app.id}')">Generate</button>
+      </div>
+      ${renderElementBrowser(elements)}
     </div>
   `;
   _initDetailTabs();
