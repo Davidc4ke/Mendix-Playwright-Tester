@@ -2268,7 +2268,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   // Plan tracking events
+  let _planCompleteTimeout = null;
   window.zoniq.onPlanRunStarted(({ planRunId, planId, planName, scenarioRuns }) => {
+    // Cancel any pending completion timeout from a previous plan run
+    if (_planCompleteTimeout) { clearTimeout(_planCompleteTimeout); _planCompleteTimeout = null; }
     toast(`Plan started: ${planName}`, "info");
     activePlanRun = { planRunId, planId, planName, scenarioRuns: scenarioRuns.map(sr => ({ ...sr, status: "pending" })) };
     showLivePlanTracker();
@@ -2303,7 +2306,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     renderPlanTracker();
     // After delay, show completed plan run detail
-    setTimeout(() => {
+    _planCompleteTimeout = setTimeout(() => {
+      _planCompleteTimeout = null;
       const completedPlanRunId = activePlanRun?.planRunId;
       activePlanRun = null;
       activeStepRun = null;
@@ -3787,7 +3791,7 @@ function showPlanRunDetail(run) {
 
   const isFailed = run.status === "failed" || run.status === "error";
   const firstFailIndex = scenarioRuns.findIndex(sr =>
-    sr.status === "failed" || sr.status === "error" || sr.status === "skipped"
+    sr.status === "failed" || sr.status === "error"
   );
 
   const scenarioItems = scenarioRuns.map((sr, i) => {
@@ -3819,7 +3823,7 @@ function showPlanRunDetail(run) {
   el.innerHTML = `
     <div class="detail-header">
       <div>
-        <div class="detail-title">${esc(run.testName || 'Plan Run')}</div>
+        <div class="detail-title">${esc(run.testName || 'Plan Run')}${run.retryFromIndex != null ? ' <span class="badge" style="background:var(--amber);color:#000;font-size:10px;">RETRY</span>' : ''}</div>
         <div style="font-size:12px;font-family:var(--font);color:var(--text-secondary);margin-top:2px;">
           ${new Date(run.startedAt).toLocaleString()}
         </div>
@@ -3881,7 +3885,8 @@ function renderRunList() {
   }
   container.innerHTML = visibleRuns.map((r) => {
     const isPlan = !!r.planId;
-    const planBadge = isPlan ? '<span class="badge" style="background:var(--primary);color:#fff;font-size:9px;margin-right:4px;">PLAN</span>' : '';
+    const retryBadge = r.retryFromIndex != null ? '<span class="badge" style="background:var(--amber);color:#000;font-size:9px;margin-right:4px;">RETRY</span>' : '';
+    const planBadge = isPlan ? '<span class="badge" style="background:var(--primary);color:#fff;font-size:9px;margin-right:4px;">PLAN</span>' + retryBadge : '';
     const isExpanded = isPlan && expandedPlanRuns.has(r.runId);
     const expandIcon = isPlan
       ? `<span style="font-size:9px;margin-right:4px;">${isExpanded ? '&#9660;' : '&#9654;'}</span>`
@@ -3920,9 +3925,15 @@ function renderRunList() {
 function selectRunById(runId) {
   selectedRun = runs.find((r) => r.runId === runId);
   if (!selectedRun) return;
-  // Toggle expand/collapse for plan runs in sidebar
+  // For plan runs: if clicking the already-selected plan run, toggle expand;
+  // otherwise always expand it and show its detail
   if (selectedRun.planId && selectedRun.scenarioRuns) {
-    togglePlanRunExpand(runId);
+    if (expandedPlanRuns.has(runId) && currentView === "planRun") {
+      // Already viewing this plan run — toggle collapse
+      expandedPlanRuns.delete(runId);
+    } else {
+      expandedPlanRuns.add(runId);
+    }
   }
   // Switch to runs tab
   document.querySelectorAll(".sidebar-tab").forEach((t) => t.classList.remove("active"));
@@ -4055,6 +4066,7 @@ function showRunDetail(run) {
         ${run.scenarioId ? `<button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--primary);color:var(--primary);" onclick="rerunTest('${run.scenarioId}')">&#9654; Rerun</button>` : ""}
         <button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--amber);color:var(--amber);" onclick="copyLogForAI('${run.runId}')">&#128203; Copy Log For AI</button>
         ${run.scenarioId ? `<button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--text-secondary);color:var(--text-secondary);" onclick="navigateToStep('${run.scenarioId}', 0)">&#128196; View Scenario</button>` : ""}
+        ${run.planRunId ? `<button class="btn btn-sm" style="background:var(--bg-elevated);border-color:var(--primary);color:var(--primary);" onclick="selectRunById('${run.planRunId}')">&#8592; Back to Plan Run</button>` : ""}
         <button class="btn btn-sm" onclick="window.zoniq.openResultsFolder('${run.runId}')">&#128193; Open Folder</button>
       </div>
     </div>

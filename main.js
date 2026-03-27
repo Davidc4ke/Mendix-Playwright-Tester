@@ -1908,6 +1908,7 @@ ipcMain.handle("execute-plan", async (event, plan) => {
     return { runId: planRunId, status: "error", errors: [{ message: "No valid scenarios in plan" }] };
   }
 
+  const isRetry = fromIndex > 0;
   const planRun = {
     runId: planRunId,
     planId: plan.id,
@@ -1916,6 +1917,7 @@ ipcMain.handle("execute-plan", async (event, plan) => {
     startedAt: new Date().toISOString(),
     completedAt: null,
     results: null,
+    ...(isRetry ? { retryFromIndex: fromIndex } : {}),
     scenarioRuns: resolvedScenarios.map(s => ({
       scenarioId: s.id,
       scenarioName: s.name,
