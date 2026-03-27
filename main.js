@@ -1895,6 +1895,7 @@ ipcMain.handle("execute-plan", async (event, plan) => {
   const planRunId = uuidv4();
   const db = loadDB();
   if (!db.plans) db.plans = [];
+  const fromIndex = plan.fromIndex != null ? plan.fromIndex : 0;
   const upToIndex = plan.upToIndex != null ? plan.upToIndex : null;
   const scenarioIds = upToIndex != null
     ? (plan.scenarioIds || []).slice(0, upToIndex + 1)
@@ -1949,6 +1950,22 @@ ipcMain.handle("execute-plan", async (event, plan) => {
     }
 
     const scenario = resolvedScenarios[i];
+
+    // Skip scenarios before fromIndex (retry-from-here)
+    if (i < fromIndex) {
+      const dbSkipPre = loadDB();
+      const prSkipPre = dbSkipPre.runs.find(r => r.runId === planRunId);
+      if (prSkipPre) {
+        prSkipPre.scenarioRuns[i].status = "skipped";
+        saveDB(dbSkipPre);
+      }
+      mainWindow.webContents.send("plan-scenario-completed", {
+        planRunId, scenarioId: scenario.id, scenarioIndex: i,
+        status: "skipped", runId: null,
+      });
+      continue;
+    }
+
     mainWindow.webContents.send("plan-scenario-started", {
       planRunId, scenarioId: scenario.id, scenarioIndex: i,
       totalScenarios: resolvedScenarios.length,
