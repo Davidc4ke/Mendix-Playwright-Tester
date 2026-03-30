@@ -812,6 +812,11 @@
   .wf-btn-type-Danger { color: #f44336; }
   .wf-btn-type-Warning { color: #ff9800; }
 
+  .wf-wizard-page { overflow-y: auto; overflow-x: auto; }
+  .wf-wizard-page::-webkit-scrollbar { width: 6px; height: 6px; }
+  .wf-wizard-page::-webkit-scrollbar-track { background: transparent; }
+  .wf-wizard-page::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
   .modal-actions {
     display: flex;
     justify-content: flex-end;
@@ -2099,7 +2104,7 @@
 
 <!-- ── Workflow Import Wizard ────────────────────── -->
 <div class="modal-overlay" id="workflowImportModal">
-  <div class="modal" style="width:800px;max-height:85vh;display:flex;flex-direction:column;">
+  <div class="modal" style="width:calc(100vw - 80px);height:calc(100vh - 80px);max-height:none;display:flex;flex-direction:column;">
     <div class="modal-title">Import Workflow Configuration</div>
 
     <!-- Step indicators -->
