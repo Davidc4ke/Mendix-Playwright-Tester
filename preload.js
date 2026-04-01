@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("zoniq", {
   healthCheck: () => ipcRenderer.invoke("health-check"),
+  openLog: () => ipcRenderer.invoke("open-log"),
   getScenarios: () => ipcRenderer.invoke("get-scenarios"),
   saveScenario: (s) => ipcRenderer.invoke("save-scenario", s),
   deleteScenario: (id) => ipcRenderer.invoke("delete-scenario", id),

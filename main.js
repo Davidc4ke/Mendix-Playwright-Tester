@@ -141,6 +141,27 @@ function getBrowserChannel() {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 });
 
+// ── Debug logging to file ────────────────────────────────
+const LOG_PATH = path.join(USER_DATA, "zoniq-debug.log");
+const _logStream = fs.createWriteStream(LOG_PATH, { flags: "a" });
+function zlog(...args) {
+  const line = `[${new Date().toISOString()}] ${args.join(" ")}\n`;
+  process.stdout.write(line);
+  _logStream.write(line);
+}
+// Capture console.log / console.error too
+const _origLog = console.log.bind(console);
+const _origErr = console.error.bind(console);
+console.log = (...a) => { _origLog(...a); _logStream.write(`[LOG] ${a.join(" ")}\n`); };
+console.error = (...a) => { _origErr(...a); _logStream.write(`[ERR] ${a.join(" ")}\n`); };
+zlog("=== Zoniq started ===");
+zlog("resourcesPath:", process.resourcesPath);
+zlog("__dirname:", __dirname);
+zlog("HELPERS_DIR:", HELPERS_DIR);
+zlog("LOCAL_BROWSERS_DIR:", LOCAL_BROWSERS_DIR);
+zlog("PLAYWRIGHT_CLI_JS:", PLAYWRIGHT_CLI_JS);
+zlog("TEMP_DIR:", TEMP_DIR);
+
 // ── Simple JSON DB for scenarios & runs ──────────────────
 function loadDB() {
   try {
@@ -1210,6 +1231,9 @@ function startAPIServer() {
 
 // ── IPC Handlers (UI ↔ Main process) ────────────────────
 
+// Open debug log in default text editor
+ipcMain.handle("open-log", () => { shell.openPath(LOG_PATH); });
+
 // Health check
 ipcMain.handle("health-check", async () => {
   return new Promise((resolve) => {
@@ -1863,7 +1887,12 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
       recorderArgs.push(channel);
     }
 
-    console.log(`[recorder] CMD: node ${recorderArgs.join(" ")}`);
+    zlog(`[recorder] execPath: ${process.execPath}`);
+    zlog(`[recorder] recorderScript: ${recorderScript}`);
+    zlog(`[recorder] recorderScript exists: ${fs.existsSync(recorderScript)}`);
+    zlog(`[recorder] CMD: ${process.execPath} ${recorderArgs.join(" ")}`);
+    zlog(`[recorder] PLAYWRIGHT_BROWSERS_PATH: ${LOCAL_BROWSERS_DIR}`);
+    zlog(`[recorder] browsers dir exists: ${fs.existsSync(LOCAL_BROWSERS_DIR)}`);
 
     // In Electron, process.execPath is the Electron binary. Setting
     // ELECTRON_RUN_AS_NODE=1 makes it behave as a plain Node.js runtime.
@@ -1871,11 +1900,15 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
       env: getPlaywrightEnv({ ELECTRON_RUN_AS_NODE: "1" }),
     });
 
+    proc.on("error", (err) => {
+      zlog(`[recorder] SPAWN ERROR: ${err.message}`);
+    });
+
     // Collect GUID→label map emitted by the recorder
     const recorderGuidMap = new Map();
     proc.stdout.on("data", (chunk) => {
       const text = chunk.toString();
-      console.log(`[recorder stdout] ${text}`);
+      zlog(`[recorder stdout] ${text.trim()}`);
       for (const line of text.split("\n")) {
         // Parse GUID map line (emitted just before recorder exits)
         const guidIdx = line.indexOf("[ZONIQ_GUID_MAP]");
@@ -1892,11 +1925,11 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
       }
     });
     proc.stderr.on("data", (chunk) => {
-      console.error(`[recorder stderr] ${chunk}`);
+      zlog(`[recorder stderr] ${chunk.toString().trim()}`);
     });
 
     proc.on("close", (code) => {
-      console.log(`[recorder] exited with code ${code}`);
+      zlog(`[recorder] exited with code ${code}`);
       try {
         if (fs.existsSync(outputPath)) {
           let script = fs.readFileSync(outputPath, "utf-8");
