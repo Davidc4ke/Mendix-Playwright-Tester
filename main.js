@@ -2707,7 +2707,26 @@ ipcMain.handle("cleanup-script-ai", async (event, scenarioId) => {
 // ── Window ───────────────────────────────────────────────
 let mainWindow;
 
+function createSplash() {
+  const splash = new BrowserWindow({
+    width: 420,
+    height: 240,
+    frame: false,
+    transparent: false,
+    resizable: false,
+    center: true,
+    show: false,
+    backgroundColor: "#0a0e17",
+    webPreferences: { nodeIntegration: false },
+  });
+  splash.loadFile("splash.html");
+  splash.once("ready-to-show", () => splash.show());
+  return splash;
+}
+
 function createWindow() {
+  const splash = createSplash();
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 820,
@@ -2726,12 +2745,20 @@ function createWindow() {
   mainWindow.loadFile("index.html");
 
   mainWindow.once("ready-to-show", () => {
-    mainWindow.show();
+    // Keep splash visible for at least 1.5s so the bar animation completes
+    const elapsed = Date.now() - startTime;
+    const delay = Math.max(0, 1500 - elapsed);
+    setTimeout(() => {
+      splash.close();
+      mainWindow.show();
+    }, delay);
   });
 
   // Remove menu bar on Windows/Linux
   mainWindow.setMenuBarVisibility(false);
 }
+
+const startTime = Date.now();
 
 app.whenReady().then(() => {
   createWindow();
