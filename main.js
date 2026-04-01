@@ -1163,17 +1163,35 @@ function startAPIServer() {
 // Health check
 ipcMain.handle("health-check", async () => {
   return new Promise((resolve) => {
-    const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-    exec(`${npx} playwright --version`, (error, stdout) => {
+    const finish = (playwrightVersion) => {
       resolve({
-        playwright: stdout?.trim() || "Not installed",
+        playwright: playwrightVersion,
         apiPort: API_PORT,
         dataDir: USER_DATA,
         platform: process.platform,
         scenarioCount: loadDB().scenarios.length,
         runCount: loadDB().runs.length,
       });
-    });
+    };
+
+    // Prefer the bundled playwright CLI (works in packaged exe without Node on PATH)
+    const cli = fs.existsSync(PLAYWRIGHT_CLI) ? PLAYWRIGHT_CLI : null;
+    if (cli) {
+      exec(`"${cli}" --version`, { env: getPlaywrightEnv() }, (error, stdout) => {
+        if (!error && stdout?.trim()) {
+          finish(stdout.trim());
+        } else {
+          // CLI exists but couldn't run — check if bundled browser is present
+          finish(isLocalBrowsersDirValid() ? "Bundled (browser ready)" : "Not installed");
+        }
+      });
+    } else {
+      // Fallback: try system npx (dev mode / non-packaged)
+      const npx = process.platform === "win32" ? "npx.cmd" : "npx";
+      exec(`${npx} playwright --version`, (error, stdout) => {
+        finish(stdout?.trim() || "Not installed");
+      });
+    }
   });
 });
 
