@@ -1143,6 +1143,19 @@ function startAPIServer() {
   apiServer = api.listen(API_PORT, () => {
     console.log(`API server on http://localhost:${API_PORT}`);
   });
+
+  apiServer.on("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      const { dialog } = require("electron");
+      dialog.showErrorBox(
+        "Port Already In Use",
+        `Port ${API_PORT} is already in use.\n\nThis usually means Zoniq Test Runner is already running. Check your taskbar or system tray and close the existing instance before opening a new one.`
+      );
+      app.quit();
+    } else {
+      console.error("API server error:", err);
+    }
+  });
 }
 
 // ── IPC Handlers (UI ↔ Main process) ────────────────────
