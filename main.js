@@ -22,25 +22,37 @@ const ElementDB = require("./lib/element-db");
 const USER_DATA = app.getPath("userData");
 const SCRIPTS_DIR = path.join(USER_DATA, "scripts");
 const RESULTS_DIR = path.join(USER_DATA, "results");
-const TEMP_DIR = path.join(__dirname, "temp");
-const HELPERS_DIR = path.join(__dirname, "helpers");
+// TEMP_DIR must be writable — in a packaged exe __dirname is inside the read-only asar,
+// so we use USER_DATA instead.
+const TEMP_DIR = path.join(USER_DATA, "temp");
 const DB_PATH = path.join(USER_DATA, "scenarios.json");
 const APPS_PATH = path.join(USER_DATA, "apps.json");
 const APPS_DIR = path.join(USER_DATA, "apps");
 
+// When packaged, extraResources (helpers/, agents/, browsers/) land next to the asar
+// at process.resourcesPath. In dev they're in __dirname (project root).
+const RESOURCE_BASE = app.isPackaged ? process.resourcesPath : __dirname;
+const HELPERS_DIR = path.join(RESOURCE_BASE, "helpers");
+
 // ── Playwright paths ────────────────────────────────────
-const PLAYWRIGHT_CLI = path.resolve(
+// In the packaged exe there is no system Node.js, so we cannot use playwright.cmd.
+// Instead we spawn the Electron binary with ELECTRON_RUN_AS_NODE=1 and pass
+// playwright's CLI JS file directly — asar filesystem patching makes all requires work.
+const PLAYWRIGHT_CLI_JS = path.resolve(
   __dirname,
   "node_modules",
-  ".bin",
-  process.platform === "win32" ? "playwright.cmd" : "playwright"
+  "@playwright",
+  "test",
+  "cli.js"
 );
 
-// Support bundled browsers: if a "browsers" directory exists next to the app
+// playwright.config.js is written to USER_DATA at startup so it has the correct
+// absolute testDir and can be read from the real filesystem by the spawned process.
+const PLAYWRIGHT_CONFIG_PATH = path.join(USER_DATA, "playwright.config.js");
+
+// Support bundled browsers: if a "browsers" directory exists in RESOURCE_BASE
 // AND contains a working Chromium executable, tell Playwright to look there.
-// This lets users pre-install browsers once (or copy them from another machine)
-// without needing network access.
-const LOCAL_BROWSERS_DIR = path.join(__dirname, "browsers");
+const LOCAL_BROWSERS_DIR = path.join(RESOURCE_BASE, "browsers");
 let _localBrowsersValid = null; // cached result of validation
 
 function isLocalBrowsersDirValid() {
@@ -75,6 +87,11 @@ function getPlaywrightEnv(extra = {}) {
   const env = { ...process.env, ...extra };
   if (isLocalBrowsersDirValid()) {
     env.PLAYWRIGHT_BROWSERS_PATH = LOCAL_BROWSERS_DIR;
+  }
+  // Allow scripts in USER_DATA/temp to resolve node_modules from inside the asar.
+  // Electron's asar patching makes this work even though it's a virtual path.
+  if (!env.NODE_PATH) {
+    env.NODE_PATH = path.join(__dirname, "node_modules");
   }
   return env;
 }
@@ -714,12 +731,41 @@ function extractStepsFromReport(report) {
   return stepList.length > 0 ? { stepList, stepResults } : null;
 }
 
+// Write playwright.config.js to USER_DATA with absolute testDir so it works
+// from any location and is writable (the asar is read-only in packaged builds).
+function ensurePlaywrightConfig() {
+  const config = `// Auto-generated at startup by Zoniq Test Runner — do not edit
+module.exports = {
+  testDir: ${JSON.stringify(TEMP_DIR)},
+  timeout: 120000,
+  fullyParallel: true,
+  expect: { timeout: 15000 },
+  use: {
+    navigationTimeout: process.env.ZONIQ_STEP_TIMEOUT ? parseInt(process.env.ZONIQ_STEP_TIMEOUT) * 1000 : 45000,
+    actionTimeout: process.env.ZONIQ_STEP_TIMEOUT ? parseInt(process.env.ZONIQ_STEP_TIMEOUT) * 1000 : 15000,
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+    trace: 'retain-on-failure',
+    viewport: { width: 1920, height: 1080 },
+    testIdAttribute: 'data-testid',
+    ...(process.env.ZONIQ_BROWSER_CHANNEL ? { channel: process.env.ZONIQ_BROWSER_CHANNEL } : {}),
+  },
+  retries: process.env.ZONIQ_RETRIES ? parseInt(process.env.ZONIQ_RETRIES) : 0,
+  reporter: [
+    ['json', { outputFile: 'results/latest-report.json' }],
+    ['html', { open: 'never', outputFolder: 'results/html-report' }],
+  ],
+};
+`;
+  fs.writeFileSync(PLAYWRIGHT_CONFIG_PATH, config);
+}
+
 async function runPlaywright(scriptPath, runId, onStepProgress) {
   const runResultsDir = path.join(RESULTS_DIR, runId);
   fs.mkdirSync(runResultsDir, { recursive: true });
 
   const reportPath = path.join(runResultsDir, "report.json");
-  const configPath = path.resolve(__dirname, "playwright.config.js");
+  const configPath = PLAYWRIGHT_CONFIG_PATH;
 
   // Debug: save a copy of the generated script for inspection
   try {
@@ -748,13 +794,17 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
     ];
     if (headedFlag) args.push("--headed");
 
-    console.log(`[${runId}] CMD: ${PLAYWRIGHT_CLI} ${args.join(" ")}`);
+    console.log(`[${runId}] CMD: ${process.execPath} [ELECTRON_RUN_AS_NODE] ${PLAYWRIGHT_CLI_JS} ${args.join(" ")}`);
 
     let stdoutBuf = "";
     let stderrBuf = "";
     const guidResolutions = new Map(); // GUID → label resolved by smartSelect
 
-    const proc = spawn(PLAYWRIGHT_CLI, args, { env, shell: true, timeout: 300_000 });
+    const proc = spawn(
+      process.execPath,
+      [PLAYWRIGHT_CLI_JS, ...args],
+      { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, timeout: 300_000 }
+    );
 
     proc.stdout.on("data", (chunk) => {
       const text = chunk.toString();
@@ -1163,17 +1213,44 @@ function startAPIServer() {
 // Health check
 ipcMain.handle("health-check", async () => {
   return new Promise((resolve) => {
-    const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-    exec(`${npx} playwright --version`, (error, stdout) => {
+    const finish = (playwrightVersion) => {
       resolve({
-        playwright: stdout?.trim() || "Not installed",
+        playwright: playwrightVersion,
         apiPort: API_PORT,
         dataDir: USER_DATA,
         platform: process.platform,
         scenarioCount: loadDB().scenarios.length,
         runCount: loadDB().runs.length,
       });
-    });
+    };
+
+    // Use the bundled playwright CLI JS + ELECTRON_RUN_AS_NODE (no system Node needed)
+    const cliExists = fs.existsSync(PLAYWRIGHT_CLI_JS);
+    if (cliExists) {
+      const versionProc = spawn(
+        process.execPath,
+        [PLAYWRIGHT_CLI_JS, "--version"],
+        { env: getPlaywrightEnv({ ELECTRON_RUN_AS_NODE: "1" }) }
+      );
+      let out = "";
+      versionProc.stdout.on("data", (d) => { out += d.toString(); });
+      versionProc.on("close", (code) => {
+        if (!code && out.trim()) {
+          finish(out.trim());
+        } else {
+          finish(isLocalBrowsersDirValid() ? "Bundled (browser ready)" : "Not installed");
+        }
+      });
+      versionProc.on("error", () => {
+        finish(isLocalBrowsersDirValid() ? "Bundled (browser ready)" : "Not installed");
+      });
+    } else {
+      // Fallback: try system npx (dev mode / non-packaged)
+      const npx = process.platform === "win32" ? "npx.cmd" : "npx";
+      exec(`${npx} playwright --version`, (error, stdout) => {
+        finish(stdout?.trim() || "Not installed");
+      });
+    }
   });
 });
 
@@ -2761,6 +2838,7 @@ function createWindow() {
 const startTime = Date.now();
 
 app.whenReady().then(() => {
+  ensurePlaywrightConfig();
   createWindow();
   startAPIServer();
 });
