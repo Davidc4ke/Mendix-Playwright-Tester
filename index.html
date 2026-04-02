@@ -1912,21 +1912,30 @@
 <!-- ── Record Prompt Modal ────────────────────────── -->
 <div class="modal-overlay" id="recordModal">
   <div class="modal" style="width:440px;">
-    <div class="modal-title">Record Test</div>
-    <div class="form-group">
-      <label>Target App URL</label>
-      <input class="form-input" id="recordUrl" list="urlHistory" placeholder="https://client-app.mendixcloud.com" autocomplete="off" />
+    <div id="recordModalForm">
+      <div class="modal-title">Record Test</div>
+      <div class="form-group">
+        <label>Target App URL</label>
+        <input class="form-input" id="recordUrl" list="urlHistory" placeholder="https://client-app.mendixcloud.com" autocomplete="off" />
+      </div>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
+        A browser will open. Click through your test scenario. When you close the browser, the recorded script will be saved as a new scenario.
+      </p>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:12px;cursor:pointer;">
+        <input type="checkbox" id="recordShowHighlights" />
+        Show element highlights (red boxes)
+      </label>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal('recordModal')">Cancel</button>
+        <button class="btn btn-record" onclick="startRecording()">&#9679; Start Recording</button>
+      </div>
     </div>
-    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
-      A browser will open. Click through your test scenario. When you close the browser, the recorded script will be saved as a new scenario.
-    </p>
-    <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:12px;cursor:pointer;">
-      <input type="checkbox" id="recordShowHighlights" />
-      Show element highlights (red boxes)
-    </label>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeModal('recordModal')">Cancel</button>
-      <button class="btn btn-record" onclick="startRecording()">Start Recording</button>
+    <div id="recordModalLoading" style="display:none;text-align:center;padding:12px 0 4px;">
+      <div class="modal-title" style="margin-bottom:16px;">Launching Browser</div>
+      <div style="display:flex;justify-content:center;margin-bottom:20px;">
+        <div class="spinner" style="width:32px;height:32px;border-width:3px;"></div>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin:0;">Opening the recording browser, please wait&hellip;</p>
     </div>
   </div>
 </div>
@@ -5164,10 +5173,20 @@ async function startRecording() {
   const url = document.getElementById("recordUrl").value.trim();
   if (!url) { toast("Enter a target URL", "error"); return; }
   const showHighlights = document.getElementById("recordShowHighlights").checked;
-  closeModal("recordModal");
-  toast("Recording... close the browser when done.", "info");
 
-  const result = await window.zoniq.launchRecorder(url, { showHighlights });
+  // Show loading state inside the modal to block interactions while browser launches
+  document.getElementById("recordModalForm").style.display = "none";
+  document.getElementById("recordModalLoading").style.display = "";
+
+  let result;
+  try {
+    result = await window.zoniq.launchRecorder(url, { showHighlights });
+  } finally {
+    document.getElementById("recordModalForm").style.display = "";
+    document.getElementById("recordModalLoading").style.display = "none";
+    closeModal("recordModal");
+  }
+
   if (result?.script) {
     // Auto-create a scenario
     document.getElementById("scenarioModalTitle").textContent = "New Recorded Scenario";
