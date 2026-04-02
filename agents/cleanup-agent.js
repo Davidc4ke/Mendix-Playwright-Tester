@@ -10,10 +10,11 @@
 const fs = require("fs");
 const path = require("path");
 
-const SYSTEM_PROMPT = fs.readFileSync(
-  path.join(__dirname, "prompts", "cleanup-system.md"),
-  "utf-8"
-);
+let _SYSTEM_PROMPT = null;
+function getSystemPrompt() {
+  if (!_SYSTEM_PROMPT) _SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, "prompts", "cleanup-system.md"), "utf-8");
+  return _SYSTEM_PROMPT;
+}
 
 class CleanupAgent {
   constructor(llmClient) {
@@ -36,7 +37,7 @@ class CleanupAgent {
 
     const response = await this.llm.chat(
       [{ role: "user", content: userMessage }],
-      { system: SYSTEM_PROMPT }
+      { system: getSystemPrompt() }
     );
 
     const result = this._parseResponse(response.content);
