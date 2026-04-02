@@ -12,7 +12,9 @@
 
 const fs = require("fs");
 const path = require("path");
-const playwright = require("playwright-core");
+// Use the absolute path resolved by the main process (passed via env) so this
+// works regardless of where npm nested playwright-core in node_modules.
+const playwright = require(process.env.PLAYWRIGHT_CORE_PATH || "playwright-core");
 
 const [, , url, outputPath, showHighlights, channel] = process.argv;
 

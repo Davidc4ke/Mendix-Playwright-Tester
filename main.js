@@ -161,6 +161,26 @@ zlog("UNPACKED_BASE:", UNPACKED_BASE);
 zlog("HELPERS_DIR:", HELPERS_DIR, "| exists:", fs.existsSync(HELPERS_DIR));
 zlog("recorder.js exists:", fs.existsSync(path.join(HELPERS_DIR, "recorder.js")));
 zlog("playwright-core exists:", fs.existsSync(path.join(UNPACKED_NODE_MODULES, "playwright-core")));
+
+// Resolve playwright-core's actual location using the main process require (asar-aware).
+// This handles cases where npm nested it inside another package rather than hoisting it.
+let PLAYWRIGHT_CORE_PATH = null;
+try {
+  // require.resolve gives us the entry point file; we want the package root
+  const entryFile = require.resolve("playwright-core");
+  // Walk up from the entry file until we find the package.json
+  let dir = path.dirname(entryFile);
+  while (dir !== path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, "package.json"))) {
+      PLAYWRIGHT_CORE_PATH = dir;
+      break;
+    }
+    dir = path.dirname(dir);
+  }
+} catch (e) {
+  zlog("WARNING: could not resolve playwright-core:", e.message);
+}
+zlog("PLAYWRIGHT_CORE_PATH (resolved):", PLAYWRIGHT_CORE_PATH);
 zlog("LOCAL_BROWSERS_DIR:", LOCAL_BROWSERS_DIR, "| exists:", fs.existsSync(LOCAL_BROWSERS_DIR));
 zlog("PLAYWRIGHT_CLI_JS:", PLAYWRIGHT_CLI_JS, "| exists:", fs.existsSync(PLAYWRIGHT_CLI_JS));
 zlog("TEMP_DIR:", TEMP_DIR);
@@ -1900,7 +1920,10 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
     // In Electron, process.execPath is the Electron binary. Setting
     // ELECTRON_RUN_AS_NODE=1 makes it behave as a plain Node.js runtime.
     const proc = spawn(process.execPath, recorderArgs, {
-      env: getPlaywrightEnv({ ELECTRON_RUN_AS_NODE: "1" }),
+      env: getPlaywrightEnv({
+        ELECTRON_RUN_AS_NODE: "1",
+        ...(PLAYWRIGHT_CORE_PATH ? { PLAYWRIGHT_CORE_PATH } : {}),
+      }),
     });
 
     proc.on("error", (err) => {
@@ -2045,7 +2068,10 @@ ipcMain.handle("launch-recorder-from-step", async (event, { scenario, stepIndex 
     console.log(`[recorder-from-step] Replaying ${prefixStatements.length} steps before recording`);
 
     const proc = spawn(process.execPath, recorderArgs, {
-      env: getPlaywrightEnv({ ELECTRON_RUN_AS_NODE: "1" }),
+      env: getPlaywrightEnv({
+        ELECTRON_RUN_AS_NODE: "1",
+        ...(PLAYWRIGHT_CORE_PATH ? { PLAYWRIGHT_CORE_PATH } : {}),
+      }),
     });
 
     // Collect GUID map and replay progress

@@ -23,7 +23,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const playwright = require("playwright-core");
+const playwright = require(process.env.PLAYWRIGHT_CORE_PATH || "playwright-core");
 
 const [, , url, outputPath, showHighlights, prefixJsonPath, channel] = process.argv;
 
