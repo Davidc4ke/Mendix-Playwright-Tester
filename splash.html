@@ -65,18 +65,16 @@
 
     .progress-bar {
       height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      width: 100%;
+      background: linear-gradient(90deg, #1a2236 0%, #3b82f6 40%, #60a5fa 60%, #1a2236 100%);
+      background-size: 260px 100%;
       border-radius: 2px;
-      animation: load 1.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+      animation: shimmer 1.4s ease-in-out infinite;
     }
 
-    @keyframes load {
-      0%   { width: 0%; }
-      40%  { width: 55%; }
-      70%  { width: 78%; }
-      90%  { width: 90%; }
-      100% { width: 100%; }
+    @keyframes shimmer {
+      0%   { background-position: -260px 0; }
+      100% { background-position: 260px 0; }
     }
 
     .status {
