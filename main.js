@@ -37,14 +37,13 @@ const HELPERS_DIR = path.join(RESOURCE_BASE, "helpers");
 // ── Playwright paths ────────────────────────────────────
 // In the packaged exe there is no system Node.js, so we cannot use playwright.cmd.
 // Instead we spawn the Electron binary with ELECTRON_RUN_AS_NODE=1 and pass
-// playwright's CLI JS file directly — asar filesystem patching makes all requires work.
-const PLAYWRIGHT_CLI_JS = path.resolve(
-  __dirname,
-  "node_modules",
-  "@playwright",
-  "test",
-  "cli.js"
-);
+// playwright's CLI JS file directly.
+// playwright packages are in asarUnpack so they land on the real filesystem at
+// resources/app.asar.unpacked/node_modules — required for scripts outside the asar.
+const UNPACKED_NODE_MODULES = app.isPackaged
+  ? path.join(process.resourcesPath, "app.asar.unpacked", "node_modules")
+  : path.join(__dirname, "node_modules");
+const PLAYWRIGHT_CLI_JS = path.join(UNPACKED_NODE_MODULES, "@playwright", "test", "cli.js");
 
 // playwright.config.js is written to USER_DATA at startup so it has the correct
 // absolute testDir and can be read from the real filesystem by the spawned process.
@@ -88,10 +87,10 @@ function getPlaywrightEnv(extra = {}) {
   if (isLocalBrowsersDirValid()) {
     env.PLAYWRIGHT_BROWSERS_PATH = LOCAL_BROWSERS_DIR;
   }
-  // Allow scripts in USER_DATA/temp to resolve node_modules from inside the asar.
-  // Electron's asar patching makes this work even though it's a virtual path.
+  // Allow scripts on the real filesystem (helpers/, agents/, USER_DATA/temp/) to
+  // resolve playwright and other modules from the unpacked node_modules directory.
   if (!env.NODE_PATH) {
-    env.NODE_PATH = path.join(__dirname, "node_modules");
+    env.NODE_PATH = UNPACKED_NODE_MODULES;
   }
   return env;
 }
