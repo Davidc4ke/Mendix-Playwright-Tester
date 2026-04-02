@@ -46,6 +46,10 @@
         "from": "browsers",
         "to": "browsers",
         "filter": ["**/*"]
+      },
+      {
+        "from": "node_modules/playwright-core",
+        "to": "playwright-core"
       }
     ],
     "asarUnpack": [
