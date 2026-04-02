@@ -39,10 +39,6 @@
         "to": "scripts"
       },
       {
-        "from": "helpers",
-        "to": "helpers"
-      },
-      {
         "from": "agents",
         "to": "agents"
       },
@@ -55,7 +51,8 @@
     "asarUnpack": [
       "node_modules/playwright-core/**",
       "node_modules/playwright/**",
-      "node_modules/@playwright/**"
+      "node_modules/@playwright/**",
+      "helpers/**"
     ]
   },
   "engines": {

@@ -29,29 +29,30 @@ const DB_PATH = path.join(USER_DATA, "scenarios.json");
 const APPS_PATH = path.join(USER_DATA, "apps.json");
 const APPS_DIR = path.join(USER_DATA, "apps");
 
-// When packaged, extraResources (helpers/, agents/, browsers/) land next to the asar
-// at process.resourcesPath. In dev they're in __dirname (project root).
-const RESOURCE_BASE = app.isPackaged ? process.resourcesPath : __dirname;
-const HELPERS_DIR = path.join(RESOURCE_BASE, "helpers");
+// In the packaged exe, files in asarUnpack land at:
+//   resources/app.asar.unpacked/<path>
+// This is the real filesystem — spawned child processes can require() from there
+// and Node's module resolution works naturally (siblings/parents are checked).
+// helpers/ and playwright packages are both in asarUnpack, so recorder.js at
+// app.asar.unpacked/helpers/ can require('playwright-core') from
+// app.asar.unpacked/node_modules/ without any NODE_PATH tricks.
+const UNPACKED_BASE = app.isPackaged
+  ? path.join(process.resourcesPath, "app.asar.unpacked")
+  : __dirname;
+const HELPERS_DIR = path.join(UNPACKED_BASE, "helpers");
 
 // ── Playwright paths ────────────────────────────────────
-// In the packaged exe there is no system Node.js, so we cannot use playwright.cmd.
-// Instead we spawn the Electron binary with ELECTRON_RUN_AS_NODE=1 and pass
-// playwright's CLI JS file directly.
-// playwright packages are in asarUnpack so they land on the real filesystem at
-// resources/app.asar.unpacked/node_modules — required for scripts outside the asar.
-const UNPACKED_NODE_MODULES = app.isPackaged
-  ? path.join(process.resourcesPath, "app.asar.unpacked", "node_modules")
-  : path.join(__dirname, "node_modules");
+const UNPACKED_NODE_MODULES = path.join(UNPACKED_BASE, "node_modules");
 const PLAYWRIGHT_CLI_JS = path.join(UNPACKED_NODE_MODULES, "@playwright", "test", "cli.js");
 
 // playwright.config.js is written to USER_DATA at startup so it has the correct
 // absolute testDir and can be read from the real filesystem by the spawned process.
 const PLAYWRIGHT_CONFIG_PATH = path.join(USER_DATA, "playwright.config.js");
 
-// Support bundled browsers: if a "browsers" directory exists in RESOURCE_BASE
-// AND contains a working Chromium executable, tell Playwright to look there.
-const LOCAL_BROWSERS_DIR = path.join(RESOURCE_BASE, "browsers");
+// browsers/ is still in extraResources (separate from the asar entirely)
+const LOCAL_BROWSERS_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, "browsers")
+  : path.join(__dirname, "browsers");
 let _localBrowsersValid = null; // cached result of validation
 
 function isLocalBrowsersDirValid() {
@@ -156,9 +157,12 @@ console.error = (...a) => { _origErr(...a); _logStream.write(`[ERR] ${a.join(" "
 zlog("=== Zoniq started ===");
 zlog("resourcesPath:", process.resourcesPath);
 zlog("__dirname:", __dirname);
-zlog("HELPERS_DIR:", HELPERS_DIR);
-zlog("LOCAL_BROWSERS_DIR:", LOCAL_BROWSERS_DIR);
-zlog("PLAYWRIGHT_CLI_JS:", PLAYWRIGHT_CLI_JS);
+zlog("UNPACKED_BASE:", UNPACKED_BASE);
+zlog("HELPERS_DIR:", HELPERS_DIR, "| exists:", fs.existsSync(HELPERS_DIR));
+zlog("recorder.js exists:", fs.existsSync(path.join(HELPERS_DIR, "recorder.js")));
+zlog("playwright-core exists:", fs.existsSync(path.join(UNPACKED_NODE_MODULES, "playwright-core")));
+zlog("LOCAL_BROWSERS_DIR:", LOCAL_BROWSERS_DIR, "| exists:", fs.existsSync(LOCAL_BROWSERS_DIR));
+zlog("PLAYWRIGHT_CLI_JS:", PLAYWRIGHT_CLI_JS, "| exists:", fs.existsSync(PLAYWRIGHT_CLI_JS));
 zlog("TEMP_DIR:", TEMP_DIR);
 
 // ── Simple JSON DB for scenarios & runs ──────────────────
