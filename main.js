@@ -53,6 +53,13 @@ const PLAYWRIGHT_CONFIG_PATH = path.join(USER_DATA, "playwright.config.js");
 const LOCAL_BROWSERS_DIR = app.isPackaged
   ? path.join(process.resourcesPath, "browsers")
   : path.join(__dirname, "browsers");
+
+// playwright-core is in extraResources so it always exists at a known real-filesystem
+// path regardless of asarUnpack behavior or npm nesting inside node_modules.
+const PLAYWRIGHT_CORE_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, "playwright-core")
+  : path.join(__dirname, "node_modules", "playwright-core");
+
 let _localBrowsersValid = null; // cached result of validation
 
 function isLocalBrowsersDirValid() {
@@ -65,7 +72,7 @@ function isLocalBrowsersDirValid() {
   try {
     const origEnv = process.env.PLAYWRIGHT_BROWSERS_PATH;
     process.env.PLAYWRIGHT_BROWSERS_PATH = LOCAL_BROWSERS_DIR;
-    const pw = require("playwright-core");
+    const pw = require(PLAYWRIGHT_CORE_PATH);
     const execPath = pw.chromium.executablePath();
     // Restore original env
     if (origEnv !== undefined) {
@@ -104,7 +111,7 @@ function detectBrowserChannel() {
     return null; // validated local Chromium is available
   }
   try {
-    const pw = require("playwright-core");
+    const pw = require(PLAYWRIGHT_CORE_PATH);
     const execPath = pw.chromium.executablePath();
     if (execPath && fs.existsSync(execPath)) {
       return null; // bundled Chromium is available
@@ -162,25 +169,7 @@ zlog("HELPERS_DIR:", HELPERS_DIR, "| exists:", fs.existsSync(HELPERS_DIR));
 zlog("recorder.js exists:", fs.existsSync(path.join(HELPERS_DIR, "recorder.js")));
 zlog("playwright-core exists:", fs.existsSync(path.join(UNPACKED_NODE_MODULES, "playwright-core")));
 
-// Resolve playwright-core's actual location using the main process require (asar-aware).
-// This handles cases where npm nested it inside another package rather than hoisting it.
-let PLAYWRIGHT_CORE_PATH = null;
-try {
-  // require.resolve gives us the entry point file; we want the package root
-  const entryFile = require.resolve("playwright-core");
-  // Walk up from the entry file until we find the package.json
-  let dir = path.dirname(entryFile);
-  while (dir !== path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, "package.json"))) {
-      PLAYWRIGHT_CORE_PATH = dir;
-      break;
-    }
-    dir = path.dirname(dir);
-  }
-} catch (e) {
-  zlog("WARNING: could not resolve playwright-core:", e.message);
-}
-zlog("PLAYWRIGHT_CORE_PATH (resolved):", PLAYWRIGHT_CORE_PATH);
+zlog("PLAYWRIGHT_CORE_PATH:", PLAYWRIGHT_CORE_PATH, "| exists:", fs.existsSync(PLAYWRIGHT_CORE_PATH));
 zlog("LOCAL_BROWSERS_DIR:", LOCAL_BROWSERS_DIR, "| exists:", fs.existsSync(LOCAL_BROWSERS_DIR));
 zlog("PLAYWRIGHT_CLI_JS:", PLAYWRIGHT_CLI_JS, "| exists:", fs.existsSync(PLAYWRIGHT_CLI_JS));
 zlog("TEMP_DIR:", TEMP_DIR);
