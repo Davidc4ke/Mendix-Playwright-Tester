@@ -2854,12 +2854,11 @@ function createSplash() {
     transparent: false,
     resizable: false,
     center: true,
-    show: false,
+    show: true,
     backgroundColor: "#0a0e17",
     webPreferences: { nodeIntegration: false },
   });
   splash.loadFile("splash.html");
-  splash.once("ready-to-show", () => splash.show());
   return splash;
 }
 
@@ -2884,24 +2883,17 @@ function createWindow() {
   mainWindow.loadFile("index.html");
 
   mainWindow.once("ready-to-show", () => {
-    // Keep splash visible for at least 1.5s so the bar animation completes
-    const elapsed = Date.now() - startTime;
-    const delay = Math.max(0, 1500 - elapsed);
-    setTimeout(() => {
-      splash.close();
-      mainWindow.show();
-    }, delay);
+    splash.close();
+    mainWindow.show();
   });
 
   // Remove menu bar on Windows/Linux
   mainWindow.setMenuBarVisibility(false);
 }
 
-const startTime = Date.now();
-
 app.whenReady().then(() => {
-  ensurePlaywrightConfig();
   createWindow();
+  ensurePlaywrightConfig();
   startAPIServer();
 });
 
