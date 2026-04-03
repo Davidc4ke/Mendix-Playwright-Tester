@@ -53,7 +53,7 @@ function injectMissingListViewClicks(clicks) {
   // increasing through the script.
   let scanStartLine = 0;
 
-  for (const { text } of clicks) {
+  for (const { text, lineCount } of clicks) {
     const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     // Check if codegen already captured this click
     const alreadyRecordedRe = new RegExp(
@@ -77,41 +77,65 @@ function injectMissingListViewClicks(clicks) {
       continue;
     }
 
-    // Find a good insertion point: look for the first statement after a
-    // non-popup interaction that accesses something likely inside a popup
-    // (e.g. getByRole('textbox'), getByLabel, fill, selectOption).
-    // Scan forward from scanStartLine so clicks are placed in chronological
-    // order rather than all bunching up at the first form field.
+    // Find a good insertion point.  We use two strategies:
+    //
+    // Strategy 1 (preferred): If we captured the output file line count at
+    // click time, use it as an anchor.  The click happened when codegen had
+    // written up to `lineCount` lines, so any code written AFTER that line
+    // is inside the popup/context the click opened.  Scan forward from that
+    // anchor to the first form field interaction.
+    //
+    // Strategy 2 (fallback): Original heuristic — find the first form field
+    // whose previous action isn't a click/goto/press.
+
     const lines = script.split('\n');
     let insertIndex = -1;
-    for (let i = scanStartLine; i < lines.length; i++) {
-      const line = lines[i].trim();
-      // Skip non-action lines
-      if (!line.startsWith('await ')) continue;
-      // Look for form field interactions that are commonly inside popups
-      if (/\.(fill|selectOption|check|uncheck)\s*\(/.test(line) ||
-          /getByRole\s*\(\s*['"]textbox['"]/.test(line) ||
-          /getByRole\s*\(\s*['"]combobox['"]/.test(line)) {
-        // Check that the previous action line wasn't already a click or
-        // navigation that would naturally precede form fields
-        let prevActionLine = '';
-        for (let j = i - 1; j >= 0; j--) {
-          if (lines[j].trim().startsWith('await ')) {
-            prevActionLine = lines[j].trim();
-            break;
-          }
-        }
-        // If the previous action was a click or page.goto(), form fields
-        // here are expected (new page or popup just opened) — not a sign
-        // of a missing ListView click.  Only insert when the previous
-        // action is something like fill/selectOption (meaning the flow
-        // jumped to a new context without a click).
-        if (prevActionLine &&
-            !prevActionLine.includes('.click(') &&
-            !prevActionLine.includes('.goto(') &&
-            !prevActionLine.includes('.press(')) {
+
+    // Determine scan start: use lineCount anchor if available, otherwise
+    // fall back to scanStartLine.
+    const anchorLine = (lineCount && lineCount > 0)
+      ? Math.max(scanStartLine, Math.min(lineCount - 1, lines.length - 1))
+      : scanStartLine;
+
+    if (lineCount && lineCount > 0) {
+      // Strategy 1: anchor-based — find the first form field interaction
+      // at or after the anchor line.
+      for (let i = anchorLine; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line.startsWith('await ')) continue;
+        if (/\.(fill|selectOption|check|uncheck)\s*\(/.test(line) ||
+            /getByRole\s*\(\s*['"]textbox['"]/.test(line) ||
+            /getByRole\s*\(\s*['"]combobox['"]/.test(line) ||
+            /getByLabel\s*\(/.test(line)) {
           insertIndex = i;
           break;
+        }
+      }
+    }
+
+    if (insertIndex === -1) {
+      // Strategy 2 (fallback): original heuristic — look for a form field
+      // whose previous action isn't a click/goto/press.
+      for (let i = Math.max(scanStartLine, anchorLine); i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line.startsWith('await ')) continue;
+        if (/\.(fill|selectOption|check|uncheck)\s*\(/.test(line) ||
+            /getByRole\s*\(\s*['"]textbox['"]/.test(line) ||
+            /getByRole\s*\(\s*['"]combobox['"]/.test(line)) {
+          let prevActionLine = '';
+          for (let j = i - 1; j >= 0; j--) {
+            if (lines[j].trim().startsWith('await ')) {
+              prevActionLine = lines[j].trim();
+              break;
+            }
+          }
+          if (prevActionLine &&
+              !prevActionLine.includes('.click(') &&
+              !prevActionLine.includes('.goto(') &&
+              !prevActionLine.includes('.press(')) {
+            insertIndex = i;
+            break;
+          }
         }
       }
     }
@@ -223,6 +247,22 @@ function replaceGuidsInScript(guidToLabel) {
   // Track clicks on datagrid cells so we can normalize getByText() → getByRole('gridcell')
   const dataGridClicks = [];
 
+  // Helper: snapshot the current codegen output line count so we know roughly
+  // where in the script a tracked click belongs.
+  function getOutputLineCount() {
+    try {
+      return fs.readFileSync(path.resolve(outputPath), 'utf-8').split('\n').length;
+    } catch (_) { return 0; }
+  }
+
+  function handleListViewClick(rowText) {
+    if (rowText) {
+      const lineCount = getOutputLineCount();
+      listViewClicks.push({ text: rowText, ts: Date.now(), lineCount });
+      console.log(`[recorder] ListView row clicked: "${rowText}" (script at line ${lineCount})`);
+    }
+  }
+
   // Each page in the context gets the exposed functions
   context.on("page", (newPage) => {
     newPage.exposeFunction("__zoniqReportOption", (value, label) => {
@@ -230,12 +270,7 @@ function replaceGuidsInScript(guidToLabel) {
         guidToLabel.set(value, label);
       }
     }).catch(() => {}); // Ignore if page is already closed
-    newPage.exposeFunction("__zoniqReportListViewClick", (rowText) => {
-      if (rowText) {
-        listViewClicks.push({ text: rowText, ts: Date.now() });
-        console.log(`[recorder] ListView row clicked: "${rowText}"`);
-      }
-    }).catch(() => {});
+    newPage.exposeFunction("__zoniqReportListViewClick", handleListViewClick).catch(() => {});
     newPage.exposeFunction("__zoniqReportDataGridClick", (cellText) => {
       if (cellText) {
         dataGridClicks.push({ text: cellText, ts: Date.now() });
@@ -251,12 +286,7 @@ function replaceGuidsInScript(guidToLabel) {
         guidToLabel.set(value, label);
       }
     }).catch(() => {});
-    await p.exposeFunction("__zoniqReportListViewClick", (rowText) => {
-      if (rowText) {
-        listViewClicks.push({ text: rowText, ts: Date.now() });
-        console.log(`[recorder] ListView row clicked: "${rowText}"`);
-      }
-    }).catch(() => {});
+    await p.exposeFunction("__zoniqReportListViewClick", handleListViewClick).catch(() => {});
     await p.exposeFunction("__zoniqReportDataGridClick", (cellText) => {
       if (cellText) {
         dataGridClicks.push({ text: cellText, ts: Date.now() });
