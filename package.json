@@ -5,7 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build:win": "electron-builder --win portable",
+    "build:win": "electron-builder --win nsis",
+    "build:win:portable": "electron-builder --win portable",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
     "install-browsers": "npx playwright install chromium ffmpeg",
@@ -24,12 +25,26 @@
       "!dist/**"
     ],
     "win": {
-      "target": {
-        "target": "portable",
-        "arch": ["x64"]
-      },
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
       "icon": "assets/icon.png",
       "compression": "store"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Zoniq Test Runner"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
     },
     "mac": {
       "target": "dmg"

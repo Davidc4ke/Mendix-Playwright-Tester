@@ -10,13 +10,16 @@ const path = require("path");
 const fs = require("fs");
 const { exec, spawn } = require("child_process");
 const { v4: uuidv4 } = require("uuid");
-const express = require("express");
-const cors = require("cors");
-const { loadSettings, saveSettings, getDefaultModel } = require("./settings");
-const { LLMClient } = require("./agents/llm-client");
-const { HealerAgent } = require("./agents/healer-agent");
 const ScriptUtils = require("./lib/script-utils");
-const ElementDB = require("./lib/element-db");
+
+// ── Lazy-loaded modules (deferred to speed up window creation) ──
+let _express, _cors, _settings, _LLMClient, _HealerAgent, _ElementDB;
+function getExpress() { return _express || (_express = require("express")); }
+function getCors() { return _cors || (_cors = require("cors")); }
+function getSettings() { return _settings || (_settings = require("./settings")); }
+function getLLMClient() { return _LLMClient || (_LLMClient = require("./agents/llm-client").LLMClient); }
+function getHealerAgent() { return _HealerAgent || (_HealerAgent = require("./agents/healer-agent").HealerAgent); }
+function getElementDB() { return _ElementDB || (_ElementDB = require("./lib/element-db")); }
 
 // ── Paths ────────────────────────────────────────────────
 const USER_DATA = app.getPath("userData");
@@ -250,7 +253,7 @@ function saveElementDBForApp(appId, elementDB) {
  */
 function findOrCreateApp(targetUrl) {
   if (!targetUrl) return null;
-  const baseUrl = ElementDB.normalizeAppUrl(targetUrl);
+  const baseUrl = getElementDB().normalizeAppUrl(targetUrl);
   if (!baseUrl) return null;
 
   const apps = loadApps();
@@ -259,7 +262,7 @@ function findOrCreateApp(targetUrl) {
 
   const newApp = {
     id: uuidv4(),
-    name: ElementDB.deriveAppName(baseUrl),
+    name: getElementDB().deriveAppName(baseUrl),
     baseUrl,
     credentials: null,
     createdAt: new Date().toISOString(),
@@ -824,7 +827,7 @@ async function runPlaywright(scriptPath, runId, onStepProgress, headed) {
 
   return new Promise((resolve) => {
     const channel = getBrowserChannel();
-    const settings = loadSettings();
+    const settings = getSettings().loadSettings();
     const env = getPlaywrightEnv({
       PLAYWRIGHT_JSON_OUTPUT_FILE: reportPath,
       ...(channel ? { ZONIQ_BROWSER_CHANNEL: channel } : {}),
@@ -984,9 +987,9 @@ let apiServer = null;
 const API_PORT = 3100;
 
 function startAPIServer() {
-  const api = express();
-  api.use(cors());
-  api.use(express.json({ limit: "10mb" }));
+  const api = getExpress()();
+  api.use(getCors()());
+  api.use(getExpress().json({ limit: "10mb" }));
 
   // Optional API key authentication (set ZONIQ_API_KEY env var to enable)
   const API_KEY = process.env.ZONIQ_API_KEY || null;
@@ -1180,17 +1183,17 @@ function startAPIServer() {
       return res.status(400).json({ error: "Provide (scenarioId + runId) or (script + targetUrl + errors)" });
     }
 
-    const settings = loadSettings();
+    const settings = getSettings().loadSettings();
     if (!settings.llm.apiKey) return res.status(400).json({ error: "No LLM API key configured" });
 
     let llmClient;
     try {
-      llmClient = new LLMClient(settings);
+      llmClient = new (getLLMClient())(settings);
     } catch (err) {
       return res.status(400).json({ error: err.message });
     }
 
-    const healer = new HealerAgent(llmClient, {
+    const healer = new (getHealerAgent())(llmClient, {
       maxIterations: settings.agent.maxIterations,
       headless: true,
       browserChannel: getBrowserChannel(),
@@ -1345,7 +1348,7 @@ ipcMain.handle("save-scenario", (event, scenario) => {
       const steps = ScriptUtils.parseScriptToSteps(savedSc.script);
       if (steps.length) {
         const elDB = loadElementDBForApp(savedSc.appId);
-        const updated = ElementDB.enrichFromSteps(elDB, steps);
+        const updated = getElementDB().enrichFromSteps(elDB, steps);
         saveElementDBForApp(savedSc.appId, updated);
       }
     } catch {}
@@ -1769,14 +1772,14 @@ ipcMain.handle("get-apps", () => {
 
 ipcMain.handle("create-app", (event, appData) => {
   const apps = loadApps();
-  const baseUrl = ElementDB.normalizeAppUrl(appData.baseUrl || appData.targetUrl || '');
+  const baseUrl = getElementDB().normalizeAppUrl(appData.baseUrl || appData.targetUrl || '');
   // Check for duplicate
   const existing = apps.find(a => a.baseUrl === baseUrl);
   if (existing) return existing;
 
   const newApp = {
     id: uuidv4(),
-    name: appData.name || ElementDB.deriveAppName(baseUrl),
+    name: appData.name || getElementDB().deriveAppName(baseUrl),
     baseUrl,
     credentials: appData.credentials || null,
     createdAt: new Date().toISOString(),
@@ -1827,7 +1830,7 @@ ipcMain.handle("scan-elements", (event, appId) => {
     try {
       const steps = ScriptUtils.parseScriptToSteps(sc.script);
       if (steps.length) {
-        elDB = ElementDB.enrichFromSteps(elDB, steps, sc.targetUrl || app.baseUrl);
+        elDB = getElementDB().enrichFromSteps(elDB, steps, sc.targetUrl || app.baseUrl);
         totalElements += steps.filter(s => s.selector).length;
       }
     } catch (err) {
@@ -1841,7 +1844,7 @@ ipcMain.handle("scan-elements", (event, appId) => {
 });
 
 ipcMain.handle("generate-script", async (event, { appId, description }) => {
-  const settings = loadSettings();
+  const settings = getSettings().loadSettings();
   if (!settings.llm.apiKey) return { error: "No LLM API key configured. Go to Settings to add one." };
 
   const apps = loadApps();
@@ -1855,7 +1858,7 @@ ipcMain.handle("generate-script", async (event, { appId, description }) => {
 
   let llmClient;
   try {
-    llmClient = new LLMClient(settings);
+    llmClient = new (getLLMClient())(settings);
   } catch (err) {
     return { error: err.message };
   }
@@ -1991,14 +1994,14 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
               const app = findOrCreateApp(normalizedUrl);
               if (app && discovered.length) {
                 let elDB = loadElementDBForApp(app.id);
-                elDB = ElementDB.mergeElements(elDB, discovered, {
+                elDB = getElementDB().mergeElements(elDB, discovered, {
                   pageUrl: normalizedUrl,
                   pageTitle: '',
                 });
                 // Also enrich from parsed script steps
                 try {
                   const steps = ScriptUtils.parseScriptToSteps(script);
-                  if (steps.length) elDB = ElementDB.enrichFromSteps(elDB, steps, normalizedUrl);
+                  if (steps.length) elDB = getElementDB().enrichFromSteps(elDB, steps, normalizedUrl);
                 } catch {}
                 saveElementDBForApp(app.id, elDB);
                 console.log(`[recorder] Captured ${discovered.length} elements for app "${app.name}"`);
@@ -2061,7 +2064,7 @@ ipcMain.handle("launch-recorder-from-step", async (event, { scenario, stepIndex 
     }));
 
     const recorderScript = path.join(HELPERS_DIR, "recorder-from-step.js");
-    const settings = loadSettings();
+    const settings = getSettings().loadSettings();
     const showHighlights = settings.recorder?.showHighlights ? "true" : "false";
     const recorderArgs = [recorderScript, normalizedUrl || "", outputPath, showHighlights, prefixJsonPath];
     const channel = getBrowserChannel();
@@ -2167,13 +2170,13 @@ ipcMain.handle("launch-recorder-from-step", async (event, { scenario, stepIndex 
               const app = findOrCreateApp(normalizedUrl);
               if (app && discovered.length) {
                 let elDB = loadElementDBForApp(app.id);
-                elDB = ElementDB.mergeElements(elDB, discovered, {
+                elDB = getElementDB().mergeElements(elDB, discovered, {
                   pageUrl: normalizedUrl,
                   pageTitle: '',
                 });
                 try {
                   const steps = ScriptUtils.parseScriptToSteps(mergedScript);
-                  if (steps.length) elDB = ElementDB.enrichFromSteps(elDB, steps, normalizedUrl);
+                  if (steps.length) elDB = getElementDB().enrichFromSteps(elDB, steps, normalizedUrl);
                 } catch {}
                 saveElementDBForApp(app.id, elDB);
                 console.log(`[recorder-from-step] Captured ${discovered.length} elements`);
@@ -2561,16 +2564,16 @@ let activeAgent = null; // { type, agent, runId }
 // ── Settings IPC Handlers ────────────────────────────────
 
 ipcMain.handle("get-settings", () => {
-  return loadSettings();
+  return getSettings().loadSettings();
 });
 
 ipcMain.handle("save-settings", (event, settings) => {
-  return saveSettings(settings);
+  return getSettings().saveSettings(settings);
 });
 
 ipcMain.handle("test-llm-connection", async (event, settings) => {
   try {
-    const client = new LLMClient(settings);
+    const client = new (getLLMClient())(settings);
     return await client.testConnection();
   } catch (err) {
     return { ok: false, error: err.message };
@@ -2592,19 +2595,19 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
   if (!run) return { error: "Run not found" };
   if (!run.results?.errors?.length) return { error: "No errors to heal" };
 
-  const settings = loadSettings();
+  const settings = getSettings().loadSettings();
   if (!settings.llm.apiKey) {
     return { error: "No API key configured. Go to Settings to add one." };
   }
 
   let llmClient;
   try {
-    llmClient = new LLMClient(settings);
+    llmClient = new (getLLMClient())(settings);
   } catch (err) {
     return { error: err.message };
   }
 
-  const healer = new HealerAgent(llmClient, {
+  const healer = new (getHealerAgent())(llmClient, {
     maxIterations: settings.agent.maxIterations,
     headless: settings.agent.headless,
     browserChannel: getBrowserChannel(),
@@ -2680,19 +2683,19 @@ ipcMain.handle("agent-analyze", async (event, { scenarioId, runId }) => {
   if (!run) return { error: "Run not found" };
   if (!run.results?.errors?.length) return { error: "No errors to analyse" };
 
-  const settings = loadSettings();
+  const settings = getSettings().loadSettings();
   if (!settings.llm.apiKey) {
     return { error: "No API key configured. Go to Settings to add one." };
   }
 
   let llmClient;
   try {
-    llmClient = new LLMClient(settings);
+    llmClient = new (getLLMClient())(settings);
   } catch (err) {
     return { error: err.message };
   }
 
-  const healer = new HealerAgent(llmClient, {});
+  const healer = new (getHealerAgent())(llmClient, {});
 
   activeAgent = { type: "analyzer", agent: healer };
 
@@ -2818,7 +2821,7 @@ ipcMain.handle("cleanup-script-ai", async (event, scenarioId) => {
     if (!scenario) return { error: "Scenario not found" };
     if (!scenario.script) return { error: "Scenario has no script" };
 
-    const settings = loadSettings();
+    const settings = getSettings().loadSettings();
     if (!settings.llm?.apiKey) return { error: "LLM API key not configured. Go to Settings to add one." };
 
     // Run rule-based cleanup first
@@ -2826,7 +2829,7 @@ ipcMain.handle("cleanup-script-ai", async (event, scenarioId) => {
 
     // Run AI cleanup on the (possibly rule-cleaned) script
     const { CleanupAgent } = require("./agents/cleanup-agent");
-    const llmClient = new LLMClient(settings);
+    const llmClient = new (getLLMClient())(settings);
     const agent = new CleanupAgent(llmClient);
 
     const scriptForAI = ruleResult.removedCount > 0 ? ruleResult.cleanedScript : scenario.script;
@@ -2858,8 +2861,10 @@ function createSplash() {
     frame: false,
     transparent: false,
     resizable: false,
+    alwaysOnTop: true,
     center: true,
     show: true,
+    skipTaskbar: false,
     backgroundColor: "#0a0e17",
     webPreferences: { nodeIntegration: false },
   });
@@ -2867,9 +2872,15 @@ function createSplash() {
   return splash;
 }
 
-function createWindow() {
-  const splash = createSplash();
+function updateSplashStatus(splash, text) {
+  if (splash && !splash.isDestroyed()) {
+    splash.webContents.executeJavaScript(
+      `document.querySelector('.status').textContent = ${JSON.stringify(text)};`
+    ).catch(() => {});
+  }
+}
 
+function createWindow(splash) {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 820,
@@ -2888,7 +2899,7 @@ function createWindow() {
   mainWindow.loadFile("index.html");
 
   mainWindow.once("ready-to-show", () => {
-    splash.close();
+    if (splash && !splash.isDestroyed()) splash.close();
     mainWindow.show();
   });
 
@@ -2897,8 +2908,16 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  createWindow();
+  // Show splash immediately, before any heavy initialization
+  const splash = createSplash();
+
+  updateSplashStatus(splash, "Preparing workspace…");
   ensurePlaywrightConfig();
+
+  updateSplashStatus(splash, "Loading UI…");
+  createWindow(splash);
+
+  updateSplashStatus(splash, "Starting API server…");
   startAPIServer();
 });
 
