@@ -47,27 +47,44 @@ function injectMissingListViewClicks(clicks) {
   let script = fs.readFileSync(absOutput, "utf-8");
   let injected = 0;
 
+  // Track scan position across iterations so each click is inserted after the
+  // previous one — not at the top of the script.  Clicks are recorded in
+  // chronological order, so their insertion points must be monotonically
+  // increasing through the script.
+  let scanStartLine = 0;
+
   for (const { text } of clicks) {
     const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     // Check if codegen already captured this click
-    const alreadyRecorded = new RegExp(
+    const alreadyRecordedRe = new RegExp(
       `getByRole\\s*\\(\\s*['"]button['"]\\s*,\\s*\\{[^}]*name:\\s*['"]${escapedText}['"]` +
       `|getByText\\s*\\(\\s*['"]${escapedText}['"]\\s*\\)[^;]*\\.click` +
       `|aria-label="${escapedText.replace(/"/g, '\\"')}"[^;]*\\.click` +
       `|filter\\s*\\(\\s*\\{\\s*hasText:\\s*['"]${escapedText}['"]\\s*\\}\\s*\\)[^;]*\\.click`
-    ).test(script);
+    );
+    const alreadyRecorded = alreadyRecordedRe.test(script);
 
-    if (alreadyRecorded) continue;
+    if (alreadyRecorded) {
+      // Advance scanStartLine past the recorded click so subsequent missing
+      // clicks are inserted after it (they happened later in the flow).
+      const lines = script.split('\n');
+      for (let i = scanStartLine; i < lines.length; i++) {
+        if (alreadyRecordedRe.test(lines[i])) {
+          scanStartLine = i + 1;
+          break;
+        }
+      }
+      continue;
+    }
 
     // Find a good insertion point: look for the first statement after a
     // non-popup interaction that accesses something likely inside a popup
     // (e.g. getByRole('textbox'), getByLabel, fill, selectOption).
-    // As a simple heuristic, scan line by line and insert before the first
-    // line that looks like it interacts with a form field that wasn't preceded
-    // by a click on this row.
+    // Scan forward from scanStartLine so clicks are placed in chronological
+    // order rather than all bunching up at the first form field.
     const lines = script.split('\n');
     let insertIndex = -1;
-    for (let i = 0; i < lines.length; i++) {
+    for (let i = scanStartLine; i < lines.length; i++) {
       const line = lines[i].trim();
       // Skip non-action lines
       if (!line.startsWith('await ')) continue;
@@ -75,8 +92,8 @@ function injectMissingListViewClicks(clicks) {
       if (/\.(fill|selectOption|check|uncheck)\s*\(/.test(line) ||
           /getByRole\s*\(\s*['"]textbox['"]/.test(line) ||
           /getByRole\s*\(\s*['"]combobox['"]/.test(line)) {
-        // Check that the previous action line wasn't already a click on
-        // something that would open a popup
+        // Check that the previous action line wasn't already a click or
+        // navigation that would naturally precede form fields
         let prevActionLine = '';
         for (let j = i - 1; j >= 0; j--) {
           if (lines[j].trim().startsWith('await ')) {
@@ -84,10 +101,15 @@ function injectMissingListViewClicks(clicks) {
             break;
           }
         }
-        // If the previous action was a selectOption/fill (not a click),
-        // this is likely the transition point where a popup-opening click
-        // was missed
-        if (prevActionLine && !prevActionLine.includes('.click(')) {
+        // If the previous action was a click or page.goto(), form fields
+        // here are expected (new page or popup just opened) — not a sign
+        // of a missing ListView click.  Only insert when the previous
+        // action is something like fill/selectOption (meaning the flow
+        // jumped to a new context without a click).
+        if (prevActionLine &&
+            !prevActionLine.includes('.click(') &&
+            !prevActionLine.includes('.goto(') &&
+            !prevActionLine.includes('.press(')) {
           insertIndex = i;
           break;
         }
@@ -101,6 +123,7 @@ function injectMissingListViewClicks(clicks) {
     const clickLine = `${indent}await page.locator('li[role="button"]').filter({ hasText: '${text.replace(/'/g, "\\'")}' }).first().click();`;
     lines.splice(insertIndex, 0, clickLine);
     script = lines.join('\n');
+    scanStartLine = insertIndex + 1;
     injected++;
     console.log(`[recorder] Injected missing ListView click: "${text}" at line ${insertIndex + 1}`);
   }
