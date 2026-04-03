@@ -16,7 +16,8 @@ Zoniq Test Runner is an Electron desktop application for recording and running P
 npm install               # Install dependencies
 npm run install-browsers  # Install Playwright Chromium browser
 npm start                 # Launch the Electron app
-npm run build:win         # Build Windows portable .exe
+npm run build:win         # Build Windows NSIS installer (.exe)
+npm run build:win:portable # Build Windows portable .exe (legacy, slower startup)
 npm run build:mac         # Build macOS .dmg
 npm run build:linux       # Build Linux AppImage
 ```

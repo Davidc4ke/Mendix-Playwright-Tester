@@ -16,24 +16,27 @@
       justify-content: center;
       user-select: none;
       overflow: hidden;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
     }
 
     .logo {
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 36px;
+      gap: 14px;
+      margin-bottom: 40px;
     }
 
     .logo-icon {
-      width: 48px;
-      height: 48px;
-      background: #3b82f6;
-      border-radius: 12px;
+      width: 52px;
+      height: 52px;
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      border-radius: 14px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 24px;
+      font-size: 26px;
+      box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
     }
 
     .logo-text {
@@ -42,7 +45,7 @@
     }
 
     .logo-name {
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 700;
       color: #f1f5f9;
       letter-spacing: -0.3px;
@@ -56,7 +59,7 @@
     }
 
     .progress-track {
-      width: 260px;
+      width: 280px;
       height: 3px;
       background: #1a2236;
       border-radius: 2px;
@@ -67,27 +70,28 @@
       height: 100%;
       width: 100%;
       background: linear-gradient(90deg, #1a2236 0%, #3b82f6 40%, #60a5fa 60%, #1a2236 100%);
-      background-size: 260px 100%;
+      background-size: 280px 100%;
       border-radius: 2px;
       animation: shimmer 1.4s ease-in-out infinite;
     }
 
     @keyframes shimmer {
-      0%   { background-position: -260px 0; }
-      100% { background-position: 260px 0; }
+      0%   { background-position: -280px 0; }
+      100% { background-position: 280px 0; }
     }
 
     .status {
-      margin-top: 14px;
+      margin-top: 16px;
       font-size: 11px;
       color: #475569;
       letter-spacing: 0.3px;
+      transition: opacity 0.2s ease;
     }
   </style>
 </head>
 <body>
   <div class="logo">
-    <div class="logo-icon">⚡</div>
+    <div class="logo-icon">&#9889;</div>
     <div class="logo-text">
       <span class="logo-name">Zoniq</span>
       <span class="logo-sub">Test Runner</span>
@@ -97,6 +101,6 @@
   <div class="progress-track">
     <div class="progress-bar"></div>
   </div>
-  <div class="status">Starting up…</div>
+  <div class="status">Starting up&#8230;</div>
 </body>
 </html>

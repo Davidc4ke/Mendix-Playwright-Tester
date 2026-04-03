@@ -2400,12 +2400,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
-  await runHealthCheck();
-  await loadApps();
-  await loadScenarios();
-  await loadPlans();
-  await loadRuns();
-  await loadUrlHistory();
+  // Load all data in parallel for faster startup
+  await Promise.all([
+    runHealthCheck(),
+    loadApps(),
+    loadScenarios(),
+    loadPlans(),
+    loadRuns(),
+    loadUrlHistory(),
+  ]);
 
   // Listen for run events
   window.zoniq.onRunStarted((run) => {
