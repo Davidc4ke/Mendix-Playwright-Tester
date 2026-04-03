@@ -43,7 +43,11 @@ const HELPERS_DIR = path.join(UNPACKED_BASE, "helpers");
 
 // ── Playwright paths ────────────────────────────────────
 const UNPACKED_NODE_MODULES = path.join(UNPACKED_BASE, "node_modules");
-const PLAYWRIGHT_CLI_JS = path.join(UNPACKED_NODE_MODULES, "@playwright", "test", "cli.js");
+// Use the unscoped `playwright` package CLI — electron-builder's asarUnpack has a
+// known bug with @-scoped package paths on Windows, so @playwright/test/cli.js may
+// not exist in app.asar.unpacked. The `playwright` package ships the identical CLI
+// and unpacks reliably because its path contains no @ character.
+const PLAYWRIGHT_CLI_JS = path.join(UNPACKED_NODE_MODULES, "playwright", "cli.js");
 
 // playwright.config.js is written to USER_DATA at startup so it has the correct
 // absolute testDir and can be read from the real filesystem by the spawned process.
