@@ -1803,9 +1803,21 @@
           <button class="btn btn-record" onclick="launchRecorderPrompt()">Record</button>
           <button class="btn btn-ai" onclick="openGenerateModal()">Generate</button>
         </div>
-        <select class="form-input" id="appFilter" onchange="onAppFilterChange()" style="margin:0 12px 8px 12px;width:calc(100% - 24px);font-size:11px;padding:5px 8px;">
-          <option value="">All Apps</option>
-        </select>
+        <div style="margin:0 12px 8px 12px;display:flex;gap:6px;align-items:center;">
+          <select class="form-input" id="appFilter" onchange="onAppFilterChange()" style="flex:1;min-width:0;font-size:11px;padding:5px 8px;">
+            <option value="">All Apps</option>
+          </select>
+          <select class="form-input" id="scenarioSort" onchange="onScenarioSortChange()" style="flex:0 0 auto;font-size:11px;padding:5px 8px;">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="name">Name A–Z</option>
+            <option value="name-desc">Name Z–A</option>
+          </select>
+        </div>
+        <div style="margin:0 12px 8px 12px;position:relative;">
+          <input type="text" id="scenarioSearch" placeholder="Search scenarios…" oninput="onScenarioSearchInput()" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 28px 5px 8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);outline:none;" />
+          <span id="scenarioSearchClear" onclick="clearScenarioSearch()" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);cursor:pointer;color:var(--text-muted);font-size:14px;line-height:1;">&#x2715;</span>
+        </div>
         <div class="sidebar-list" id="scenarioList">
           <div class="empty-state">
             <div class="empty-state-icon">&#9881;</div>
@@ -2265,6 +2277,8 @@ let selectedScenario = null;
 let selectedRun = null;
 let selectedApp = null;
 let selectedAppFilter = ''; // appId or '' for all
+let scenarioSort = 'newest'; // newest | oldest | name | name-desc
+let scenarioSearch = ''; // free-text filter
 let plans = [];
 let selectedPlan = null;
 let activePlanRun = null; // { planRunId, scenarioRuns: [...] } — tracks live plan execution
@@ -2599,13 +2613,32 @@ async function loadScenarios() {
 
 function renderScenarioList() {
   const container = document.getElementById("scenarioList");
-  const filtered = selectedAppFilter
+  let filtered = selectedAppFilter
     ? scenarios.filter(s => s.appId === selectedAppFilter)
-    : scenarios;
+    : scenarios.slice();
+  if (scenarioSearch) {
+    const q = scenarioSearch.toLowerCase();
+    filtered = filtered.filter(s =>
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.targetUrl || '').toLowerCase().includes(q)
+    );
+  }
+  // Sort
+  if (scenarioSort === 'newest') {
+    filtered.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+  } else if (scenarioSort === 'oldest') {
+    filtered.sort((a, b) => new Date(a.updatedAt || a.createdAt) - new Date(b.updatedAt || b.createdAt));
+  } else if (scenarioSort === 'name') {
+    filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  } else if (scenarioSort === 'name-desc') {
+    filtered.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
+  }
   if (!filtered.length) {
-    const msg = selectedAppFilter
-      ? "No scenarios for this app yet."
-      : "No test scenarios yet. Create one or record a browser session.";
+    const msg = scenarioSearch
+      ? "No scenarios match your search."
+      : selectedAppFilter
+        ? "No scenarios for this app yet."
+        : "No test scenarios yet. Create one or record a browser session.";
     container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">&#9881;</div><p>${msg}</p></div>`;
     return;
   }
@@ -3177,6 +3210,28 @@ function renderAppFilter() {
 
 function onAppFilterChange() {
   selectedAppFilter = document.getElementById("appFilter").value;
+  renderScenarioList();
+}
+
+function onScenarioSortChange() {
+  scenarioSort = document.getElementById("scenarioSort").value;
+  renderScenarioList();
+}
+
+function onScenarioSearchInput() {
+  const input = document.getElementById("scenarioSearch");
+  scenarioSearch = input.value;
+  const clear = document.getElementById("scenarioSearchClear");
+  if (clear) clear.style.display = scenarioSearch ? 'block' : 'none';
+  renderScenarioList();
+}
+
+function clearScenarioSearch() {
+  scenarioSearch = '';
+  const input = document.getElementById("scenarioSearch");
+  if (input) input.value = '';
+  const clear = document.getElementById("scenarioSearchClear");
+  if (clear) clear.style.display = 'none';
   renderScenarioList();
 }
 
