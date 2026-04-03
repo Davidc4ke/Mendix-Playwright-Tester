@@ -2261,6 +2261,27 @@
   </div>
 </div>
 
+<!-- ── Run Options Modal ──────────────────────────── -->
+<div class="modal-overlay" id="runOptionsModal">
+  <div class="modal" style="width:380px;">
+    <div class="modal-title">Run Options</div>
+    <p style="color:var(--text-secondary);font-size:13px;line-height:1.5;margin-bottom:16px;">Choose how to run the test:</p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <button class="btn" id="runOptHeadedBtn" style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;text-align:left;height:auto;">
+        <span style="font-size:20px;line-height:1.2;">&#128065;</span>
+        <span><strong>Show Browser</strong><br><span style="font-size:11px;color:var(--text-secondary);font-weight:400;">Opens a visible browser window</span></span>
+      </button>
+      <button class="btn" id="runOptHeadlessBtn" style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;text-align:left;height:auto;">
+        <span style="font-size:20px;line-height:1.2;">&#9889;</span>
+        <span><strong>Headless (faster)</strong><br><span style="font-size:11px;color:var(--text-secondary);font-weight:400;">No window — screenshots &amp; real-time steps still work</span></span>
+      </button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="runOptCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Toast Container ────────────────────────────── -->
 <div class="toast-container" id="toastContainer"></div>
 
@@ -3127,8 +3148,10 @@ async function rerunTest(scenarioId) {
     }
     return rerunTest(scenarioId);
   }
+  const headed = await runOptionsDialog();
+  if (headed === null) return;
   toast("Rerunning test...", "info");
-  await window.zoniq.executeScenario(sc);
+  await window.zoniq.executeScenario(sc, { headed });
   await loadRuns();
 }
 
@@ -3147,8 +3170,10 @@ async function executeSelected() {
     }
   }
 
+  const headed = await runOptionsDialog();
+  if (headed === null) return;
   toast("Starting test execution...", "info");
-  await window.zoniq.executeScenario(selectedScenario);
+  await window.zoniq.executeScenario(selectedScenario, { headed });
   await loadRuns();
 }
 
@@ -5329,6 +5354,28 @@ function openModal(id) { document.getElementById(id).classList.add("active"); }
 function closeModal(id) { document.getElementById(id).classList.remove("active"); }
 
 // Modals must be explicitly dismissed via buttons — no outside-click closing
+
+function runOptionsDialog() {
+  return new Promise((resolve) => {
+    const headedBtn = document.getElementById("runOptHeadedBtn");
+    const headlessBtn = document.getElementById("runOptHeadlessBtn");
+    const cancelBtn = document.getElementById("runOptCancelBtn");
+    openModal("runOptionsModal");
+    function cleanup(result) {
+      closeModal("runOptionsModal");
+      headedBtn.removeEventListener("click", onHeaded);
+      headlessBtn.removeEventListener("click", onHeadless);
+      cancelBtn.removeEventListener("click", onCancel);
+      resolve(result);
+    }
+    function onHeaded() { cleanup(true); }
+    function onHeadless() { cleanup(false); }
+    function onCancel() { cleanup(null); }
+    headedBtn.addEventListener("click", onHeaded);
+    headlessBtn.addEventListener("click", onHeadless);
+    cancelBtn.addEventListener("click", onCancel);
+  });
+}
 
 function confirmDialog(message, { title = "Confirm", okLabel = "Delete" } = {}) {
   return new Promise((resolve) => {
