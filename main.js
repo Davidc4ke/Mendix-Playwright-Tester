@@ -175,16 +175,22 @@ zlog("PLAYWRIGHT_CLI_JS:", PLAYWRIGHT_CLI_JS, "| exists:", fs.existsSync(PLAYWRI
 zlog("TEMP_DIR:", TEMP_DIR);
 
 // ── Simple JSON DB for scenarios & runs ──────────────────
+let _dbCache = null;
+
 function loadDB() {
+  if (_dbCache) return _dbCache;
   try {
     if (fs.existsSync(DB_PATH)) {
-      return JSON.parse(fs.readFileSync(DB_PATH, "utf-8"));
+      _dbCache = JSON.parse(fs.readFileSync(DB_PATH, "utf-8"));
+      return _dbCache;
     }
   } catch {}
-  return { scenarios: [], runs: [], savedUrls: [], analyses: [], plans: [] };
+  _dbCache = { scenarios: [], runs: [], savedUrls: [], analyses: [], plans: [] };
+  return _dbCache;
 }
 
 function saveDB(db) {
+  _dbCache = db;
   fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
 }
 
@@ -199,17 +205,22 @@ function addSavedUrl(db, url) {
 }
 
 // ── Apps & Element DB ────────────────────────────────────
+let _appsCache = null;
 
 function loadApps() {
+  if (_appsCache) return _appsCache;
   try {
     if (fs.existsSync(APPS_PATH)) {
-      return JSON.parse(fs.readFileSync(APPS_PATH, "utf-8"));
+      _appsCache = JSON.parse(fs.readFileSync(APPS_PATH, "utf-8"));
+      return _appsCache;
     }
   } catch {}
-  return [];
+  _appsCache = [];
+  return _appsCache;
 }
 
 function saveApps(apps) {
+  _appsCache = apps;
   fs.writeFileSync(APPS_PATH, JSON.stringify(apps, null, 2));
 }
 
@@ -271,6 +282,7 @@ function migrateScenarioApps() {
     }
   }
   if (changed) saveDB(db);
+  return db;
 }
 
 // ── Playwright helpers path ──────────────────────────────
@@ -790,6 +802,9 @@ module.exports = {
   ],
 };
 `;
+  try {
+    if (fs.existsSync(PLAYWRIGHT_CONFIG_PATH) && fs.readFileSync(PLAYWRIGHT_CONFIG_PATH, "utf-8") === config) return;
+  } catch {}
   fs.writeFileSync(PLAYWRIGHT_CONFIG_PATH, config);
 }
 
@@ -800,10 +815,8 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
   const reportPath = path.join(runResultsDir, "report.json");
   const configPath = PLAYWRIGHT_CONFIG_PATH;
 
-  // Debug: save a copy of the generated script for inspection
-  try {
-    fs.copyFileSync(scriptPath, path.join(runResultsDir, "debug-script.js"));
-  } catch {}
+  // Debug: save a copy of the generated script for inspection (async — non-blocking)
+  fs.copyFile(scriptPath, path.join(runResultsDir, "debug-script.js"), () => {});
 
   return new Promise((resolve) => {
     const channel = getBrowserChannel();
@@ -875,11 +888,9 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
     });
 
     proc.on("close", () => {
-      // Debug: save stdout/stderr
-      try {
-        fs.writeFileSync(path.join(runResultsDir, "debug-stdout.txt"), stdoutBuf);
-        fs.writeFileSync(path.join(runResultsDir, "debug-stderr.txt"), stderrBuf);
-      } catch {}
+      // Debug: save stdout/stderr (async — doesn't block result processing)
+      fs.writeFile(path.join(runResultsDir, "debug-stdout.txt"), stdoutBuf, () => {});
+      fs.writeFile(path.join(runResultsDir, "debug-stderr.txt"), stderrBuf, () => {});
 
       let report = null;
       try {
@@ -1250,13 +1261,14 @@ ipcMain.handle("open-log", () => { shell.openPath(LOG_PATH); });
 ipcMain.handle("health-check", async () => {
   return new Promise((resolve) => {
     const finish = (playwrightVersion) => {
+      const db = loadDB();
       resolve({
         playwright: playwrightVersion,
         apiPort: API_PORT,
         dataDir: USER_DATA,
         platform: process.platform,
-        scenarioCount: loadDB().scenarios.length,
-        runCount: loadDB().runs.length,
+        scenarioCount: db.scenarios.length,
+        runCount: db.runs.length,
       });
     };
 
@@ -1292,8 +1304,7 @@ ipcMain.handle("health-check", async () => {
 
 // Get all scenarios (with auto-migration for apps)
 ipcMain.handle("get-scenarios", () => {
-  migrateScenarioApps();
-  return loadDB().scenarios;
+  return migrateScenarioApps().scenarios;
 });
 
 // Save a scenario

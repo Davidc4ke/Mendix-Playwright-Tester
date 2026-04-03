@@ -21,20 +21,22 @@ const path = require("path");
 const { AgentOrchestrator } = require("./orchestrator");
 const { BrowserContext } = require("./browser-context");
 
-const SYSTEM_PROMPT = fs.readFileSync(
-  path.join(__dirname, "prompts", "healer-system.md"),
-  "utf-8"
-);
+let _SYSTEM_PROMPT = null;
+let _STATIC_SYSTEM_PROMPT = null;
+let _ANALYZE_SYSTEM_PROMPT = null;
 
-const STATIC_SYSTEM_PROMPT = fs.readFileSync(
-  path.join(__dirname, "prompts", "healer-static-system.md"),
-  "utf-8"
-);
-
-const ANALYZE_SYSTEM_PROMPT = fs.readFileSync(
-  path.join(__dirname, "prompts", "healer-analyze-system.md"),
-  "utf-8"
-);
+function getSystemPrompt() {
+  if (!_SYSTEM_PROMPT) _SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, "prompts", "healer-system.md"), "utf-8");
+  return _SYSTEM_PROMPT;
+}
+function getStaticSystemPrompt() {
+  if (!_STATIC_SYSTEM_PROMPT) _STATIC_SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, "prompts", "healer-static-system.md"), "utf-8");
+  return _STATIC_SYSTEM_PROMPT;
+}
+function getAnalyzeSystemPrompt() {
+  if (!_ANALYZE_SYSTEM_PROMPT) _ANALYZE_SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, "prompts", "healer-analyze-system.md"), "utf-8");
+  return _ANALYZE_SYSTEM_PROMPT;
+}
 
 const mx = require(path.resolve(__dirname, "..", "helpers", "mendix-helpers"));
 
@@ -127,7 +129,7 @@ class HealerAgent {
 
     const response = await this.llm.chat(
       [{ role: "user", content: message }],
-      { system: ANALYZE_SYSTEM_PROMPT }
+      { system: getAnalyzeSystemPrompt() }
     );
 
     if (this._cancelled) throw new Error("Cancelled");
@@ -148,7 +150,7 @@ class HealerAgent {
 
     const response = await this.llm.chat(
       [{ role: "user", content: message }],
-      { system: STATIC_SYSTEM_PROMPT }
+      { system: getStaticSystemPrompt() }
     );
 
     const result = this._parseHealerResponse(response.content);
@@ -202,7 +204,7 @@ class HealerAgent {
 
       // Run the orchestration loop
       if (onProgress) onProgress({ status: "analyzing", message: "Analyzing failure at the point where the test broke..." });
-      const { finalResponse } = await this._orchestrator.runLoop(SYSTEM_PROMPT, initialMessage);
+      const { finalResponse } = await this._orchestrator.runLoop(getSystemPrompt(), initialMessage);
 
       // Parse the healer's response
       const result = this._parseHealerResponse(finalResponse);
