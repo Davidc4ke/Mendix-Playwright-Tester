@@ -687,12 +687,31 @@ function transformListViewRowClicks(script) {
   // Pattern 1: injected by recorder post-processing
   //   await page.locator('li[role="button"]').filter({ hasText: '...' }).first().click();
   //   await page.locator('li[role="button"]').filter({ hasText: '...' }).click();
-  return script.replace(
+  let result = script.replace(
     /await\s+page\.locator\s*\(\s*['"]li\[role=["']?button["']?\]['"]\s*\)\s*\.filter\s*\(\s*\{\s*hasText:\s*['"]([^'"]+)['"]\s*\}\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
     (match, rowText) => {
       return `await mx.clickListViewRow(page, '${rowText.replace(/'/g, "\\'")}');`;
     }
   );
+
+  // Pattern 2: codegen recorded a getByRole('button') click where the name
+  // contains excessive whitespace — a telltale sign that it captured the full
+  // concatenated text of a ListView row (e.g. 'Current             Delete').
+  // Extract the first meaningful word(s) as the row text.
+  result = result.replace(
+    /await\s+page\.getByRole\s*\(\s*['"]button['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
+    (match, name) => {
+      // Only transform if the name has excessive whitespace (3+ consecutive
+      // spaces), which indicates concatenated ListView row text content.
+      if (!/\s{3,}/.test(name)) return match;
+      // Extract the first non-empty token as the row's primary text
+      const primaryText = name.split(/\s{2,}/)[0].trim();
+      if (!primaryText) return match;
+      return `await mx.clickListViewRow(page, '${primaryText.replace(/'/g, "\\'")}');`;
+    }
+  );
+
+  return result;
 }
 
 /**

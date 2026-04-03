@@ -55,7 +55,7 @@ function injectMissingListViewClicks(clicks) {
 
   for (const { text, lineCount } of clicks) {
     const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // Check if codegen already captured this click
+    // Check if codegen already captured this click (exact text match)
     const alreadyRecordedRe = new RegExp(
       `getByRole\\s*\\(\\s*['"]button['"]\\s*,\\s*\\{[^}]*name:\\s*['"]${escapedText}['"]` +
       `|getByText\\s*\\(\\s*['"]${escapedText}['"]\\s*\\)[^;]*\\.click` +
@@ -76,6 +76,34 @@ function injectMissingListViewClicks(clicks) {
       }
       continue;
     }
+
+    // Check if codegen recorded the click but with a BAD selector — e.g.
+    // getByRole('button', { name: 'Current             Delete' }) where
+    // the name is the full concatenated text content of the <li> row
+    // instead of just the primary text ("Current").  Detect these by
+    // looking for getByRole('button', { name: '...<tracked text>...' })
+    // where the name contains EXTRA text beyond our tracked text.
+    const badSelectorRe = new RegExp(
+      `(await\\s+page\\.getByRole\\s*\\(\\s*['"]button['"]\\s*,\\s*\\{[^}]*name:\\s*['"])([^'"]*${escapedText}[^'"]*)(['"][^)]*\\)(?:\\.first\\s*\\(\\s*\\))?)\\.click\\s*\\(\\s*\\)\\s*;`
+    );
+    const lines = script.split('\n');
+    let replaced = false;
+    for (let i = scanStartLine; i < lines.length; i++) {
+      const badMatch = lines[i].match(badSelectorRe);
+      if (badMatch && badMatch[2].trim() !== text) {
+        // The name contains our text but has extra junk — replace the
+        // whole line with the correct locator pattern.
+        const indent = lines[i].match(/^(\s*)/)?.[1] || '  ';
+        lines[i] = `${indent}await page.locator('li[role="button"]').filter({ hasText: '${text.replace(/'/g, "\\'")}' }).first().click();`;
+        script = lines.join('\n');
+        scanStartLine = i + 1;
+        injected++;
+        replaced = true;
+        console.log(`[recorder] Replaced bad ListView selector at line ${i + 1}: "${badMatch[2].trim()}" → "${text}"`);
+        break;
+      }
+    }
+    if (replaced) continue;
 
     // Find a good insertion point.  We use two strategies:
     //
