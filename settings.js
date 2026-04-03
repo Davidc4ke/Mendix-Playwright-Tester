@@ -30,6 +30,8 @@ const DEFAULT_SETTINGS = {
   testExecution: {
     retryOnFailure: false,        // Retry failed tests once
     stepTimeout: 30,              // Seconds before a step times out and fails the test
+    viewportWidth: 1920,          // Browser viewport width
+    viewportHeight: 1080,         // Browser viewport height
   },
 };
 

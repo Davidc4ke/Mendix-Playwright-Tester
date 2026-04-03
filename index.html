@@ -2018,6 +2018,16 @@
           <input class="form-input" id="settingsStepTimeout" type="number" min="5" max="300" value="30" />
         </div>
       </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px;">
+        <div class="form-group">
+          <label>Viewport Width (px)</label>
+          <input class="form-input" id="settingsViewportWidth" type="number" min="800" max="3840" value="1920" />
+        </div>
+        <div class="form-group">
+          <label>Viewport Height (px)</label>
+          <input class="form-input" id="settingsViewportHeight" type="number" min="600" max="2160" value="1080" />
+        </div>
+      </div>
     </div>
     <div style="margin-bottom:8px;">
       <button class="btn btn-sm" id="testConnectionBtn" onclick="testLLMConnection()">Test Connection</button>
@@ -5491,6 +5501,8 @@ async function openSettingsModal() {
   document.getElementById("settingsHeadless").value = String(settings.agent.headless || false);
   document.getElementById("settingsRetryOnFailure").value = String(settings.testExecution?.retryOnFailure || false);
   document.getElementById("settingsStepTimeout").value = settings.testExecution?.stepTimeout || 30;
+  document.getElementById("settingsViewportWidth").value = settings.testExecution?.viewportWidth || 1920;
+  document.getElementById("settingsViewportHeight").value = settings.testExecution?.viewportHeight || 1080;
   document.getElementById("connectionResult").textContent = "";
   onProviderChange();
   openModal("settingsModal");
@@ -5522,6 +5534,8 @@ function getSettingsFromModal() {
     testExecution: {
       retryOnFailure: document.getElementById("settingsRetryOnFailure").value === "true",
       stepTimeout: parseInt(document.getElementById("settingsStepTimeout").value) || 30,
+      viewportWidth: parseInt(document.getElementById("settingsViewportWidth").value) || 1920,
+      viewportHeight: parseInt(document.getElementById("settingsViewportHeight").value) || 1080,
     },
   };
 }

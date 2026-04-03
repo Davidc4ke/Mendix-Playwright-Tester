@@ -259,7 +259,10 @@ function replaceGuidsInScript(guidToLabel) {
   const browser = await playwright.chromium.launch(launchOptions);
 
   const contextOptions = {
-    viewport: { width: 1920, height: 1080 },
+    viewport: {
+      width: parseInt(process.env.ZONIQ_VIEWPORT_WIDTH) || 1920,
+      height: parseInt(process.env.ZONIQ_VIEWPORT_HEIGHT) || 1080,
+    },
     deviceScaleFactor: process.platform === "darwin" ? 2 : 1,
   };
   const context = await browser.newContext(contextOptions);

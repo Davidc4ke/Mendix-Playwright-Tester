@@ -49,6 +49,7 @@ class HealerAgent {
     this.maxIterations = options.maxIterations || 10;
     this.headless = options.headless ?? false;
     this.browserChannel = options.browserChannel || null;
+    this.viewport = options.viewport || { width: 1920, height: 1080 };
     this._cancelled = false;
     this._orchestrator = null;
     this._browser = null;
@@ -174,7 +175,7 @@ class HealerAgent {
       if (this.browserChannel) launchOpts.channel = this.browserChannel;
       browser = await pw.chromium.launch(launchOpts);
       this._browser = browser;
-      const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+      const context = await browser.newContext({ viewport: this.viewport });
       page = await context.newPage();
 
       if (this._cancelled) throw new Error("Cancelled");
