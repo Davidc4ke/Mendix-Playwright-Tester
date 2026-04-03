@@ -60,7 +60,8 @@
       "node_modules/playwright-core/**",
       "node_modules/playwright/**",
       "node_modules/@playwright/**",
-      "helpers/**"
+      "helpers/**",
+      "lib/**"
     ]
   },
   "engines": {
