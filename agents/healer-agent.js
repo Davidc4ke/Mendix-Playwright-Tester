@@ -680,17 +680,19 @@ class HealerAgent {
   }
 
   _parseHealerResponse(response) {
+    // Helper to normalize parsed JSON into our result format
+    const _fromParsed = (parsed) => ({
+      healedScript: parsed.healed_script || parsed.healedScript || null,
+      changes: parsed.changes || parsed.suggestions || [],
+      analysis: parsed.analysis || "",
+      confidence: parsed.confidence || "medium",
+    });
+
     // 1. Try to find a ```json code block specifically
     const jsonMatch = response.match(/```json\s*\n?([\s\S]*?)```/);
     if (jsonMatch) {
       try {
-        const parsed = JSON.parse(jsonMatch[1].trim());
-        return {
-          healedScript: parsed.healed_script || parsed.healedScript || null,
-          changes: parsed.changes || [],
-          analysis: parsed.analysis || "",
-          confidence: parsed.confidence || "medium",
-        };
+        return _fromParsed(JSON.parse(jsonMatch[1].trim()));
       } catch {
         // JSON.parse failed — LLMs often produce invalid JSON when healed_script
         // contains newlines/special chars. Try to extract fields via regex.
@@ -715,13 +717,7 @@ class HealerAgent {
     if (bareMatch) {
       const content = bareMatch[1].trim();
       try {
-        const parsed = JSON.parse(content);
-        return {
-          healedScript: parsed.healed_script || parsed.healedScript || null,
-          changes: parsed.changes || [],
-          analysis: parsed.analysis || "",
-          confidence: parsed.confidence || "medium",
-        };
+        return _fromParsed(JSON.parse(content));
       } catch {}
       return {
         healedScript: content,
@@ -729,6 +725,17 @@ class HealerAgent {
         analysis: response.split("```")[0].trim(),
         confidence: this._extractConfidenceFromText(response),
       };
+    }
+
+    // 4. Try parsing the entire response as JSON (no code fences)
+    const trimmed = response.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        return _fromParsed(JSON.parse(trimmed));
+      } catch {
+        const extracted = this._extractFromMalformedJson(trimmed);
+        if (extracted.analysis || extracted.healedScript) return extracted;
+      }
     }
 
     return {
@@ -784,7 +791,7 @@ class HealerAgent {
       result.healedScript = parsed.healed_script || parsed.healedScript || null;
       if (parsed.confidence) result.confidence = parsed.confidence;
       if (parsed.analysis) result.analysis = parsed.analysis;
-      if (parsed.changes) result.changes = parsed.changes;
+      if (parsed.changes || parsed.suggestions) result.changes = parsed.changes || parsed.suggestions;
     } catch {}
 
     return result;
