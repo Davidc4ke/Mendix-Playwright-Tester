@@ -12,7 +12,7 @@ contextBridge.exposeInMainWorld("zoniq", {
   launchRecorder: (url, options) => ipcRenderer.invoke("launch-recorder", url, options),
   launchRecorderFromStep: (scenario, stepIndex) => ipcRenderer.invoke("launch-recorder-from-step", { scenario, stepIndex }),
   importScript: () => ipcRenderer.invoke("import-script"),
-  executeScenario: (s) => ipcRenderer.invoke("execute-scenario", s),
+  executeScenario: (s, opts) => ipcRenderer.invoke("execute-scenario", s, opts),
   openResultsFolder: (runId) => ipcRenderer.invoke("open-results-folder", runId),
   getArtifactPath: (runId, filename) => ipcRenderer.invoke("get-artifact-path", runId, filename),
 

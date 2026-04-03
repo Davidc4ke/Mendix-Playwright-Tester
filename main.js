@@ -812,7 +812,7 @@ module.exports = {
   fs.writeFileSync(PLAYWRIGHT_CONFIG_PATH, config);
 }
 
-async function runPlaywright(scriptPath, runId, onStepProgress) {
+async function runPlaywright(scriptPath, runId, onStepProgress, headed) {
   const runResultsDir = path.join(RESULTS_DIR, runId);
   fs.mkdirSync(runResultsDir, { recursive: true });
 
@@ -833,8 +833,9 @@ async function runPlaywright(scriptPath, runId, onStepProgress) {
       ZONIQ_RUN_RESULTS_DIR: runResultsDir,
     });
     const runIdPrefix = path.basename(scriptPath, ".spec.js");
-    // Default to headed on desktop; set ZONIQ_HEADED=false to run headless (e.g. on CI)
-    const headedFlag = process.env.ZONIQ_HEADED !== "false" ? "--headed" : "";
+    // headed: explicit boolean from UI overrides env var; env var is the fallback default
+    const useHeaded = headed !== undefined ? headed : process.env.ZONIQ_HEADED !== "false";
+    const headedFlag = useHeaded ? "--headed" : "";
 
     const args = [
       "test", runIdPrefix,
@@ -2218,7 +2219,7 @@ ipcMain.handle("import-script", async () => {
 // ── Shared scenario execution logic ──────────────────────
 // Used by both the IPC handler and plan execution.
 // planRunId is optional — set when executing as part of a plan.
-async function executeScenarioInternal(scenario, planRunId) {
+async function executeScenarioInternal(scenario, planRunId, opts = {}) {
   const runId = uuidv4();
   const scriptPath = path.join(TEMP_DIR, `run-${runId}.spec.js`);
 
@@ -2289,7 +2290,7 @@ async function executeScenarioInternal(scenario, planRunId) {
   };
 
   try {
-    const results = await runPlaywright(scriptPath, runId, onStepProgress);
+    const results = await runPlaywright(scriptPath, runId, onStepProgress, opts.headed);
     run.status = results.status;
     run.completedAt = new Date().toISOString();
     // Attach step data to results for persistence
@@ -2352,8 +2353,8 @@ async function executeScenarioInternal(scenario, planRunId) {
 }
 
 // Execute a scenario
-ipcMain.handle("execute-scenario", async (event, scenario) => {
-  return executeScenarioInternal(scenario);
+ipcMain.handle("execute-scenario", async (event, scenario, opts = {}) => {
+  return executeScenarioInternal(scenario, null, opts);
 });
 
 // ── Plan Execution ───────────────────────────────────────
