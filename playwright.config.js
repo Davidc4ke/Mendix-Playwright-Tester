@@ -50,8 +50,11 @@ const useOptions = {
   video: ffmpegInstalled ? "retain-on-failure" : "off",
   trace: ffmpegInstalled ? "retain-on-failure" : "off",
 
-  // Standard business app viewport
-  viewport: { width: 1920, height: 1080 },
+  // Standard business app viewport — configurable via Settings
+  viewport: {
+    width: parseInt(process.env.ZONIQ_VIEWPORT_WIDTH) || 1920,
+    height: parseInt(process.env.ZONIQ_VIEWPORT_HEIGHT) || 1080,
+  },
 
   // Mendix 10 uses data-testid attributes — this is the Playwright default,
   // but we set it explicitly so it's easy to change if Mendix conventions evolve
