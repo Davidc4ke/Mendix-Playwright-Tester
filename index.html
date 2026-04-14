@@ -2018,7 +2018,14 @@
           <input class="form-input" id="settingsStepTimeout" type="number" min="5" max="300" value="30" />
         </div>
       </div>
-      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px;">
+      <div style="margin-top:8px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;">
+          <input type="checkbox" id="settingsViewportAuto" onchange="onViewportAutoChange()" />
+          Auto-detect from display
+          <span id="settingsViewportAutoLabel" style="color:var(--text-muted);font-size:11px;"></span>
+        </label>
+      </div>
+      <div class="form-row" id="viewportManualRow" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px;">
         <div class="form-group">
           <label>Viewport Width (px)</label>
           <input class="form-input" id="settingsViewportWidth" type="number" min="800" max="3840" value="1920" />
@@ -5503,6 +5510,9 @@ async function openSettingsModal() {
   document.getElementById("settingsStepTimeout").value = settings.testExecution?.stepTimeout || 30;
   document.getElementById("settingsViewportWidth").value = settings.testExecution?.viewportWidth || 1920;
   document.getElementById("settingsViewportHeight").value = settings.testExecution?.viewportHeight || 1080;
+  const isAuto = settings.testExecution?.viewportAuto !== false;
+  document.getElementById("settingsViewportAuto").checked = isAuto;
+  onViewportAutoChange();
   document.getElementById("connectionResult").textContent = "";
   onProviderChange();
   openModal("settingsModal");
@@ -5516,6 +5526,21 @@ function onProviderChange() {
     modelInput.placeholder = provider === "openai" ? "e.g. gpt-4o" : "e.g. claude-sonnet-4-20250514";
   }
   baseUrlGroup.style.display = provider === "openai" ? "block" : "none";
+}
+
+async function onViewportAutoChange() {
+  const auto = document.getElementById("settingsViewportAuto").checked;
+  const manualRow = document.getElementById("viewportManualRow");
+  const label = document.getElementById("settingsViewportAutoLabel");
+  manualRow.style.display = auto ? "none" : "grid";
+  if (auto) {
+    try {
+      const sz = await window.zoniq.getScreenSize();
+      label.textContent = `(${sz.width}\u00d7${sz.height})`;
+    } catch { label.textContent = ""; }
+  } else {
+    label.textContent = "";
+  }
 }
 
 function getSettingsFromModal() {
@@ -5534,6 +5559,7 @@ function getSettingsFromModal() {
     testExecution: {
       retryOnFailure: document.getElementById("settingsRetryOnFailure").value === "true",
       stepTimeout: parseInt(document.getElementById("settingsStepTimeout").value) || 30,
+      viewportAuto: document.getElementById("settingsViewportAuto").checked,
       viewportWidth: parseInt(document.getElementById("settingsViewportWidth").value) || 1920,
       viewportHeight: parseInt(document.getElementById("settingsViewportHeight").value) || 1080,
     },

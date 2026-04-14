@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld("zoniq", {
   getSettings: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (s) => ipcRenderer.invoke("save-settings", s),
   testLLMConnection: (s) => ipcRenderer.invoke("test-llm-connection", s),
+  getScreenSize: () => ipcRenderer.invoke("get-screen-size"),
 
   // Agent operations
   agentHeal: (opts) => ipcRenderer.invoke("agent-heal", opts),

@@ -5,7 +5,7 @@
  * Communicates with the renderer (UI) via IPC.
  */
 
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { exec, spawn } = require("child_process");
@@ -847,13 +847,14 @@ async function runPlaywright(scriptPath, runId, onStepProgress, headed) {
   return new Promise((resolve) => {
     const channel = getBrowserChannel();
     const settings = getSettings().loadSettings();
+    const vp = resolveViewport(settings);
     const env = getPlaywrightEnv({
       PLAYWRIGHT_JSON_OUTPUT_FILE: reportPath,
       ...(channel ? { ZONIQ_BROWSER_CHANNEL: channel } : {}),
       ZONIQ_RETRIES: settings.testExecution.retryOnFailure ? "1" : "0",
       ZONIQ_STEP_TIMEOUT: String(settings.testExecution.stepTimeout || 30),
-      ZONIQ_VIEWPORT_WIDTH: String(settings.testExecution.viewportWidth || 1920),
-      ZONIQ_VIEWPORT_HEIGHT: String(settings.testExecution.viewportHeight || 1080),
+      ZONIQ_VIEWPORT_WIDTH: String(vp.width),
+      ZONIQ_VIEWPORT_HEIGHT: String(vp.height),
       ZONIQ_RUN_RESULTS_DIR: runResultsDir,
     });
     const runIdPrefix = path.basename(scriptPath, ".spec.js");
@@ -1218,7 +1219,7 @@ function startAPIServer() {
       maxIterations: settings.agent.maxIterations,
       headless: true,
       browserChannel: getBrowserChannel(),
-      viewport: { width: settings.testExecution.viewportWidth || 1920, height: settings.testExecution.viewportHeight || 1080 },
+      viewport: resolveViewport(settings),
     });
     activeAgent = { type: "healer", agent: healer };
 
@@ -1934,6 +1935,7 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
     // human-readable labels instead of Mendix GUIDs. No post-processing needed.
     const recorderScript = path.join(HELPERS_DIR, "recorder.js");
     const recSettings = getSettings().loadSettings();
+    const recVp = resolveViewport(recSettings);
     const showHighlights = options.showHighlights ? "true" : "false";
     const recorderArgs = [recorderScript, normalizedUrl || "", outputPath, showHighlights];
     const channel = getBrowserChannel();
@@ -1954,8 +1956,8 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
       env: getPlaywrightEnv({
         ELECTRON_RUN_AS_NODE: "1",
         ...(PLAYWRIGHT_CORE_PATH ? { PLAYWRIGHT_CORE_PATH } : {}),
-        ZONIQ_VIEWPORT_WIDTH: String(recSettings.testExecution.viewportWidth || 1920),
-        ZONIQ_VIEWPORT_HEIGHT: String(recSettings.testExecution.viewportHeight || 1080),
+        ZONIQ_VIEWPORT_WIDTH: String(recVp.width),
+        ZONIQ_VIEWPORT_HEIGHT: String(recVp.height),
       }),
     });
 
@@ -2090,6 +2092,7 @@ ipcMain.handle("launch-recorder-from-step", async (event, { scenario, stepIndex 
 
     const recorderScript = path.join(HELPERS_DIR, "recorder-from-step.js");
     const settings = getSettings().loadSettings();
+    const rfsVp = resolveViewport(settings);
     const showHighlights = settings.recorder?.showHighlights ? "true" : "false";
     const recorderArgs = [recorderScript, normalizedUrl || "", outputPath, showHighlights, prefixJsonPath];
     const channel = getBrowserChannel();
@@ -2104,8 +2107,8 @@ ipcMain.handle("launch-recorder-from-step", async (event, { scenario, stepIndex 
       env: getPlaywrightEnv({
         ELECTRON_RUN_AS_NODE: "1",
         ...(PLAYWRIGHT_CORE_PATH ? { PLAYWRIGHT_CORE_PATH } : {}),
-        ZONIQ_VIEWPORT_WIDTH: String(settings.testExecution.viewportWidth || 1920),
-        ZONIQ_VIEWPORT_HEIGHT: String(settings.testExecution.viewportHeight || 1080),
+        ZONIQ_VIEWPORT_WIDTH: String(rfsVp.width),
+        ZONIQ_VIEWPORT_HEIGHT: String(rfsVp.height),
       }),
     });
 
@@ -2594,6 +2597,26 @@ ipcMain.handle("get-settings", () => {
   return getSettings().loadSettings();
 });
 
+ipcMain.handle("get-screen-size", () => {
+  const display = screen.getPrimaryDisplay();
+  return { width: display.size.width, height: display.size.height };
+});
+
+/**
+ * Resolve the effective viewport dimensions from settings.
+ * When viewportAuto is true, uses the primary display size.
+ */
+function resolveViewport(settings) {
+  if (settings.testExecution.viewportAuto) {
+    const display = screen.getPrimaryDisplay();
+    return { width: display.size.width, height: display.size.height };
+  }
+  return {
+    width: settings.testExecution.viewportWidth || 1920,
+    height: settings.testExecution.viewportHeight || 1080,
+  };
+}
+
 ipcMain.handle("save-settings", (event, settings) => {
   return getSettings().saveSettings(settings);
 });
@@ -2638,7 +2661,7 @@ ipcMain.handle("agent-heal", async (event, { scenarioId, runId }) => {
     maxIterations: settings.agent.maxIterations,
     headless: settings.agent.headless,
     browserChannel: getBrowserChannel(),
-    viewport: { width: settings.testExecution.viewportWidth || 1920, height: settings.testExecution.viewportHeight || 1080 },
+    viewport: resolveViewport(settings),
   });
 
   activeAgent = { type: "healer", agent: healer };
