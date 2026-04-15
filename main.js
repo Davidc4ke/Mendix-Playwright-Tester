@@ -1407,6 +1407,172 @@ ipcMain.handle("delete-scenario", (event, id) => {
   return true;
 });
 
+// ── Export / Import Scenarios ────────────────────────────
+
+// Module-level variable to hold parsed import data between preview and confirm steps
+let _pendingImport = null;
+
+ipcMain.handle("export-scenarios", async (event, opts) => {
+  const { scenarioIds, includePlans, includeCredentials } = opts;
+  const db = loadDB();
+
+  // Gather scenarios by IDs
+  let exportScenarios = db.scenarios.filter((s) => scenarioIds.includes(s.id));
+  if (!exportScenarios.length) return { error: "No scenarios to export" };
+
+  // Clean scenarios for export
+  exportScenarios = exportScenarios.map((s) => {
+    const clean = { ...s };
+    delete clean.steps; // ephemeral
+    if (!includeCredentials) delete clean.credentials;
+    return clean;
+  });
+
+  // Optionally include plans where ALL referenced scenarios are in the export set
+  const idSet = new Set(scenarioIds);
+  let exportPlans = [];
+  if (includePlans && db.plans) {
+    exportPlans = (db.plans || []).filter(
+      (p) => p.scenarioIds && p.scenarioIds.length && p.scenarioIds.every((id) => idSet.has(id))
+    );
+  }
+
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    scenarios: exportScenarios,
+    plans: exportPlans,
+  };
+
+  const defaultName = `zoniq-scenarios-${new Date().toISOString().slice(0, 10)}.json`;
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    title: "Export Scenarios",
+    defaultPath: defaultName,
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (canceled || !filePath) return null;
+
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf-8");
+  return { success: true, scenarioCount: exportScenarios.length, planCount: exportPlans.length };
+});
+
+ipcMain.handle("import-scenarios", async () => {
+  _pendingImport = null;
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: "Import Scenarios",
+    filters: [{ name: "JSON", extensions: ["json"] }],
+    properties: ["openFile"],
+  });
+  if (canceled || !filePaths.length) return null;
+
+  try {
+    const raw = fs.readFileSync(filePaths[0], "utf-8");
+    const data = JSON.parse(raw);
+
+    if (!data.version || data.version !== 1) {
+      return { error: "Unsupported export file version" };
+    }
+    if (!Array.isArray(data.scenarios) || !data.scenarios.length) {
+      return { error: "Invalid export file: no scenarios found" };
+    }
+
+    const hasCredentials = data.scenarios.some((s) => s.credentials && s.credentials.username);
+
+    // Hold data in memory for the confirm step
+    _pendingImport = data;
+
+    return {
+      filename: path.basename(filePaths[0]),
+      scenarioCount: data.scenarios.length,
+      planCount: (data.plans || []).length,
+      scenarioNames: data.scenarios.map((s) => s.name),
+      hasCredentials,
+    };
+  } catch (err) {
+    return { error: `Failed to parse file: ${err.message}` };
+  }
+});
+
+ipcMain.handle("confirm-import-scenarios", (event, opts) => {
+  if (!_pendingImport) return { error: "No pending import data" };
+
+  const { stripCredentials } = opts;
+  const data = _pendingImport;
+  _pendingImport = null;
+
+  const db = loadDB();
+  const now = new Date().toISOString();
+
+  // Build old ID → new ID map for scenario remapping
+  const idMap = {};
+
+  // Helper: deduplicate name against existing names
+  function uniqueName(name, existingNames) {
+    if (!existingNames.includes(name)) return name;
+    let suffix = "imported";
+    let candidate = `${name} (${suffix})`;
+    let counter = 2;
+    while (existingNames.includes(candidate)) {
+      candidate = `${name} (${suffix} ${counter})`;
+      counter++;
+    }
+    return candidate;
+  }
+
+  const existingScenarioNames = db.scenarios.map((s) => s.name);
+
+  for (const sc of data.scenarios) {
+    const newId = uuidv4();
+    idMap[sc.id] = newId;
+
+    const imported = { ...sc, id: newId, createdAt: now, updatedAt: now };
+    delete imported.steps;
+
+    // Resolve appId via targetUrl
+    if (imported.targetUrl) {
+      const app = findOrCreateApp(imported.targetUrl);
+      if (app) imported.appId = app.id;
+    } else {
+      delete imported.appId;
+    }
+
+    if (stripCredentials) delete imported.credentials;
+
+    imported.name = uniqueName(imported.name, existingScenarioNames);
+    existingScenarioNames.push(imported.name);
+
+    db.scenarios.push(imported);
+  }
+
+  // Import plans with remapped scenario IDs
+  let importedPlanCount = 0;
+  if (data.plans && data.plans.length) {
+    if (!db.plans) db.plans = [];
+    const existingPlanNames = db.plans.map((p) => p.name);
+
+    for (const plan of data.plans) {
+      const remappedIds = plan.scenarioIds.map((id) => idMap[id]).filter(Boolean);
+      if (!remappedIds.length) continue; // skip plans with no valid scenarios
+
+      const imported = {
+        ...plan,
+        id: uuidv4(),
+        scenarioIds: remappedIds,
+        createdAt: now,
+        updatedAt: now,
+      };
+      imported.name = uniqueName(imported.name, existingPlanNames);
+      existingPlanNames.push(imported.name);
+
+      db.plans.push(imported);
+      importedPlanCount++;
+    }
+  }
+
+  saveDB(db);
+  return { importedScenarios: data.scenarios.length, importedPlans: importedPlanCount };
+});
+
 // ── Plan CRUD ────────────────────────────────────────────
 
 ipcMain.handle("get-plans", () => {

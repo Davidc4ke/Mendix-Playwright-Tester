@@ -1798,10 +1798,12 @@
 
       <!-- Scenarios Panel -->
       <div class="sidebar-panel" id="panel-scenarios">
-        <div class="sidebar-actions">
+        <div class="sidebar-actions" style="flex-wrap:wrap;">
           <button class="btn btn-primary" onclick="openNewScenarioModal()">+ New</button>
           <button class="btn btn-record" onclick="launchRecorderPrompt()">Record</button>
           <button class="btn btn-ai" onclick="openGenerateModal()">Generate</button>
+          <button class="btn" onclick="exportScenarios()" title="Export scenarios to a file">Export</button>
+          <button class="btn" onclick="importScenarios()" title="Import scenarios from a file">Import</button>
         </div>
         <div style="margin:0 12px 8px 12px;display:flex;gap:6px;align-items:center;">
           <select class="form-input" id="appFilter" onchange="onAppFilterChange()" style="flex:1;min-width:0;font-size:11px;padding:5px 8px;">
@@ -2274,6 +2276,24 @@
     <div class="modal-actions">
       <button class="btn" id="confirmModalCancel">Cancel</button>
       <button class="btn btn-danger" id="confirmModalOk">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Import Preview Modal ──────────────────────── -->
+<div class="modal-overlay" id="importPreviewModal">
+  <div class="modal" style="width:480px;">
+    <div class="modal-title">Import Scenarios</div>
+    <div id="importPreviewContent" style="color:var(--text-secondary);font-size:13px;line-height:1.6;"></div>
+    <div class="form-group" id="importStripCredsGroup" style="display:none;margin-top:12px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text-secondary);">
+        <input type="checkbox" id="importStripCreds" checked />
+        Strip credentials from imported scenarios
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('importPreviewModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmImport()">Import</button>
     </div>
   </div>
 </div>
@@ -3226,6 +3246,75 @@ async function deleteScenario(id) {
   document.getElementById("detailContent").style.display = "none";
   document.getElementById("detailEmpty").style.display = "flex";
   toast("Scenario deleted", "info");
+}
+
+// ── Export / Import Scenarios ─────────────────────
+
+async function exportScenarios() {
+  // Use filtered list if an app filter is active
+  const filtered = selectedAppFilter
+    ? scenarios.filter(s => s.appId === selectedAppFilter)
+    : scenarios;
+
+  if (!filtered.length) {
+    toast("No scenarios to export", "error");
+    return;
+  }
+
+  const includeCredentials = await confirmDialog(
+    `Export ${filtered.length} scenario(s)?\n\nDo you want to include credentials (usernames & passwords) in the export file?`,
+    { title: "Export Scenarios", okLabel: "Include Credentials" }
+  );
+  // If user cancelled the dialog entirely we still export — just without credentials.
+  // confirmDialog returns true (include) or false (exclude).
+
+  const scenarioIds = filtered.map(s => s.id);
+  const result = await window.zoniq.exportScenarios({
+    scenarioIds,
+    includePlans: true,
+    includeCredentials,
+  });
+  if (!result) return; // user cancelled save dialog
+  if (result.error) { toast(result.error, "error"); return; }
+
+  let msg = `Exported ${result.scenarioCount} scenario(s)`;
+  if (result.planCount) msg += ` and ${result.planCount} plan(s)`;
+  toast(msg, "success");
+}
+
+async function importScenarios() {
+  const result = await window.zoniq.importScenarios();
+  if (!result) return; // user cancelled file dialog
+  if (result.error) { toast(result.error, "error"); return; }
+
+  // Populate and show the preview modal
+  const names = result.scenarioNames.map(n => `<li>${esc(n)}</li>`).join("");
+  let html = `<p><strong>File:</strong> ${esc(result.filename)}</p>`;
+  html += `<p><strong>Scenarios:</strong> ${result.scenarioCount}</p>`;
+  if (result.planCount) html += `<p><strong>Plans:</strong> ${result.planCount}</p>`;
+  html += `<div style="max-height:160px;overflow-y:auto;margin-top:8px;padding:8px;background:var(--bg-secondary);border-radius:6px;"><ul style="margin:0;padding-left:18px;font-size:12px;">${names}</ul></div>`;
+
+  document.getElementById("importPreviewContent").innerHTML = html;
+  const credsGroup = document.getElementById("importStripCredsGroup");
+  credsGroup.style.display = result.hasCredentials ? "block" : "none";
+  document.getElementById("importStripCreds").checked = true;
+  openModal("importPreviewModal");
+}
+
+async function confirmImport() {
+  const stripCredentials = document.getElementById("importStripCreds").checked;
+  closeModal("importPreviewModal");
+
+  const result = await window.zoniq.confirmImportScenarios({ stripCredentials });
+  if (!result) return;
+  if (result.error) { toast(result.error, "error"); return; }
+
+  await loadScenarios();
+  await loadPlans();
+
+  let msg = `Imported ${result.importedScenarios} scenario(s)`;
+  if (result.importedPlans) msg += ` and ${result.importedPlans} plan(s)`;
+  toast(msg, "success");
 }
 
 async function loadUrlHistory() {

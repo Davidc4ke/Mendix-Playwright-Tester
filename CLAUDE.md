@@ -74,6 +74,7 @@ Key functions:
 ### IPC Bridge (`preload.js`)
 Exposes `window.zoniq` API to renderer:
 - Scenario CRUD: `getScenarios`, `saveScenario`, `deleteScenario`
+- Export/Import: `exportScenarios`, `importScenarios`, `confirmImportScenarios`
 - Execution: `executeScenario`, `launchRecorder`, `launchRecorderFromStep`, `importScript`
 - Plans: `getPlans`, `savePlan`, `deletePlan`, `duplicatePlan`, `executePlan`, `stopPlanExecution`
 - Workflow import: `importWorkflowConfig`, `generateWorkflowPlan`, `getWorkflowCredentials`, `saveWorkflowCredentials`, `getWorkflowAdminConfig`, `saveWorkflowAdminConfig`
