@@ -2042,6 +2042,26 @@
       <button class="btn btn-sm" id="testConnectionBtn" onclick="testLLMConnection()">Test Connection</button>
       <span id="connectionResult" style="font-size:11px;margin-left:8px;font-family:var(--font);"></span>
     </div>
+
+    <!-- Cloud Sync Section -->
+    <div style="border-top:1px solid var(--border);margin:14px 0 10px;padding-top:10px;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px;">☁️ Cloud Sync</div>
+      <div class="form-group">
+        <label>Cloud Server URL</label>
+        <input class="form-input" id="cloudServerUrl" placeholder="https://your-app.up.railway.app" />
+      </div>
+      <div class="form-group">
+        <label>API Key</label>
+        <input class="form-input" id="cloudApiKey" type="password" placeholder="Your ZONIQ_API_KEY" />
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <button class="btn btn-sm" onclick="testCloudConnection()">Test Connection</button>
+        <button class="btn btn-sm" onclick="pushAllScenariosToCloud()">Push All Scenarios ↑</button>
+        <button class="btn btn-sm" onclick="pullScenariosFromCloud()">Pull Scenarios ↓</button>
+      </div>
+      <div id="cloudSyncStatus" style="font-size:11px;font-family:var(--font);min-height:16px;"></div>
+    </div>
+
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('settingsModal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveSettingsFromModal()">Save Settings</button>
@@ -5603,6 +5623,9 @@ async function openSettingsModal() {
   document.getElementById("settingsViewportAuto").checked = isAuto;
   onViewportAutoChange();
   document.getElementById("connectionResult").textContent = "";
+  document.getElementById("cloudSyncStatus").textContent = "";
+  document.getElementById("cloudServerUrl").value = settings.cloud?.serverUrl || "";
+  document.getElementById("cloudApiKey").value = settings.cloud?.apiKey || "";
   onProviderChange();
   openModal("settingsModal");
 }
@@ -5652,6 +5675,10 @@ function getSettingsFromModal() {
       viewportWidth: parseInt(document.getElementById("settingsViewportWidth").value) || 1920,
       viewportHeight: parseInt(document.getElementById("settingsViewportHeight").value) || 1080,
     },
+    cloud: {
+      serverUrl: document.getElementById("cloudServerUrl").value.trim().replace(/\/$/, ""),
+      apiKey: document.getElementById("cloudApiKey").value.trim(),
+    },
   };
 }
 
@@ -5679,6 +5706,63 @@ async function testLLMConnection() {
   } else {
     result.textContent = res.error || "Connection failed";
     result.style.color = "var(--red)";
+  }
+}
+
+// ════════════════════════════════════════════════════
+//  Cloud Sync
+// ════════════════════════════════════════════════════
+
+function _cloudOpts() {
+  return {
+    serverUrl: document.getElementById("cloudServerUrl").value.trim().replace(/\/$/, ""),
+    apiKey: document.getElementById("cloudApiKey").value.trim(),
+  };
+}
+
+function _setCloudStatus(msg, color) {
+  const el = document.getElementById("cloudSyncStatus");
+  el.textContent = msg;
+  el.style.color = color || "var(--text-secondary)";
+}
+
+async function testCloudConnection() {
+  const opts = _cloudOpts();
+  if (!opts.serverUrl) { _setCloudStatus("Enter a server URL first.", "var(--red)"); return; }
+  _setCloudStatus("Connecting...", "var(--text-secondary)");
+  const res = await window.zoniq.cloudConnect(opts);
+  if (res.ok) {
+    _setCloudStatus(`✓ Connected — auth: ${res.auth}, encryption: ${res.encryption}`, "var(--green)");
+  } else {
+    _setCloudStatus(`✗ ${res.error}`, "var(--red)");
+  }
+}
+
+async function pushAllScenariosToCloud() {
+  const opts = _cloudOpts();
+  if (!opts.serverUrl) { _setCloudStatus("Enter a server URL first.", "var(--red)"); return; }
+  _setCloudStatus("Pushing scenarios...", "var(--text-secondary)");
+  const scenarios = await window.zoniq.getScenarios();
+  if (!scenarios || !scenarios.length) { _setCloudStatus("No local scenarios to push.", "var(--text-secondary)"); return; }
+  let pushed = 0, failed = 0;
+  for (const sc of scenarios) {
+    const res = await window.zoniq.cloudPushScenario({ ...opts, scenarioId: sc.id });
+    if (res.ok) pushed++; else failed++;
+  }
+  const msg = `↑ Pushed ${pushed}/${scenarios.length} scenarios${failed ? ` (${failed} failed)` : ""}`;
+  _setCloudStatus(msg, failed ? "var(--red)" : "var(--green)");
+}
+
+async function pullScenariosFromCloud() {
+  const opts = _cloudOpts();
+  if (!opts.serverUrl) { _setCloudStatus("Enter a server URL first.", "var(--red)"); return; }
+  _setCloudStatus("Pulling scenarios...", "var(--text-secondary)");
+  const res = await window.zoniq.cloudPullScenarios(opts);
+  if (res.ok) {
+    _setCloudStatus(`↓ Pulled ${res.mergedCount} new scenario(s) from cloud`, "var(--green)");
+    await loadScenarios();
+  } else {
+    _setCloudStatus(`✗ ${res.error}`, "var(--red)");
   }
 }
 
