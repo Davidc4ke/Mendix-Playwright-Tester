@@ -6,9 +6,11 @@
 
 const path = require("path");
 const fs = require("fs");
-const { app } = require("electron");
+const { getDataDir } = require("./lib/paths");
 
-const SETTINGS_PATH = path.join(app.getPath("userData"), "settings.json");
+function getSettingsPath() {
+  return path.join(getDataDir(), "settings.json");
+}
 
 let _settingsCache = null;
 
@@ -39,8 +41,8 @@ const DEFAULT_SETTINGS = {
 function loadSettings() {
   if (_settingsCache) return _settingsCache;
   try {
-    if (fs.existsSync(SETTINGS_PATH)) {
-      const data = JSON.parse(fs.readFileSync(SETTINGS_PATH, "utf-8"));
+    if (fs.existsSync(getSettingsPath())) {
+      const data = JSON.parse(fs.readFileSync(getSettingsPath(), "utf-8"));
       _settingsCache = { ...DEFAULT_SETTINGS, ...data, llm: { ...DEFAULT_SETTINGS.llm, ...data.llm }, agent: { ...DEFAULT_SETTINGS.agent, ...data.agent }, recorder: { ...DEFAULT_SETTINGS.recorder, ...data.recorder }, testExecution: { ...DEFAULT_SETTINGS.testExecution, ...data.testExecution } };
       return _settingsCache;
     }
@@ -56,7 +58,7 @@ function saveSettings(settings) {
     recorder: { ...DEFAULT_SETTINGS.recorder, ...settings.recorder },
     testExecution: { ...DEFAULT_SETTINGS.testExecution, ...settings.testExecution },
   };
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(merged, null, 2));
+  fs.writeFileSync(getSettingsPath(), JSON.stringify(merged, null, 2));
   _settingsCache = merged;
   return merged;
 }

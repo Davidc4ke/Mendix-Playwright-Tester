@@ -5,6 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "start:server": "node src/server/index.js",
     "build:win": "electron-builder --win nsis",
     "build:win:portable": "electron-builder --win portable",
     "build:mac": "electron-builder --mac",

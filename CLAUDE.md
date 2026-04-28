@@ -8,19 +8,35 @@ After completing any task that changes the project's architecture, APIs, data mo
 
 ## Project Overview
 
-Zoniq Test Runner is an Electron desktop application for recording and running Playwright UAT tests against Mendix applications. It provides a GUI for test management and an embedded REST API for remote test execution.
+Zoniq Test Runner runs in two modes from the same codebase:
+
+1. **Electron desktop app** — recording, editing, local execution. Single-user.
+2. **Standalone server (`src/server/`)** — Express API + Playwright execution, no UI.
+   Designed to be deployed to Railway (Docker) for cloud-based test runs. Single-tenant.
+
+The Electron app and the standalone server share the same core logic (`lib/`).
+The Electron mode is the source of truth for recording (codegen needs a visible
+browser); the cloud mode handles execution at scale.
 
 ## Commands
 
 ```bash
-npm install               # Install dependencies
-npm run install-browsers  # Install Playwright Chromium browser
-npm start                 # Launch the Electron app
-npm run build:win         # Build Windows NSIS installer (.exe)
+npm install                # Install dependencies
+npm run install-browsers   # Install Playwright Chromium browser
+npm start                  # Launch the Electron app
+npm run start:server       # Launch standalone server (cloud mode)
+npm run build:win          # Build Windows NSIS installer (.exe)
 npm run build:win:portable # Build Windows portable .exe (legacy, slower startup)
-npm run build:mac         # Build macOS .dmg
-npm run build:linux       # Build Linux AppImage
+npm run build:mac          # Build macOS .dmg
+npm run build:linux        # Build Linux AppImage
+docker build -t zoniq .    # Build Docker image for cloud deploy
 ```
+
+### Cloud server env vars
+- `DATA_DIR` (required) — directory for scenarios.json, scripts/, results/
+- `PORT` (default 3100) — HTTP port
+- `ZONIQ_API_KEY` (recommended) — if set, all endpoints except `/api/health`
+  require this key in the `x-api-key` header or `Authorization: Bearer ...`
 
 ## Architecture
 
@@ -45,14 +61,54 @@ Record/Import → Script (stored, always executed)
 - Adding/removing/reordering steps is done by re-recording or editing the script directly
 - "Record from here" allows users to select a step and re-record from that point — replays prefix steps on a live browser, then enables codegen
 
+### Shared Core (`lib/`)
+Used by **both** the Electron main process and the standalone server. All
+filesystem paths are resolved through `lib/paths.js` so the same code works in
+either mode.
+
+- `lib/paths.js` — Data directory abstraction. Call `initFromElectron(app)` in
+  Electron mode; in Node mode reads `DATA_DIR` env var. Exports `getPaths()`
+  returning all derived paths (DATA_DIR, SCRIPTS_DIR, RESULTS_DIR, TEMP_DIR,
+  DB_PATH, APPS_DIR, LOG_PATH, PLAYWRIGHT_CONFIG_PATH, UNPACKED_BASE,
+  HELPERS_DIR, UNPACKED_NODE_MODULES, PLAYWRIGHT_CLI_JS, PLAYWRIGHT_CORE_PATH).
+- `lib/db.js` — JSON file storage: `loadDB`, `saveDB`, `addSavedUrl`,
+  `loadApps`, `saveApps`, `loadElementDBForApp`, `saveElementDBForApp`,
+  `findOrCreateApp`, `migrateScenarioApps`. The last two take an
+  `getElementDBHelper` callback to avoid circular deps.
+- `lib/script-transforms.js` — Pure script transformation: `wrapScript`,
+  `injectStepMarkers`, `cleanMendixSelectors`, `transformSelectOptionCalls`,
+  `transformDatePickerClicks`, `disambiguateSelectors`,
+  `transformListViewRowClicks`, `transformDataGridRowClicks`, `extractSpecs`,
+  `extractStepsFromReport`.
+- `lib/playwright-runner.js` — Playwright execution: `runPlaywright`,
+  `ensurePlaywrightConfig`, `getBrowserChannel`, `getPlaywrightEnv`,
+  `validateRunId`. Auto-detects Electron vs Node and sets
+  `ELECTRON_RUN_AS_NODE=1` only when needed. `runPlaywright` takes injected
+  `viewport` and `settings` (so it doesn't need Electron's `screen` API).
+
 ### Electron Main Process (`main.js`)
-- Runs embedded Express server on port 3100
+- Bootstraps `lib/paths.js` with `initFromElectron(app)` before any other code
+  reads paths
+- Re-exports core functions for backward compatibility with existing IPC handlers
 - Handles IPC communication with renderer (UI)
-- Manages Playwright test execution via `spawn` (not `exec`)
-- `wrapScript()` — strips imports, cleans fragile Mendix selectors, wraps bare code in a `test()` block, injects per-statement progress markers via `injectStepMarkers()`
-- `injectStepMarkers()` — parses the test body into statements, wraps each with `[ZONIQ_STEP:START/DONE/FAIL]` console.log markers for real-time progress tracking
-- `runPlaywright()` — spawns `playwright test` with JSON reporter, streams step progress via stdout parsing
-- Stores data in JSON files at user data directory
+- Runs embedded Express server on port 3100 (legacy — duplicated by `src/server/`)
+- Manages Playwright recording (codegen) and execution
+- `runPlaywright(scriptPath, runId, onStepProgress, headed)` is a thin wrapper
+  around `Runner.runPlaywright(...)` that injects viewport + settings
+
+### Standalone Server (`src/server/`)
+- `src/server/index.js` — entry point. Reads `DATA_DIR`, calls
+  `Paths.ensureDirs()`, runs `Runner.ensurePlaywrightConfig()`, starts Express.
+- `src/server/app.js` — `buildApp()` returns the Express app. Endpoints:
+  - `/api/health` — unauthenticated
+  - CRUD: `/api/scenarios`, `/api/plans`
+  - Execution: `/api/execute` (raw script), `/api/execute-scenario/:id`
+  - Runs: `/api/runs`, `/api/runs/:runId`,
+    `/api/runs/:runId/artifacts/:filename`
+  - Optional API key auth via `ZONIQ_API_KEY` env var
+- `Dockerfile` — based on `mcr.microsoft.com/playwright:v1.52.0-jammy`,
+  exposes port 3100, `DATA_DIR=/data`, runs as non-root `pwuser`
+- `railway.json` — Railway build/deploy config with healthcheck on `/api/health`
 
 ### Shared Utilities (`lib/script-utils.js`)
 UMD module used by both main process (`require()`) and renderer (`<script>` tag, exposes `window.ScriptUtils`).
