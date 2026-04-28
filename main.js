@@ -12,6 +12,63 @@ const { exec, spawn } = require("child_process");
 const { v4: uuidv4 } = require("uuid");
 const ScriptUtils = require("./lib/script-utils");
 
+// ── Initialize paths from Electron BEFORE any module that calls getDataDir() ──
+const Paths = require("./lib/paths");
+Paths.initFromElectron(app);
+Paths.ensureDirs();
+const {
+  DATA_DIR: USER_DATA,
+  SCRIPTS_DIR,
+  RESULTS_DIR,
+  TEMP_DIR,
+  DB_PATH,
+  APPS_PATH,
+  APPS_DIR,
+  LOG_PATH,
+  PLAYWRIGHT_CONFIG_PATH,
+  UNPACKED_BASE,
+  HELPERS_DIR,
+  UNPACKED_NODE_MODULES,
+  PLAYWRIGHT_CLI_JS,
+  PLAYWRIGHT_CORE_PATH,
+} = Paths.getPaths();
+
+// ── Shared core modules (used by both Electron main process and standalone server) ──
+const DB = require("./lib/db");
+const ScriptTransforms = require("./lib/script-transforms");
+const Runner = require("./lib/playwright-runner");
+
+// Re-export so existing main.js code can call them by their old names without changes
+const {
+  loadDB,
+  saveDB,
+  addSavedUrl,
+  loadApps,
+  saveApps,
+  loadElementDBForApp,
+  saveElementDBForApp,
+} = DB;
+const {
+  wrapScript,
+  injectStepMarkers,
+  cleanMendixSelectors,
+  transformSelectOptionCalls,
+  transformDatePickerClicks,
+  disambiguateSelectors,
+  transformListViewRowClicks,
+  transformDataGridRowClicks,
+  extractSpecs,
+  extractStepsFromReport,
+} = ScriptTransforms;
+const {
+  ensurePlaywrightConfig,
+  getBrowserChannel,
+  getPlaywrightEnv,
+  isLocalBrowsersDirValid,
+  validateRunId,
+  UUID_REGEX,
+} = Runner;
+
 // ── Lazy-loaded modules (deferred to speed up window creation) ──
 let _express, _cors, _settings, _LLMClient, _HealerAgent, _ElementDB;
 function getExpress() { return _express || (_express = require("express")); }
@@ -21,142 +78,22 @@ function getLLMClient() { return _LLMClient || (_LLMClient = require("./agents/l
 function getHealerAgent() { return _HealerAgent || (_HealerAgent = require("./agents/healer-agent").HealerAgent); }
 function getElementDB() { return _ElementDB || (_ElementDB = require("./lib/element-db")); }
 
-// ── Paths ────────────────────────────────────────────────
-const USER_DATA = app.getPath("userData");
-const SCRIPTS_DIR = path.join(USER_DATA, "scripts");
-const RESULTS_DIR = path.join(USER_DATA, "results");
-// TEMP_DIR must be writable — in a packaged exe __dirname is inside the read-only asar,
-// so we use USER_DATA instead.
-const TEMP_DIR = path.join(USER_DATA, "temp");
-const DB_PATH = path.join(USER_DATA, "scenarios.json");
-const APPS_PATH = path.join(USER_DATA, "apps.json");
-const APPS_DIR = path.join(USER_DATA, "apps");
-
-// In the packaged exe, files in asarUnpack land at:
-//   resources/app.asar.unpacked/<path>
-// This is the real filesystem — spawned child processes can require() from there
-// and Node's module resolution works naturally (siblings/parents are checked).
-// helpers/ and playwright packages are both in asarUnpack, so recorder.js at
-// app.asar.unpacked/helpers/ can require('playwright-core') from
-// app.asar.unpacked/node_modules/ without any NODE_PATH tricks.
-const UNPACKED_BASE = app.isPackaged
-  ? path.join(process.resourcesPath, "app.asar.unpacked")
-  : __dirname;
-const HELPERS_DIR = path.join(UNPACKED_BASE, "helpers");
-
-// ── Playwright paths ────────────────────────────────────
-const UNPACKED_NODE_MODULES = path.join(UNPACKED_BASE, "node_modules");
-// Use the unscoped `playwright` package CLI — electron-builder's asarUnpack has a
-// known bug with @-scoped package paths on Windows, so @playwright/test/cli.js may
-// not exist in app.asar.unpacked. The `playwright` package ships the identical CLI
-// and unpacks reliably because its path contains no @ character.
-const PLAYWRIGHT_CLI_JS = path.join(UNPACKED_NODE_MODULES, "playwright", "cli.js");
-
-// playwright.config.js is written to USER_DATA at startup so it has the correct
-// absolute testDir and can be read from the real filesystem by the spawned process.
-const PLAYWRIGHT_CONFIG_PATH = path.join(USER_DATA, "playwright.config.js");
-
-// browsers/ is still in extraResources (separate from the asar entirely)
-const LOCAL_BROWSERS_DIR = app.isPackaged
-  ? path.join(process.resourcesPath, "browsers")
-  : path.join(__dirname, "browsers");
-
-// playwright-core is in extraResources so it always exists at a known real-filesystem
-// path regardless of asarUnpack behavior or npm nesting inside node_modules.
-const PLAYWRIGHT_CORE_PATH = app.isPackaged
-  ? path.join(process.resourcesPath, "playwright-core")
-  : path.join(__dirname, "node_modules", "playwright-core");
-
-let _localBrowsersValid = null; // cached result of validation
-
-function isLocalBrowsersDirValid() {
-  if (_localBrowsersValid !== null) return _localBrowsersValid;
-  if (!fs.existsSync(LOCAL_BROWSERS_DIR)) {
-    _localBrowsersValid = false;
-    return false;
-  }
-  // Verify that bundled Chromium actually exists inside the local dir
-  try {
-    const origEnv = process.env.PLAYWRIGHT_BROWSERS_PATH;
-    process.env.PLAYWRIGHT_BROWSERS_PATH = LOCAL_BROWSERS_DIR;
-    const pw = require(PLAYWRIGHT_CORE_PATH);
-    const execPath = pw.chromium.executablePath();
-    // Restore original env
-    if (origEnv !== undefined) {
-      process.env.PLAYWRIGHT_BROWSERS_PATH = origEnv;
-    } else {
-      delete process.env.PLAYWRIGHT_BROWSERS_PATH;
-    }
-    _localBrowsersValid = !!(execPath && fs.existsSync(execPath));
-  } catch {
-    _localBrowsersValid = false;
-  }
-  if (!_localBrowsersValid) {
-    console.log("[browser] Local browsers directory exists but is incomplete, ignoring it");
-  }
-  return _localBrowsersValid;
+// findOrCreateApp / migrateScenarioApps need element-db helpers — pass them through
+function findOrCreateApp(targetUrl) {
+  return DB.findOrCreateApp(targetUrl, getElementDB);
+}
+function migrateScenarioApps() {
+  return DB.migrateScenarioApps(getElementDB);
 }
 
-function getPlaywrightEnv(extra = {}) {
-  const env = { ...process.env, ...extra };
-  if (isLocalBrowsersDirValid()) {
-    env.PLAYWRIGHT_BROWSERS_PATH = LOCAL_BROWSERS_DIR;
-  }
-  // Allow scripts on the real filesystem (helpers/, agents/, USER_DATA/temp/) to
-  // resolve playwright and other modules from the unpacked node_modules directory.
-  if (!env.NODE_PATH) {
-    env.NODE_PATH = UNPACKED_NODE_MODULES;
-  }
-  return env;
+// runPlaywright wrapper that injects Electron-only viewport + settings dependencies
+async function runPlaywright(scriptPath, runId, onStepProgress, headed) {
+  const settings = getSettings().loadSettings();
+  const vp = resolveViewport(settings);
+  return Runner.runPlaywright(scriptPath, runId, onStepProgress, headed, vp, settings);
 }
-
-// Detect whether Playwright's bundled Chromium is installed.
-// If not, fall back to the system browser (Edge on Windows, Chrome on others).
-function detectBrowserChannel() {
-  // If we have a valid local browsers dir, check there first
-  if (isLocalBrowsersDirValid()) {
-    return null; // validated local Chromium is available
-  }
-  try {
-    const pw = require(PLAYWRIGHT_CORE_PATH);
-    const execPath = pw.chromium.executablePath();
-    if (execPath && fs.existsSync(execPath)) {
-      return null; // bundled Chromium is available
-    }
-    return getFallbackChannel();
-  } catch {
-    return getFallbackChannel();
-  }
-}
-
-function getFallbackChannel() {
-  if (process.platform === "win32") return "msedge";
-  if (process.platform === "darwin") return "chrome";
-  return "chrome";
-}
-
-// Cache the channel detection at startup
-let _browserChannel = null;
-let _browserChannelDetected = false;
-function getBrowserChannel() {
-  if (!_browserChannelDetected) {
-    _browserChannel = detectBrowserChannel();
-    _browserChannelDetected = true;
-    if (_browserChannel) {
-      console.log(`[browser] Playwright Chromium not found, using system browser: ${_browserChannel}`);
-    } else {
-      console.log("[browser] Using Playwright bundled Chromium");
-    }
-  }
-  return _browserChannel;
-}
-
-[SCRIPTS_DIR, RESULTS_DIR, TEMP_DIR, APPS_DIR].forEach((d) => {
-  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
-});
 
 // ── Debug logging to file ────────────────────────────────
-const LOG_PATH = path.join(USER_DATA, "zoniq-debug.log");
 const _logStream = fs.createWriteStream(LOG_PATH, { flags: "a" });
 function zlog(...args) {
   const line = `[${new Date().toISOString()}] ${args.join(" ")}\n`;
@@ -177,832 +114,9 @@ zlog("recorder.js exists:", fs.existsSync(path.join(HELPERS_DIR, "recorder.js"))
 zlog("playwright-core exists:", fs.existsSync(path.join(UNPACKED_NODE_MODULES, "playwright-core")));
 
 zlog("PLAYWRIGHT_CORE_PATH:", PLAYWRIGHT_CORE_PATH, "| exists:", fs.existsSync(PLAYWRIGHT_CORE_PATH));
-zlog("LOCAL_BROWSERS_DIR:", LOCAL_BROWSERS_DIR, "| exists:", fs.existsSync(LOCAL_BROWSERS_DIR));
 zlog("PLAYWRIGHT_CLI_JS:", PLAYWRIGHT_CLI_JS, "| exists:", fs.existsSync(PLAYWRIGHT_CLI_JS));
 zlog("TEMP_DIR:", TEMP_DIR);
 
-// ── Simple JSON DB for scenarios & runs ──────────────────
-let _dbCache = null;
-
-function loadDB() {
-  if (_dbCache) return _dbCache;
-  try {
-    if (fs.existsSync(DB_PATH)) {
-      _dbCache = JSON.parse(fs.readFileSync(DB_PATH, "utf-8"));
-      return _dbCache;
-    }
-  } catch {}
-  _dbCache = { scenarios: [], runs: [], savedUrls: [], analyses: [], plans: [] };
-  return _dbCache;
-}
-
-function saveDB(db) {
-  _dbCache = db;
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
-}
-
-function addSavedUrl(db, url) {
-  if (!url || typeof url !== "string") return;
-  const normalized = url.trim();
-  if (!normalized) return;
-  if (!db.savedUrls) db.savedUrls = [];
-  if (!db.savedUrls.includes(normalized)) {
-    db.savedUrls.push(normalized);
-  }
-}
-
-// ── Apps & Element DB ────────────────────────────────────
-let _appsCache = null;
-
-function loadApps() {
-  if (_appsCache) return _appsCache;
-  try {
-    if (fs.existsSync(APPS_PATH)) {
-      _appsCache = JSON.parse(fs.readFileSync(APPS_PATH, "utf-8"));
-      return _appsCache;
-    }
-  } catch {}
-  _appsCache = [];
-  return _appsCache;
-}
-
-function saveApps(apps) {
-  _appsCache = apps;
-  fs.writeFileSync(APPS_PATH, JSON.stringify(apps, null, 2));
-}
-
-function loadElementDBForApp(appId) {
-  const dbPath = path.join(APPS_DIR, appId, "elements.json");
-  try {
-    if (fs.existsSync(dbPath)) {
-      return JSON.parse(fs.readFileSync(dbPath, "utf-8"));
-    }
-  } catch {}
-  return { elements: {} };
-}
-
-function saveElementDBForApp(appId, elementDB) {
-  const appDir = path.join(APPS_DIR, appId);
-  if (!fs.existsSync(appDir)) fs.mkdirSync(appDir, { recursive: true });
-  fs.writeFileSync(path.join(appDir, "elements.json"), JSON.stringify(elementDB, null, 2));
-}
-
-/**
- * Find an existing app by base URL, or create one automatically.
- * Returns the app object.
- */
-function findOrCreateApp(targetUrl) {
-  if (!targetUrl) return null;
-  const baseUrl = getElementDB().normalizeAppUrl(targetUrl);
-  if (!baseUrl) return null;
-
-  const apps = loadApps();
-  const existing = apps.find(a => a.baseUrl === baseUrl);
-  if (existing) return existing;
-
-  const newApp = {
-    id: uuidv4(),
-    name: getElementDB().deriveAppName(baseUrl),
-    baseUrl,
-    credentials: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  apps.push(newApp);
-  saveApps(apps);
-  return newApp;
-}
-
-/**
- * Migrate existing scenarios without appId — assign them to apps based on targetUrl.
- */
-function migrateScenarioApps() {
-  const db = loadDB();
-  let changed = false;
-  for (const sc of db.scenarios) {
-    if (!sc.appId && sc.targetUrl) {
-      const app = findOrCreateApp(sc.targetUrl);
-      if (app) {
-        sc.appId = app.id;
-        changed = true;
-      }
-    }
-  }
-  if (changed) saveDB(db);
-  return db;
-}
-
-// ── Playwright helpers path ──────────────────────────────
-const MENDIX_HELPERS_PATH = path
-  .resolve(HELPERS_DIR, "mendix-helpers.js")
-  .replace(/\\/g, "/");
-
-// ── Security helpers ─────────────────────────────────────
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function validateRunId(id) {
-  if (!UUID_REGEX.test(id)) throw new Error(`Invalid runId format: ${id}`);
-  return id;
-}
-
-function wrapScript(script, targetUrl, credentials) {
-  let scriptBody = script.trim();
-
-  // Strip Codegen's own imports (both ESM and CommonJS)
-  scriptBody = scriptBody
-    .replace(/^import\s+\{[^}]*\}\s+from\s+['"][^'"]*['"];\s*$/gm, '')
-    .replace(/^import\s+\*\s+as\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, '')
-    .replace(/^import\s+\w+\s+from\s+['"][^'"]*['"];\s*$/gm, '')
-    .replace(/^const\s+\{[^}]*\}\s*=\s*require\s*\([^)]*\);.*$/gm, '')
-    .replace(/^const\s+\w+\s*=\s*require\s*\([^)]*\);.*$/gm, '')
-    // Strip existing TARGET_URL and CREDENTIALS declarations to avoid duplicates
-    .replace(/^const\s+TARGET_URL\s*=\s*.*;\s*$/gm, '')
-    .replace(/^const\s+CREDENTIALS\s*=\s*\{[\s\S]*?\}\s*;\s*$/gm, '')
-    .trim();
-
-  // Strip test.use() blocks (viewport config etc.)
-  scriptBody = scriptBody
-    .replace(/test\.use\s*\(\s*\{[\s\S]*?\}\s*\)\s*;/g, '')
-    .trim();
-
-  // Unwrap IIFE pattern from Playwright codegen: (async () => { ... })();
-  const iifeMatch = scriptBody.match(/^\(\s*async\s*\(\s*\)\s*=>\s*\{([\s\S]*)\}\s*\)\s*\(\s*\)\s*;?\s*$/);
-  if (iifeMatch) {
-    scriptBody = iifeMatch[1].trim();
-  }
-
-  // Strip codegen boilerplate (browser/context/page lifecycle)
-  scriptBody = scriptBody
-    .replace(/const\s+browser\s*=\s*await\s+chromium\.launch\s*\(\s*\{[\s\S]*?\}\s*\)\s*;/g, '')
-    .replace(/const\s+context\s*=\s*await\s+browser\.newContext\s*\(\s*\{[\s\S]*?\}\s*\)\s*;/g, '')
-    .replace(/const\s+context\s*=\s*await\s+browser\.newContext\s*\(\s*\)\s*;/g, '')
-    .replace(/const\s+page\s*=\s*await\s+context\.newPage\s*\(\s*\)\s*;/g, '')
-    .replace(/await\s+page\.close\s*\(\s*\)\s*;/g, '')
-    .replace(/await\s+context\.close\s*\(\s*\)\s*;/g, '')
-    .replace(/await\s+browser\.close\s*\(\s*\)\s*;/g, '')
-    .replace(/\/\/\s*-{3,}\s*$/gm, '')
-    .trim();
-
-  // Clean fragile Mendix selectors
-  scriptBody = cleanMendixSelectors(scriptBody);
-
-  // Transform .selectOption() calls to use mx.smartSelect() which handles
-  // Mendix reference selectors (disabled <select> while loading) and
-  // custom combobox widgets (non-native dropdowns).
-  scriptBody = transformSelectOptionCalls(scriptBody);
-
-  // Collapse fragile date picker sequences (Show date picker → year nav → gridcell)
-  // into robust mx.pickDate() helper calls.
-  scriptBody = transformDatePickerClicks(scriptBody);
-
-  // Add .first() to bare locator calls that don't already have disambiguation,
-  // preventing strict mode violations when multiple elements match (common in
-  // Mendix apps with nested forms/dialogs containing duplicate button labels).
-  scriptBody = disambiguateSelectors(scriptBody);
-
-  // Transform clicks on ListView rows (li[role="button"]) into robust
-  // mx.clickListViewRow() calls that wait for visibility and handle popup opening.
-  scriptBody = transformListViewRowClicks(scriptBody);
-
-  // Transform DataGrid gridcell clicks with dynamic IDs (e.g. 'DB00000772')
-  // into mx.clickDataGridFirstRow() calls that click the first row.
-  scriptBody = transformDataGridRowClicks(scriptBody);
-
-  // Check if there's still a test() block after stripping
-  const hasTestBlock = /\btest\s*\(/.test(scriptBody);
-
-  if (!hasTestBlock) {
-    // Only inject goto(TARGET_URL) + waitForMendix if the script doesn't already
-    // have its own page.goto (e.g. from a Codegen recording that was unwrapped above)
-    const hasOwnGoto = /await\s+page\.goto\s*\(/.test(scriptBody);
-    const preamble = hasOwnGoto
-      ? ''
-      : '  await page.goto(TARGET_URL);\n  await mx.waitForMendix(page);\n\n  ';
-    scriptBody = `
-test('Recorded Test', async ({ page }) => {
-${preamble}${hasOwnGoto ? '  ' : ''}${scriptBody}
-});
-`;
-  }
-
-  // Inject per-statement progress markers into the test body
-  scriptBody = injectStepMarkers(scriptBody);
-
-  return `
-const { test, expect, chromium } = require('@playwright/test');
-const mx = require('${MENDIX_HELPERS_PATH}');
-const TARGET_URL = ${JSON.stringify(targetUrl)};
-const CREDENTIALS = ${JSON.stringify(credentials || {})};
-
-${scriptBody}
-`;
-}
-
-/**
- * Inject [ZONIQ_STEP:START/DONE/FAIL] markers around each statement in the
- * test body so the runner can report per-step progress.
- */
-function injectStepMarkers(scriptBody) {
-  const body = ScriptUtils.extractTestBody(scriptBody);
-  if (!body) return scriptBody;
-
-  const statements = ScriptUtils.splitIntoStatements(body);
-  if (!statements.length) return scriptBody;
-
-  // Build wrapped version of each statement.
-  // Marker indices must match the step indices from parseScriptToSteps().
-  // We apply the same filtering (skip boilerplate, skip redundant navigates)
-  // and assign index -1 to filtered statements so they don't affect step tracking.
-  const visitedOrigins = new Set();
-  let realIdx = 0;
-
-  const wrapped = statements.map((stmt, stmtIdx) => {
-    const desc = ScriptUtils.describeStatement(stmt.text);
-
-    // Check if this statement would be filtered by parseScriptToSteps
-    let isFiltered = false;
-
-    // Skip codegen boilerplate (browser/context/page lifecycle)
-    if (/const\s+browser\s*=\s*await\s+\S+\.launch\s*\(/.test(stmt.text)) isFiltered = true;
-    if (/const\s+context\s*=\s*await\s+browser\.newContext\s*\(/.test(stmt.text)) isFiltered = true;
-    if (/const\s+page\s*=\s*await\s+context\.newPage\s*\(/.test(stmt.text)) isFiltered = true;
-    if (/await\s+page\.close\s*\(\s*\)/.test(stmt.text)) isFiltered = true;
-    if (/await\s+context\.close\s*\(\s*\)/.test(stmt.text)) isFiltered = true;
-    if (/await\s+browser\.close\s*\(\s*\)/.test(stmt.text)) isFiltered = true;
-
-    // Skip injected helpers that don't appear in the original script's step list
-    if (/await\s+page\.goto\s*\(\s*TARGET_URL\s*\)/.test(stmt.text)) isFiltered = true;
-    if (/await\s+mx\.waitForMendix\s*\(/.test(stmt.text)) isFiltered = true;
-
-    // Skip redundant navigates (same logic as parseScriptToSteps)
-    if (!isFiltered) {
-      const navMatch = stmt.text.match(/await\s+page\.goto\s*\(\s*['"]([^'"]+)['"]\s*\)/);
-      if (navMatch) {
-        try {
-          const url = new URL(navMatch[1]);
-          const isRootish = url.pathname === '/' || url.pathname === '';
-          if (isRootish && visitedOrigins.has(url.origin)) isFiltered = true;
-          // Click → goto(root) pattern: Mendix client-side navigation causes
-          // codegen to emit spurious root-URL gotos after button clicks
-          if (isRootish && !isFiltered && stmtIdx > 0) {
-            const prevStmt = statements[stmtIdx - 1];
-            if (/\.(click|dblclick|press|check|uncheck|selectOption)\s*\(/.test(prevStmt.text) ||
-                /mx\.(clickWidget|selectDropdown|smartSelect)\s*\(/.test(prevStmt.text)) {
-              isFiltered = true;
-            }
-          }
-          visitedOrigins.add(url.origin);
-        } catch { /* not a valid URL, keep it */ }
-      }
-    }
-
-    // Actually remove filtered statements from the executed script
-    if (isFiltered) return null;
-
-    const idx = realIdx++;
-    // Detect screenshot marker and strip it from the executed statement
-    const wantsScreenshot = /\/\/\s*@zoniq:screenshot/.test(stmt.text);
-    const cleanStmt = wantsScreenshot ? stmt.text.replace(/\s*\/\/\s*@zoniq:screenshot\s*$/, '') : stmt.text;
-    // Screenshot: wait for page to settle, then capture BEFORE marking step done.
-    // This prevents race conditions where the browser tears down (last step) or
-    // the next step fires before the screenshot is written to disk.
-    const screenshotBlock = wantsScreenshot && idx >= 0
-      ? `\n    await page.waitForLoadState('load');\n` +
-        `    await page.screenshot({ path: require('path').join(process.env.ZONIQ_RUN_RESULTS_DIR || 'results', 'step-${idx}-proof.png'), fullPage: true });`
-      : '';
-    const isRaw = /^(?:const|let|var)\s/.test(cleanStmt);
-    if (isRaw) {
-      return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
-        `  ${cleanStmt}${screenshotBlock}\n` +
-        `  console.log('[ZONIQ_STEP:DONE:${idx}]');`;
-    }
-    const errVar = `_stepErr_${stmtIdx}`;
-    return `  console.log('[ZONIQ_STEP:START:${idx}:${desc}]');\n` +
-      `  try {\n    ${cleanStmt}${screenshotBlock}\n` +
-      `    console.log('[ZONIQ_STEP:DONE:${idx}]');\n` +
-      `  } catch (${errVar}) {\n` +
-      `    console.log('[ZONIQ_STEP:FAIL:${idx}:' + ${errVar}.message.replace(/\\n/g, ' ') + ']');\n` +
-      `    throw ${errVar};\n` +
-      `  }`;
-  });
-
-  // Replace the test body with the wrapped version
-  // Find the test body boundaries in scriptBody and splice in the wrapped code
-  const testBodyMatch = scriptBody.match(
-    /(\btest\s*\(\s*['"][^'"]*['"]\s*,\s*async\s*\(\s*\{\s*page\s*\}\s*\)\s*=>\s*\{)([\s\S]*)(\}\s*\)\s*;?\s*$)/
-  );
-  if (testBodyMatch) {
-    return testBodyMatch[1] + '\n' + wrapped.filter(Boolean).join('\n\n') + '\n' + testBodyMatch[3];
-  }
-  return scriptBody;
-}
-
-function cleanMendixSelectors(script) {
-  let cleaned = script;
-
-  // 1. Replace #mxui_widget_Underlay_N clicks with class-based selector
-  cleaned = cleaned.replace(
-    /await page\.locator\(['"]#mxui_widget_Underlay_\d+['"]\)\.click\(\);/g,
-    'await page.locator(".mx-underlay").click();'
-  );
-
-  // 2. Replace #mxui_widget_*_N selectors with class-based fallbacks
-  //    and suggest role-based alternatives where applicable
-  cleaned = cleaned.replace(
-    /(['"])#mxui_widget_(\w+?)_\d+\1/g,
-    (match, quote, widgetType) => {
-      const classMap = {
-        'TextBox': { css: '.mx-textbox', alt: 'page.getByRole("textbox")' },
-        'TextArea': { css: '.mx-textarea', alt: 'page.getByRole("textbox")' },
-        'Button': { css: '.mx-button', alt: 'page.getByRole("button", { name: "..." })' },
-        'DataGrid': { css: '.mx-datagrid', alt: null },
-        'DropDown': { css: '.mx-dropdown', alt: null },
-        'CheckBox': { css: '.mx-checkbox', alt: 'page.getByRole("checkbox")' },
-        'RadioButton': { css: '.mx-radiobutton', alt: 'page.getByRole("radio")' },
-        'DatePicker': { css: '.mx-datepicker', alt: null },
-        'ReferenceSelector': { css: '.mx-referenceselector', alt: 'page.getByLabel("Label text")' },
-      };
-      if (classMap[widgetType]) {
-        const comment = classMap[widgetType].alt
-          ? ` /* Consider: ${classMap[widgetType].alt} */`
-          : '';
-        return `${quote}${classMap[widgetType].css}${quote}${comment}`;
-      }
-      return match;
-    }
-  );
-
-  // 3. Flag fragile Mendix page-composition IDs with a comment
-  cleaned = cleaned.replace(
-    /page\.locator\(['"](\[id="p\.[^"]+""])['"]\)/g,
-    (match, selector) => {
-      return `page.locator('${selector}') /* FRAGILE: Mendix page-composition ID — consider using getByRole or getByText */`;
-    }
-  );
-
-  return cleaned;
-}
-
-/**
- * Transform bare .selectOption() calls into mx.smartSelect() calls.
- * Mendix reference selectors render a <select> that starts disabled while
- * loading options from the server, causing Playwright's selectOption to timeout.
- * mx.smartSelect waits for the element to become enabled and also handles
- * custom combobox widgets.
- *
- * Transforms patterns like:
- *   await page.getByLabel('X').selectOption('Y');
- *   await page.locator('sel').selectOption('Y');
- *   await page.getByRole('combobox', { name: 'X' }).selectOption('Y');
- * Into:
- *   await mx.smartSelect(page, page.getByLabel('X'), 'Y');
- */
-function transformSelectOptionCalls(script) {
-  // Match: await <locator-expr>.selectOption(<value>);
-  // Capture: the locator expression (page.getBy*/page.locator) and the selectOption argument
-  return script.replace(
-    /await\s+(page\.(?:getByLabel|getByRole|getByText|getByPlaceholder|locator)\s*\([^)]*\)(?:\s*\.(?:first|last|nth)\s*\([^)]*\))*)\s*\.selectOption\s*\(([^)]+)\)\s*;/g,
-    (match, locatorExpr, valueExpr) => {
-      return `await mx.smartSelect(page, ${locatorExpr}, ${valueExpr});`;
-    }
-  );
-}
-
-/**
- * Detect date picker interaction sequences recorded by Playwright Codegen and
- * collapse them into a single mx.pickDate() helper call.
- *
- * Recorded pattern (2–3 lines):
- *   await page.getByRole('button', { name: 'Show date picker' })...click();
- *   await page.getByText('2027').click();          // optional year nav
- *   await page.getByRole('gridcell', { name: '10/04/' })...click();
- *
- * Replacement:
- *   await mx.pickDate(page, <triggerLocator>, day, month, year);
- */
-function transformDatePickerClicks(script) {
-  const lines = script.split('\n');
-  const result = [];
-
-  // Trigger: "Show date picker" button click — capture the full locator expression
-  const triggerRe = /^(\s*)await\s+(page\.getByRole\s*\(\s*['"]button['"]\s*,\s*\{[^}]*['"]Show date picker['"][^}]*\}\s*\)(?:\.\w+\s*\([^)]*\))*)\s*\.click\s*\([^)]*\)\s*;/;
-  // Year navigation: getByText with a 4-digit year
-  const yearNavRe = /^\s*await\s+page\.getByText\s*\(\s*['"](\d{4})['"]\s*(?:,\s*\{[^}]*\})?\s*\)[^;]*\.click\s*\([^)]*\)\s*;/;
-  // Gridcell click: getByRole('gridcell', { name: 'DD/MM/...' })
-  const gridcellRe = /^\s*await\s+page\.getByRole\s*\(\s*['"]gridcell['"]\s*,\s*\{\s*name:\s*['"](\d{1,2})\/(\d{1,2})\/(\d{0,4})['"]\s*\}\s*\)[^;]*\.click\s*\([^)]*\)\s*;/;
-
-  let i = 0;
-  while (i < lines.length) {
-    const triggerMatch = lines[i].match(triggerRe);
-    if (!triggerMatch) {
-      result.push(lines[i]);
-      i++;
-      continue;
-    }
-
-    const indent = triggerMatch[1];
-    const triggerExpr = triggerMatch[2];
-    let year = null;
-    let consumed = 1; // lines consumed so far (trigger line)
-
-    // Look ahead for optional year navigation
-    if (i + consumed < lines.length) {
-      const yearMatch = lines[i + consumed].match(yearNavRe);
-      if (yearMatch) {
-        year = yearMatch[1];
-        consumed++;
-      }
-    }
-
-    // Look ahead for gridcell click
-    if (i + consumed < lines.length) {
-      const gridcellMatch = lines[i + consumed].match(gridcellRe);
-      if (gridcellMatch) {
-        const day = parseInt(gridcellMatch[1], 10);
-        const month = parseInt(gridcellMatch[2], 10);
-        // Year from gridcell name (if full date) or from year nav click
-        const gridcellYear = gridcellMatch[3] ? parseInt(gridcellMatch[3], 10) : null;
-        const finalYear = year || gridcellYear;
-        consumed++;
-
-        // Build replacement
-        const yearArg = finalYear ? `, ${finalYear}` : '';
-        result.push(`${indent}await mx.pickDate(page, ${triggerExpr}, ${day}, ${month}${yearArg});`);
-        i += consumed;
-        continue;
-      }
-    }
-
-    // No gridcell found after trigger — leave original lines untouched
-    result.push(lines[i]);
-    i++;
-  }
-
-  return result.join('\n');
-}
-
-/**
- * Add .first() to bare Playwright locator calls (page.getByRole, page.getByText,
- * page.getByLabel, page.getByPlaceholder, page.locator) that are followed directly
- * by an action method (.click, .fill, etc.) without any existing disambiguation
- * (.first, .last, .nth, .filter) or scoped chaining (.getByRole, .getByText, etc.).
- *
- * Mendix apps frequently have nested forms/dialogs with duplicate button labels
- * (e.g. multiple "Save" buttons), causing Playwright strict mode violations.
- * This mirrors the .first() pattern already used in mendix-helpers.js.
- */
-function disambiguateSelectors(script) {
-  // Actions that trigger strict mode checks
-  const actions = 'click|fill|press|dblclick|check|uncheck|hover|focus|clear|type|selectOption|setInputFiles|tap';
-  // Locator methods that indicate the locator is already scoped/disambiguated
-  const chainingIndicators = /\.(?:first|last|nth|filter|getByRole|getByText|getByLabel|getByPlaceholder|locator)\s*\(/;
-
-  const re = new RegExp(
-    `(await\\s+)(page\\.(?:getByRole|getByText|getByLabel|getByPlaceholder|locator)\\s*\\([^)]*\\))(\\s*\\.\\s*(?:${actions})\\s*\\()`,
-    'g'
-  );
-
-  return script.replace(re, (match, prefix, locatorExpr, actionPart) => {
-    // Skip if the locator already has chaining (disambiguation or scoping)
-    if (chainingIndicators.test(locatorExpr.slice(locatorExpr.indexOf(')')))) {
-      return match;
-    }
-    return `${prefix}${locatorExpr}.first()${actionPart}`;
-  });
-}
-
-/**
- * Transform clicks on Mendix ListView rows into mx.clickListViewRow() calls.
- *
- * The recorder injects clicks like:
- *   await page.locator('li[role="button"]').filter({ hasText: 'Current' }).first().click();
- * or codegen (with our aria-label enhancement) may produce:
- *   await page.getByRole('button', { name: 'Current' }).first().click();
- *   (when the target is a <li role="button" aria-label="Current"> inside .mx-listview-clickable)
- *
- * We transform the explicit li[role="button"] pattern to use the robust helper
- * which waits for visibility and handles popup opening automatically.
- */
-function transformListViewRowClicks(script) {
-  // Pattern 1: injected by recorder post-processing
-  //   await page.locator('li[role="button"]').filter({ hasText: '...' }).first().click();
-  //   await page.locator('li[role="button"]').filter({ hasText: '...' }).click();
-  let result = script.replace(
-    /await\s+page\.locator\s*\(\s*['"]li\[role=["']?button["']?\]['"]\s*\)\s*\.filter\s*\(\s*\{\s*hasText:\s*['"]([^'"]+)['"]\s*\}\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
-    (match, rowText) => {
-      return `await mx.clickListViewRow(page, '${rowText.replace(/'/g, "\\'")}');`;
-    }
-  );
-
-  // Pattern 2: codegen recorded a getByRole('button') click where the name
-  // contains excessive whitespace — a telltale sign that it captured the full
-  // concatenated text of a ListView row (e.g. 'Current             Delete').
-  // Extract the first meaningful word(s) as the row text.
-  result = result.replace(
-    /await\s+page\.getByRole\s*\(\s*['"]button['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
-    (match, name) => {
-      // Only transform if the name has excessive whitespace (3+ consecutive
-      // spaces), which indicates concatenated ListView row text content.
-      if (!/\s{3,}/.test(name)) return match;
-      // Extract the first non-empty token as the row's primary text
-      const primaryText = name.split(/\s{2,}/)[0].trim();
-      if (!primaryText) return match;
-      return `await mx.clickListViewRow(page, '${primaryText.replace(/'/g, "\\'")}');`;
-    }
-  );
-
-  return result;
-}
-
-/**
- * Transform DataGrid cell/row clicks into mx.clickDataGridFirstRow() calls.
- * Any getByRole('gridcell') click is unambiguously a datagrid interaction —
- * always transform regardless of cell content (France, Renewal, DB00000772, etc.).
- * getByText() clicks are only transformed when the value looks like a dynamic ID,
- * since getByText() could match non-grid elements.
- */
-function transformDataGridRowClicks(script) {
-  const ScriptUtils = require('./lib/script-utils');
-  // Pattern 1: getByRole('gridcell', { name: '...' }).click()
-  // Always transform — gridcell role is unambiguous proof of a datagrid click.
-  let result = script.replace(
-    /await\s+page\.getByRole\s*\(\s*['"]gridcell['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
-    `await mx.clickDataGridFirstRow(page);`
-  );
-  // Pattern 2: getByRole('gridcell').first().click() (no name — clicks any cell)
-  result = result.replace(
-    /await\s+page\.getByRole\s*\(\s*['"]gridcell['"]\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
-    `await mx.clickDataGridFirstRow(page);`
-  );
-  // Pattern 3: getByRole('row', { name: '...' }).click() — click on the row element itself
-  result = result.replace(
-    /await\s+page\.getByRole\s*\(\s*['"]row['"]\s*,\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
-    `await mx.clickDataGridFirstRow(page);`
-  );
-  // Pattern 4: getByText('DB00000777').first().click() or getByText('DB00000777').click()
-  // Codegen sometimes records datagrid row clicks as getByText() with the cell value.
-  // Only transform if value looks like a dynamic ID — getByText() is ambiguous.
-  result = result.replace(
-    /await\s+page\.getByText\s*\(\s*['"]([^'"]+)['"]\s*\)(?:\s*\.first\s*\(\s*\))?\s*\.click\s*\(\s*\)\s*;/g,
-    (match, textValue) => {
-      if (ScriptUtils.looksLikeDynamicId(textValue)) {
-        return `await mx.clickDataGridFirstRow(page);`;
-      }
-      return match;
-    }
-  );
-  return result;
-}
-
-// GUID resolution is handled at recording time — recorder.js collects
-// GUID→label mappings from <option> elements (without mutating the DOM)
-// and replaces GUIDs in the script after the user closes the browser.
-// Runtime fallback: smartSelect() resolves any remaining GUIDs at playback.
-
-// ── Playwright execution ─────────────────────────────────
-function extractSpecs(suites) {
-  const specs = [];
-  for (const suite of suites) {
-    if (suite.specs) specs.push(...suite.specs);
-    if (suite.suites) specs.push(...extractSpecs(suite.suites));
-  }
-  return specs;
-}
-
-/** Extract step-level data from the Playwright JSON report.
- *  Returns { stepList, stepResults } or null if no steps found. */
-function extractStepsFromReport(report) {
-  if (!report?.suites) return null;
-  const specs = extractSpecs(report.suites);
-  const stepList = [];
-  const stepResults = {};
-  let index = 0;
-
-  for (const spec of specs) {
-    for (const test of spec.tests || []) {
-      for (const result of test.results || []) {
-        for (const step of result.steps || []) {
-          stepList.push({
-            index,
-            action: step.title,
-            description: step.title,
-          });
-          const failed = step.error != null;
-          stepResults[String(index)] = {
-            status: failed ? "failed" : "done",
-            error: failed ? (step.error.message || step.error.snippet || "") : undefined,
-            durationMs: step.duration || 0,
-          };
-          index++;
-        }
-      }
-    }
-  }
-
-  return stepList.length > 0 ? { stepList, stepResults } : null;
-}
-
-// Write playwright.config.js to USER_DATA with absolute testDir so it works
-// from any location and is writable (the asar is read-only in packaged builds).
-function ensurePlaywrightConfig() {
-  const config = `// Auto-generated at startup by Zoniq Test Runner — do not edit
-module.exports = {
-  testDir: ${JSON.stringify(TEMP_DIR)},
-  timeout: 120000,
-  fullyParallel: true,
-  expect: { timeout: 15000 },
-  use: {
-    navigationTimeout: process.env.ZONIQ_STEP_TIMEOUT ? parseInt(process.env.ZONIQ_STEP_TIMEOUT) * 1000 : 45000,
-    actionTimeout: process.env.ZONIQ_STEP_TIMEOUT ? parseInt(process.env.ZONIQ_STEP_TIMEOUT) * 1000 : 15000,
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
-    trace: 'retain-on-failure',
-    viewport: { width: parseInt(process.env.ZONIQ_VIEWPORT_WIDTH) || 1920, height: parseInt(process.env.ZONIQ_VIEWPORT_HEIGHT) || 1080 },
-    testIdAttribute: 'data-testid',
-    ...(process.env.ZONIQ_BROWSER_CHANNEL ? { channel: process.env.ZONIQ_BROWSER_CHANNEL } : {}),
-  },
-  retries: process.env.ZONIQ_RETRIES ? parseInt(process.env.ZONIQ_RETRIES) : 0,
-  reporter: [
-    ['json', { outputFile: 'results/latest-report.json' }],
-    ['html', { open: 'never', outputFolder: 'results/html-report' }],
-  ],
-};
-`;
-  try {
-    if (fs.existsSync(PLAYWRIGHT_CONFIG_PATH) && fs.readFileSync(PLAYWRIGHT_CONFIG_PATH, "utf-8") === config) return;
-  } catch {}
-  fs.writeFileSync(PLAYWRIGHT_CONFIG_PATH, config);
-}
-
-async function runPlaywright(scriptPath, runId, onStepProgress, headed) {
-  const runResultsDir = path.join(RESULTS_DIR, runId);
-  fs.mkdirSync(runResultsDir, { recursive: true });
-
-  const reportPath = path.join(runResultsDir, "report.json");
-  const configPath = PLAYWRIGHT_CONFIG_PATH;
-
-  // Debug: save a copy of the generated script for inspection (async — non-blocking)
-  fs.copyFile(scriptPath, path.join(runResultsDir, "debug-script.js"), () => {});
-
-  return new Promise((resolve) => {
-    const channel = getBrowserChannel();
-    const settings = getSettings().loadSettings();
-    const vp = resolveViewport(settings);
-    const env = getPlaywrightEnv({
-      PLAYWRIGHT_JSON_OUTPUT_FILE: reportPath,
-      ...(channel ? { ZONIQ_BROWSER_CHANNEL: channel } : {}),
-      ZONIQ_RETRIES: settings.testExecution.retryOnFailure ? "1" : "0",
-      ZONIQ_STEP_TIMEOUT: String(settings.testExecution.stepTimeout || 30),
-      ZONIQ_VIEWPORT_WIDTH: String(vp.width),
-      ZONIQ_VIEWPORT_HEIGHT: String(vp.height),
-      ZONIQ_RUN_RESULTS_DIR: runResultsDir,
-    });
-    const runIdPrefix = path.basename(scriptPath, ".spec.js");
-    // headed: explicit boolean from UI overrides env var; env var is the fallback default
-    const useHeaded = headed !== undefined ? headed : process.env.ZONIQ_HEADED !== "false";
-    const headedFlag = useHeaded ? "--headed" : "";
-
-    const args = [
-      "test", runIdPrefix,
-      `--config=${configPath}`,
-      "--reporter=json",
-      `--output=${runResultsDir}`,
-    ];
-    if (headedFlag) args.push("--headed");
-
-    console.log(`[${runId}] CMD: ${process.execPath} [ELECTRON_RUN_AS_NODE] ${PLAYWRIGHT_CLI_JS} ${args.join(" ")}`);
-
-    let stdoutBuf = "";
-    let stderrBuf = "";
-    const guidResolutions = new Map(); // GUID → label resolved by smartSelect
-
-    const proc = spawn(
-      process.execPath,
-      [PLAYWRIGHT_CLI_JS, ...args],
-      { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, timeout: 300_000 }
-    );
-
-    proc.stdout.on("data", (chunk) => {
-      const text = chunk.toString();
-      stdoutBuf += text;
-
-      // Parse step progress markers and GUID resolution markers from stdout
-      const lines = text.split("\n");
-      for (const line of lines) {
-        const cl = line.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
-
-        // Capture GUID → label resolutions emitted by smartSelect
-        const guidMatch = cl.match(/^\[ZONIQ_GUID_RESOLVED:([^:]+):(.*)\]$/);
-        if (guidMatch) {
-          guidResolutions.set(guidMatch[1], guidMatch[2]);
-          continue;
-        }
-
-        if (onStepProgress) {
-          const startMatch = cl.match(/^\[ZONIQ_STEP:START:(-?\d+):(.*)\]/);
-          const doneMatch = cl.match(/^\[ZONIQ_STEP:DONE:(-?\d+)\]/);
-          const failMatch = cl.match(/^\[ZONIQ_STEP:FAIL:(-?\d+):(.*)\]$/);
-          if (startMatch) {
-            onStepProgress({ runId, stepIndex: parseInt(startMatch[1]), status: "running", description: startMatch[2] });
-          } else if (doneMatch) {
-            onStepProgress({ runId, stepIndex: parseInt(doneMatch[1]), status: "done" });
-          } else if (failMatch) {
-            onStepProgress({ runId, stepIndex: parseInt(failMatch[1]), status: "failed", error: failMatch[2] });
-          }
-        }
-      }
-    });
-
-    proc.stderr.on("data", (chunk) => {
-      stderrBuf += chunk.toString();
-    });
-
-    proc.on("close", () => {
-      // Debug: save stdout/stderr (async — doesn't block result processing)
-      fs.writeFile(path.join(runResultsDir, "debug-stdout.txt"), stdoutBuf, () => {});
-      fs.writeFile(path.join(runResultsDir, "debug-stderr.txt"), stderrBuf, () => {});
-
-      let report = null;
-      try {
-        if (fs.existsSync(reportPath)) {
-          report = JSON.parse(fs.readFileSync(reportPath, "utf-8"));
-        }
-      } catch {}
-
-      if (!report && stdoutBuf) {
-        try {
-          report = JSON.parse(stdoutBuf);
-          fs.writeFileSync(reportPath, stdoutBuf);
-        } catch {}
-      }
-
-      const artifacts = [];
-      if (fs.existsSync(runResultsDir)) {
-        try {
-          const walkDir = (dir, prefix = "") => {
-            const entries = fs.readdirSync(dir, { withFileTypes: true });
-            for (const e of entries) {
-              const rel = prefix ? `${prefix}/${e.name}` : e.name;
-              if (e.isDirectory()) walkDir(path.join(dir, e.name), rel);
-              else if (e.name.match(/\.(png|jpg|webm|zip)$/)) artifacts.push(rel);
-            }
-          };
-          walkDir(runResultsDir);
-        } catch {}
-      }
-
-      let status = "error";
-      let summary = { total: 0, passed: 0, failed: 0 };
-      const errors = [];
-
-      if (report && report.suites) {
-        const specs = extractSpecs(report.suites);
-        summary.total = specs.length;
-        summary.passed = specs.filter((s) => s.ok).length;
-        summary.failed = specs.filter((s) => !s.ok).length;
-
-        if (summary.total === 0) {
-          status = "error";
-          if (report.errors?.length) {
-            errors.push(...report.errors.map(e => ({ test: "Global", message: e.message || "", snippet: e.stack || "" })));
-          }
-        } else {
-          status = summary.failed === 0 ? "passed" : "failed";
-        }
-
-        for (const spec of specs) {
-          if (!spec.ok && spec.tests) {
-            for (const t of spec.tests) {
-              for (const r of t.results || []) {
-                if (r.error) {
-                  errors.push({
-                    test: spec.title,
-                    message: r.error.message || "",
-                    snippet: r.error.snippet || "",
-                  });
-                }
-              }
-            }
-          }
-        }
-      }
-
-      const resultObj = { status, summary, errors, artifacts, stderr: stderrBuf?.substring(0, 2000), guidResolutions };
-
-      // Extract step data from Playwright JSON report as a fallback for
-      // tests that don't use real-time ZONIQ_STEP marker tracking.
-      if (report) {
-        const reportSteps = extractStepsFromReport(report);
-        if (reportSteps) {
-          resultObj.reportStepList = reportSteps.stepList;
-          resultObj.reportStepResults = reportSteps.stepResults;
-        }
-      }
-
-      resolve(resultObj);
-    });
-  });
-}
 
 // ── Embedded Express API server (for Zoniq REST calls) ───
 let apiServer = null;
@@ -2113,8 +1227,7 @@ ipcMain.handle("launch-recorder", async (event, targetUrl, options = {}) => {
     zlog(`[recorder] recorderScript: ${recorderScript}`);
     zlog(`[recorder] recorderScript exists: ${fs.existsSync(recorderScript)}`);
     zlog(`[recorder] CMD: ${process.execPath} ${recorderArgs.join(" ")}`);
-    zlog(`[recorder] PLAYWRIGHT_BROWSERS_PATH: ${LOCAL_BROWSERS_DIR}`);
-    zlog(`[recorder] browsers dir exists: ${fs.existsSync(LOCAL_BROWSERS_DIR)}`);
+    zlog(`[recorder] localBrowsers valid: ${isLocalBrowsersDirValid()}`);
 
     // In Electron, process.execPath is the Electron binary. Setting
     // ELECTRON_RUN_AS_NODE=1 makes it behave as a plain Node.js runtime.
@@ -3065,6 +2178,95 @@ ipcMain.handle("cleanup-script-ai", async (event, scenarioId) => {
     };
   } catch (err) {
     return { error: err.message };
+  }
+});
+
+// ── Cloud Sync ───────────────────────────────────────────
+ipcMain.handle("cloud-connect", async (event, { serverUrl, apiKey, username, password }) => {
+  try {
+    const authHeader = apiKey
+      ? { "x-api-key": apiKey }
+      : {};
+    const res = await fetch(`${serverUrl}/api/health`, { headers: authHeader });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+    return { ok: true, auth: data.auth, encryption: data.encryption };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle("cloud-push-scenario", async (event, { serverUrl, apiKey, scenarioId }) => {
+  try {
+    const db = DB.loadDB();
+    const scenario = db.scenarios.find((s) => s.id === scenarioId);
+    if (!scenario) throw new Error("Scenario not found");
+    const res = await fetch(`${serverUrl}/api/scenarios`, {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify(scenario)
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle("cloud-pull-scenarios", async (event, { serverUrl, apiKey }) => {
+  try {
+    const res = await fetch(`${serverUrl}/api/scenarios`, {
+      headers: { "x-api-key": apiKey }
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const cloudScenarios = await res.json();
+
+    const db = DB.loadDB();
+    let mergedCount = 0;
+    for (const cloudSc of cloudScenarios) {
+      const localIdx = db.scenarios.findIndex((s) => s.id === cloudSc.id);
+      if (localIdx < 0) {
+        db.scenarios.push(cloudSc);
+        mergedCount++;
+      }
+    }
+    DB.saveDB(db);
+    return { ok: true, mergedCount };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle("cloud-run-scenario", async (event, { serverUrl, apiKey, scenarioId }) => {
+  try {
+    const res = await fetch(`${serverUrl}/api/execute-scenario/${scenarioId}`, {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const { runId } = await res.json();
+
+    // Poll for result
+    return new Promise((resolve) => {
+      const pollInterval = setInterval(async () => {
+        try {
+          const runRes = await fetch(`${serverUrl}/api/runs/${runId}`, {
+            headers: { "x-api-key": apiKey }
+          });
+          if (runRes.ok) {
+            const run = await runRes.json();
+            if (run.status !== "running") {
+              clearInterval(pollInterval);
+              resolve({ ok: true, run });
+            }
+          }
+        } catch {}
+      }, 2000);
+      setTimeout(() => { clearInterval(pollInterval); resolve({ ok: false, error: "Timeout" }); }, 600000);
+    });
+  } catch (err) {
+    return { ok: false, error: err.message };
   }
 });
 

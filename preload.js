@@ -62,6 +62,12 @@ contextBridge.exposeInMainWorld("zoniq", {
   cleanupScript: (scenarioId) => ipcRenderer.invoke("cleanup-script", scenarioId),
   cleanupScriptAI: (scenarioId) => ipcRenderer.invoke("cleanup-script-ai", scenarioId),
 
+  // Cloud Sync
+  cloudConnect: (opts) => ipcRenderer.invoke("cloud-connect", opts),
+  cloudPushScenario: (opts) => ipcRenderer.invoke("cloud-push-scenario", opts),
+  cloudPullScenarios: (opts) => ipcRenderer.invoke("cloud-pull-scenarios", opts),
+  cloudRunScenario: (opts) => ipcRenderer.invoke("cloud-run-scenario", opts),
+
   // Event listeners — each returns an unsubscribe function to prevent memory leaks
   onRunStarted: (cb) => {
     const handler = (_, data) => cb(data);
