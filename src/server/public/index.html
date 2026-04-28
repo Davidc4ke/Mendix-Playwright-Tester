@@ -4,293 +4,28 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Zoniq Test Runner</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    :root {
-      --primary: #3b82f6;
-      --success: #10b981;
-      --danger: #ef4444;
-      --warning: #f59e0b;
-      --dark-bg: #1f2937;
-      --dark-border: #374151;
-      --text-primary: #f3f4f6;
-      --text-secondary: #d1d5db;
-      --code-bg: #111827;
-    }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--dark-bg);
-      color: var(--text-primary);
-      line-height: 1.5;
-    }
-
-    /* Layout */
-    #app { display: flex; flex-direction: column; min-height: 100vh; }
-    nav {
-      background: #111827;
-      border-bottom: 1px solid var(--dark-border);
-      padding: 1rem 2rem;
-      display: flex;
-      gap: 2rem;
-      align-items: center;
-    }
-    nav .logo { font-weight: bold; font-size: 1.1rem; }
-    nav a {
-      color: var(--text-secondary);
-      text-decoration: none;
-      cursor: pointer;
-      padding: 0.5rem 1rem;
-      border-radius: 4px;
-      transition: all 0.2s;
-    }
-    nav a:hover, nav a.active { background: var(--primary); color: white; }
-    nav .spacer { flex: 1; }
-    nav .user-menu { display: flex; gap: 1rem; align-items: center; }
-    nav button { background: var(--danger); border: none; color: white; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; }
-
-    main { flex: 1; padding: 2rem; max-width: 1200px; margin: 0 auto; width: 100%; }
-
-    /* Views */
-    .view { display: none; }
-    .view.active { display: block; }
-
-    /* Login */
-    #loginView {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-    }
-    .login-form {
-      background: #111827;
-      padding: 2rem;
-      border-radius: 8px;
-      border: 1px solid var(--dark-border);
-      width: 100%;
-      max-width: 400px;
-    }
-    .login-form h1 { margin-bottom: 2rem; font-size: 1.5rem; }
-    .form-group {
-      margin-bottom: 1rem;
-      display: flex;
-      flex-direction: column;
-    }
-    .form-group label { margin-bottom: 0.5rem; font-weight: 500; }
-    .form-group input, .form-group textarea, .form-group select {
-      padding: 0.75rem;
-      background: var(--code-bg);
-      border: 1px solid var(--dark-border);
-      color: var(--text-primary);
-      border-radius: 4px;
-      font-family: inherit;
-    }
-    .form-group input:focus { outline: none; border-color: var(--primary); }
-    button.btn {
-      padding: 0.75rem 1.5rem;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: 500;
-      transition: all 0.2s;
-    }
-    button.btn-primary { background: var(--primary); color: white; }
-    button.btn-primary:hover { opacity: 0.9; }
-    button.btn-danger { background: var(--danger); color: white; }
-    button.btn-success { background: var(--success); color: white; }
-    button.btn-sm { padding: 0.4rem 0.8rem; font-size: 0.9rem; }
-    .error { color: var(--danger); margin-top: 1rem; }
-    .success { color: var(--success); margin-top: 0.5rem; }
-
-    /* Scenarios list */
-    .scenarios-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
-    .scenarios-table {
-      width: 100%;
-      border-collapse: collapse;
-      border: 1px solid var(--dark-border);
-      border-radius: 8px;
-      overflow: hidden;
-    }
-    .scenarios-table th {
-      background: #111827;
-      padding: 1rem;
-      text-align: left;
-      border-bottom: 1px solid var(--dark-border);
-      font-weight: 600;
-    }
-    .scenarios-table td {
-      padding: 1rem;
-      border-bottom: 1px solid var(--dark-border);
-    }
-    .scenarios-table tbody tr:hover { background: rgba(59, 130, 246, 0.05); }
-    .scenario-name { cursor: pointer; color: var(--primary); text-decoration: underline; }
-    .badge {
-      display: inline-block;
-      padding: 0.25rem 0.75rem;
-      border-radius: 12px;
-      font-size: 0.85rem;
-      font-weight: 500;
-    }
-    .badge-success { background: rgba(16, 185, 129, 0.2); color: var(--success); }
-    .badge-danger { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
-    .badge-gray { background: rgba(209, 213, 219, 0.1); color: var(--text-secondary); }
-    .actions { display: flex; gap: 0.5rem; }
-    .actions button { padding: 0.4rem 0.8rem; font-size: 0.9rem; }
-
-    /* Detail panels */
-    .detail-panel {
-      background: #111827;
-      border: 1px solid var(--dark-border);
-      border-radius: 8px;
-      padding: 2rem;
-      margin-bottom: 2rem;
-    }
-    .detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
-    .detail-header h2 { font-size: 1.5rem; }
-    .detail-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
-    .meta-item { display: flex; flex-direction: column; }
-    .meta-label { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.25rem; }
-    .meta-value { font-weight: 500; }
-    .code-block {
-      background: var(--code-bg);
-      border: 1px solid var(--dark-border);
-      border-radius: 4px;
-      padding: 1rem;
-      overflow-x: auto;
-      font-family: "Monaco", "Menlo", monospace;
-      font-size: 0.9rem;
-      margin-bottom: 1.5rem;
-      max-height: 400px;
-      overflow-y: auto;
-    }
-
-    /* Runs list */
-    .runs-list { display: flex; flex-direction: column; gap: 1rem; }
-    .run-item {
-      background: #111827;
-      border: 1px solid var(--dark-border);
-      border-radius: 8px;
-      padding: 1.5rem;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .run-item:hover { border-color: var(--primary); background: rgba(59, 130, 246, 0.05); }
-    .run-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
-    .run-meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; font-size: 0.9rem; }
-    .run-meta-item { display: flex; flex-direction: column; }
-    .run-status {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-weight: 500;
-    }
-
-    /* Steps list */
-    .steps-list { display: flex; flex-direction: column; gap: 0.75rem; }
-    .step-item {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      padding: 0.75rem;
-      background: var(--code-bg);
-      border-radius: 4px;
-      font-size: 0.9rem;
-    }
-    .step-status {
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.75rem;
-      color: white;
-      flex-shrink: 0;
-    }
-    .step-status.pass { background: var(--success); }
-    .step-status.fail { background: var(--danger); }
-    .step-status.pending { background: var(--text-secondary); }
-
-    /* Modal */
-    .modal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.8);
-      z-index: 1000;
-      align-items: center;
-      justify-content: center;
-    }
-    .modal.active { display: flex; }
-    .modal-content {
-      background: #111827;
-      border: 1px solid var(--dark-border);
-      border-radius: 8px;
-      padding: 2rem;
-      max-width: 600px;
-      width: 90%;
-      max-height: 90vh;
-      overflow-y: auto;
-      position: relative;
-    }
-    .modal-close {
-      position: absolute;
-      top: 1rem;
-      right: 1rem;
-      background: none;
-      border: none;
-      color: var(--text-primary);
-      font-size: 1.5rem;
-      cursor: pointer;
-    }
-    .modal-close:hover { color: var(--primary); }
-
-    /* Spinner */
-    .spinner {
-      display: inline-block;
-      width: 16px;
-      height: 16px;
-      border: 2px solid var(--dark-border);
-      border-top-color: var(--primary);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* Utilities */
-    .mb-2 { margin-bottom: 2rem; }
-    .mt-2 { margin-top: 2rem; }
-    .gap-1 { gap: 1rem; }
-    .text-center { text-align: center; }
-    .text-secondary { color: var(--text-secondary); }
-    .flex { display: flex; }
-    .flex-col { flex-direction: column; }
-    .items-center { align-items: center; }
-  </style>
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div id="app">
-    <!-- Navigation -->
     <nav id="nav" style="display:none">
       <div class="logo">Zoniq Test Runner</div>
-      <a onclick="showView('scenarios')" data-view="scenarios">Scenarios</a>
-      <a onclick="showView('plans')" data-view="plans">Plans</a>
-      <a onclick="showView('runs')" data-view="runs">Runs</a>
+      <a data-view="scenarios">Scenarios</a>
+      <a data-view="plans">Plans</a>
+      <a data-view="runs">Runs</a>
       <div class="spacer"></div>
       <div class="user-menu">
         <span id="username"></span>
-        <button onclick="logout()">Logout</button>
+        <button id="logoutBtn">Logout</button>
       </div>
     </nav>
 
     <main>
-      <!-- Login View -->
+      <!-- Login -->
       <div id="loginView" class="view active">
         <div class="login-form">
           <h1>Zoniq Test Runner</h1>
-          <form onsubmit="handleLogin(event)">
+          <form id="loginForm">
             <div class="form-group">
               <label>Username</label>
               <input type="text" id="loginUsername" placeholder="admin" required>
@@ -305,25 +40,25 @@
         </div>
       </div>
 
-      <!-- Scenarios View -->
+      <!-- Scenarios -->
       <div id="scenariosView" class="view">
         <div class="scenarios-header">
           <h2>Scenarios</h2>
-          <button class="btn btn-primary" onclick="showCreateScenarioModal()">+ New Scenario</button>
+          <button id="newScenarioBtn" class="btn btn-primary">+ New Scenario</button>
         </div>
         <div id="scenariosList"></div>
       </div>
 
-      <!-- Scenario Detail View -->
+      <!-- Scenario Detail -->
       <div id="scenarioDetailView" class="view">
-        <button onclick="showView('scenarios')" style="margin-bottom:1rem">← Back</button>
+        <button id="backToScenariosBtn" style="margin-bottom:1rem">← Back</button>
         <div class="detail-panel">
           <div class="detail-header">
             <h2 id="detailName"></h2>
             <div>
-              <button class="btn btn-success" onclick="runScenario()" id="runBtn">Run</button>
-              <button class="btn btn-primary" style="margin-left:0.5rem" onclick="editScenario()">Edit</button>
-              <button class="btn btn-danger" style="margin-left:0.5rem" onclick="deleteScenario()">Delete</button>
+              <button id="runBtn" class="btn btn-success">Run</button>
+              <button id="editBtn" class="btn btn-primary" style="margin-left:0.5rem">Edit</button>
+              <button id="deleteBtn" class="btn btn-danger" style="margin-left:0.5rem">Delete</button>
             </div>
           </div>
           <div class="detail-meta">
@@ -343,15 +78,15 @@
         </div>
       </div>
 
-      <!-- Runs View -->
+      <!-- Runs -->
       <div id="runsView" class="view">
         <h2 style="margin-bottom:2rem">Recent Runs</h2>
         <div id="runsList" class="runs-list"></div>
       </div>
 
-      <!-- Run Detail View -->
+      <!-- Run Detail -->
       <div id="runDetailView" class="view">
-        <button onclick="showView('runs')" style="margin-bottom:1rem">← Back</button>
+        <button id="backToRunsBtn" style="margin-bottom:1rem">← Back</button>
         <div class="detail-panel">
           <div class="detail-header">
             <h2>Run <span id="runDetailId"></span></h2>
@@ -380,23 +115,23 @@
         </div>
       </div>
 
-      <!-- Plans View -->
+      <!-- Plans -->
       <div id="plansView" class="view">
         <div class="scenarios-header">
           <h2>Plans</h2>
-          <button class="btn btn-primary" onclick="showCreatePlanModal()">+ New Plan</button>
+          <button id="newPlanBtn" class="btn btn-primary">+ New Plan</button>
         </div>
         <div id="plansList"></div>
       </div>
     </main>
   </div>
 
-  <!-- Create/Edit Scenario Modal -->
+  <!-- Scenario Modal -->
   <div id="scenarioModal" class="modal">
     <div class="modal-content">
-      <button class="modal-close" onclick="closeModal('scenarioModal')">×</button>
+      <button class="modal-close" data-close="scenarioModal">×</button>
       <h2 style="margin-bottom:1.5rem" id="scenarioModalTitle">New Scenario</h2>
-      <form onsubmit="saveScenario(event)">
+      <form id="scenarioForm">
         <div class="form-group">
           <label>Name</label>
           <input type="text" id="formName" required>
@@ -419,18 +154,18 @@
         </div>
         <div style="display:flex;gap:1rem">
           <button type="submit" class="btn btn-primary">Save</button>
-          <button type="button" class="btn" onclick="closeModal('scenarioModal')" style="background:#555">Cancel</button>
+          <button type="button" class="btn" data-close="scenarioModal" style="background:#555">Cancel</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Create Plan Modal -->
+  <!-- Plan Modal -->
   <div id="planModal" class="modal">
     <div class="modal-content">
-      <button class="modal-close" onclick="closeModal('planModal')">×</button>
+      <button class="modal-close" data-close="planModal">×</button>
       <h2 style="margin-bottom:1.5rem">New Plan</h2>
-      <form onsubmit="savePlan(event)">
+      <form id="planForm">
         <div class="form-group">
           <label>Name</label>
           <input type="text" id="planName" required>
@@ -440,393 +175,26 @@
           <input type="text" id="planDesc">
         </div>
         <div class="form-group">
-          <label>Scenarios (select one or more)</label>
+          <label>Scenarios</label>
           <div id="planScenarioCheckboxes" style="max-height:200px;overflow-y:auto"></div>
         </div>
         <div style="display:flex;gap:1rem">
           <button type="submit" class="btn btn-primary">Create</button>
-          <button type="button" class="btn" onclick="closeModal('planModal')" style="background:#555">Cancel</button>
+          <button type="button" class="btn" data-close="planModal" style="background:#555">Cancel</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Run Progress Modal -->
+  <!-- Progress Modal -->
   <div id="progressModal" class="modal">
     <div class="modal-content" style="text-align:center">
-      <button class="modal-close" onclick="closeModal('progressModal')">×</button>
       <h2 style="margin-bottom:2rem">Running Test</h2>
       <div class="spinner" style="margin:2rem auto;width:40px;height:40px;border-width:4px"></div>
       <p id="progressText" style="margin-top:2rem">Starting test...</p>
-      <div id="progressSteps" style="text-align:left;margin-top:2rem"></div>
     </div>
   </div>
 
-  <script>
-    const API_BASE = window.location.origin;
-    let authToken = localStorage.getItem('zoniq-token');
-    let currentScenarioId = null;
-    let currentRunId = null;
-    let currentEditScenarioId = null;
-
-    // Auth
-    async function handleLogin(e) {
-      e.preventDefault();
-      const username = document.getElementById('loginUsername').value;
-      const password = document.getElementById('loginPassword').value;
-      try {
-        const res = await fetch(`${API_BASE}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
-        });
-        if (!res.ok) throw new Error('Invalid credentials');
-        const data = await res.json();
-        authToken = data.token;
-        localStorage.setItem('zoniq-token', authToken);
-        document.getElementById('username').textContent = data.username;
-        showView('scenarios');
-        document.getElementById('nav').style.display = 'flex';
-        document.getElementById('loginView').classList.remove('active');
-        loadScenarios();
-      } catch (err) {
-        document.getElementById('loginError').textContent = 'Login failed: ' + err.message;
-        document.getElementById('loginError').style.display = 'block';
-      }
-    }
-
-    function logout() {
-      authToken = null;
-      localStorage.removeItem('zoniq-token');
-      document.getElementById('loginView').classList.add('active');
-      document.getElementById('nav').style.display = 'none';
-      showView('scenarios');
-    }
-
-    // API calls
-    async function apiCall(path, method = 'GET', body = null) {
-      const opts = {
-        method,
-        headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
-      };
-      if (body) {
-        opts.headers['Content-Type'] = 'application/json';
-        opts.body = JSON.stringify(body);
-      }
-      const res = await fetch(API_BASE + path, opts);
-      if (res.status === 401) logout();
-      if (!res.ok) throw new Error(`API error: ${res.status}`);
-      return res.json();
-    }
-
-    // Views
-    function showView(viewName) {
-      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-      document.getElementById(viewName + 'View').classList.add('active');
-      document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
-      document.querySelector(`nav a[data-view="${viewName}"]`)?.classList.add('active');
-      if (viewName === 'scenarios') loadScenarios();
-      if (viewName === 'runs') loadRuns();
-      if (viewName === 'plans') loadPlans();
-    }
-
-    function closeModal(id) {
-      document.getElementById(id).classList.remove('active');
-    }
-
-    // Scenarios
-    async function loadScenarios() {
-      try {
-        const scenarios = await apiCall('/api/scenarios');
-        const html = scenarios.map(sc => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:1rem;background:#111827;border:1px solid #374151;border-radius:4px;margin-bottom:0.5rem">
-            <div style="flex:1;cursor:pointer" onclick="showScenarioDetail('${sc.id}')">
-              <div style="color:#3b82f6;text-decoration:underline;font-weight:500">${sc.name}</div>
-              <div style="font-size:0.9rem;color:#d1d5db;margin-top:0.25rem">${sc.targetUrl}</div>
-            </div>
-            <div style="display:flex;gap:0.5rem">
-              <button class="btn btn-success btn-sm" onclick="runScenarioQuick('${sc.id}')">Run</button>
-              <button class="btn btn-danger btn-sm" onclick="deleteScenarioQuick('${sc.id}')">Delete</button>
-            </div>
-          </div>
-        `).join('');
-        document.getElementById('scenariosList').innerHTML = html || '<p class="text-secondary">No scenarios yet</p>';
-      } catch (err) {
-        console.error(err);
-      }
-    }
-
-    function showScenarioDetail(id) {
-      currentScenarioId = id;
-      apiCall(`/api/scenarios/${id}`).then(sc => {
-        document.getElementById('detailName').textContent = sc.name;
-        document.getElementById('detailUrl').textContent = sc.targetUrl;
-        document.getElementById('detailScript').textContent = sc.script;
-        document.getElementById('detailLastRun').textContent = 'Loading...';
-        document.getElementById('detailRunHistory').innerHTML = 'Loading...';
-        showView('scenarioDetail');
-        loadScenarioRunHistory();
-      });
-    }
-
-    async function loadScenarioRunHistory() {
-      try {
-        const runs = await apiCall('/api/runs');
-        const scenarioRuns = runs.filter(r => r.scenarioId === currentScenarioId).slice(0, 5);
-        if (scenarioRuns.length === 0) {
-          document.getElementById('detailLastRun').textContent = 'Never';
-          document.getElementById('detailRunHistory').innerHTML = '<p class="text-secondary">No runs yet</p>';
-          return;
-        }
-        const latest = scenarioRuns[0];
-        const time = latest.completedAt ? new Date(latest.completedAt).toLocaleString() : 'Running...';
-        document.getElementById('detailLastRun').textContent = time;
-        document.getElementById('detailRunHistory').innerHTML = scenarioRuns.map(r => {
-          const status = r.status === 'pass' ? '✅' : r.status === 'fail' ? '❌' : '⏳';
-          const t = r.completedAt || r.startedAt;
-          return `<div class="run-item" onclick="showRunDetail('${r.runId}')">
-            <div style="display:flex;justify-content:space-between">
-              <span>${status} ${new Date(t).toLocaleString()}</span>
-              <span class="text-secondary">${r.results?.stepList?.length || 0} steps</span>
-            </div>
-          </div>`;
-        }).join('');
-      } catch (err) {
-        console.error(err);
-      }
-    }
-
-    function showCreateScenarioModal() {
-      currentEditScenarioId = null;
-      document.getElementById('scenarioModalTitle').textContent = 'New Scenario';
-      document.getElementById('formName').value = '';
-      document.getElementById('formUrl').value = '';
-      document.getElementById('formUsername').value = '';
-      document.getElementById('formPassword').value = '';
-      document.getElementById('formScript').value = `test('my test', async ({ page }) => {\n  await page.goto('https://your-app.com');\n  // Add steps here\n});`;
-      document.getElementById('scenarioModal').classList.add('active');
-    }
-
-    function editScenario() {
-      if (!currentScenarioId) return;
-      currentEditScenarioId = currentScenarioId;
-      apiCall(`/api/scenarios/${currentScenarioId}`).then(sc => {
-        document.getElementById('scenarioModalTitle').textContent = 'Edit Scenario';
-        document.getElementById('formName').value = sc.name;
-        document.getElementById('formUrl').value = sc.targetUrl;
-        document.getElementById('formUsername').value = sc.credentials?.username || '';
-        document.getElementById('formPassword').value = sc.credentials?.password || '';
-        document.getElementById('formScript').value = sc.script;
-        document.getElementById('scenarioModal').classList.add('active');
-      });
-    }
-
-    async function saveScenario(e) {
-      e.preventDefault();
-      const sc = {
-        id: currentEditScenarioId,
-        name: document.getElementById('formName').value,
-        targetUrl: document.getElementById('formUrl').value,
-        credentials: {
-          username: document.getElementById('formUsername').value,
-          password: document.getElementById('formPassword').value
-        },
-        script: document.getElementById('formScript').value
-      };
-      try {
-        await apiCall('/api/scenarios', 'POST', sc);
-        closeModal('scenarioModal');
-        if (currentEditScenarioId) {
-          showScenarioDetail(currentEditScenarioId);
-        } else {
-          showView('scenarios');
-          loadScenarios();
-        }
-      } catch (err) {
-        alert('Save failed: ' + err.message);
-      }
-    }
-
-    async function runScenarioQuick(id) {
-      try {
-        const res = await apiCall(`/api/execute-scenario/${id}`, 'POST');
-        showRunProgress(res.runId);
-      } catch (err) {
-        alert('Run failed: ' + err.message);
-      }
-    }
-
-    async function deleteScenarioQuick(id) {
-      if (!confirm('Delete this scenario?')) return;
-      try {
-        await apiCall(`/api/scenarios/${id}`, 'DELETE');
-        loadScenarios();
-      } catch (err) {
-        alert('Delete failed: ' + err.message);
-      }
-    }
-
-    function runScenario() {
-      runScenarioQuick(currentScenarioId);
-    }
-
-    function deleteScenario() {
-      deleteScenarioQuick(currentScenarioId);
-    }
-
-    // Runs
-    async function loadRuns() {
-      try {
-        const runs = await apiCall('/api/runs');
-        const html = runs.slice(0, 50).map(r => `
-          <div class="run-item" onclick="showRunDetail('${r.runId}')">
-            <div class="run-header">
-              <span>${r.testName || r.scenarioId || 'Test'}</span>
-              <span class="run-status">${r.status === 'pass' ? '✅ Pass' : r.status === 'fail' ? '❌ Fail' : '⏳ Running'}</span>
-            </div>
-            <div class="run-meta">
-              <div class="run-meta-item"><span class="text-secondary">Started</span> <span>${new Date(r.startedAt).toLocaleString()}</span></div>
-              <div class="run-meta-item"><span class="text-secondary">Duration</span> <span id="dur-${r.runId}">${r.completedAt ? new Date(r.completedAt) - new Date(r.startedAt) : 'Running'}ms</span></div>
-              <div class="run-meta-item"><span class="text-secondary">URL</span> <span style="font-size:0.85rem;word-break:break-all">${r.targetUrl}</span></div>
-              <div class="run-meta-item"><span class="text-secondary">Steps</span> <span>${r.results?.stepList?.length || 0}</span></div>
-            </div>
-          </div>
-        `).join('');
-        document.getElementById('runsList').innerHTML = html || '<p class="text-secondary">No runs yet</p>';
-      } catch (err) {
-        console.error(err);
-      }
-    }
-
-    function showRunDetail(runId) {
-      currentRunId = runId;
-      apiCall(`/api/runs/${runId}`).then(run => {
-        document.getElementById('runDetailId').textContent = runId.substring(0, 8);
-        document.getElementById('runDetailScenario').textContent = run.testName || run.scenarioId || 'Test';
-        document.getElementById('runDetailStarted').textContent = new Date(run.startedAt).toLocaleString();
-        document.getElementById('runDetailStatusText').textContent = run.status === 'pass' ? '✅ Pass' : run.status === 'fail' ? '❌ Fail' : '⏳ Running';
-        const dur = new Date(run.completedAt) - new Date(run.startedAt);
-        document.getElementById('runDetailDuration').textContent = run.completedAt ? (dur / 1000).toFixed(2) + 's' : 'Running...';
-        const steps = (run.results?.stepList || []).map((_, i) => {
-          const status = run.results.stepResults?.[i];
-          return `<div class="step-item">
-            <div class="step-status ${status === 'pass' ? 'pass' : status === 'fail' ? 'fail' : 'pending'}">${status === 'pass' ? '✓' : status === 'fail' ? '✗' : '•'}</div>
-            <span>${run.results.stepList[i]}</span>
-          </div>`;
-        }).join('');
-        document.getElementById('runDetailSteps').innerHTML = steps || '<p class="text-secondary">No steps</p>';
-        showView('runDetail');
-      });
-    }
-
-    // Progress modal
-    async function showRunProgress(runId) {
-      currentRunId = runId;
-      document.getElementById('progressModal').classList.add('active');
-      let pollCount = 0;
-      const pollInterval = setInterval(async () => {
-        try {
-          const run = await apiCall(`/api/runs/${runId}`);
-          if (run.status !== 'running') {
-            clearInterval(pollInterval);
-            closeModal('progressModal');
-            showRunDetail(runId);
-          } else {
-            pollCount++;
-            if (pollCount % 2 === 0) {
-              document.getElementById('progressText').textContent = `${pollCount * 2}s elapsed...`;
-            }
-          }
-        } catch (err) {
-          console.error(err);
-        }
-      }, 2000);
-      setTimeout(() => clearInterval(pollInterval), 600000); // Max 10 min
-    }
-
-    // Plans
-    async function loadPlans() {
-      try {
-        const plans = await apiCall('/api/plans');
-        const scenarios = await apiCall('/api/scenarios');
-        const html = (plans || []).map(p => {
-          const scenarioCount = (p.scenarioIds || []).length;
-          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:1rem;background:#111827;border:1px solid #374151;border-radius:4px;margin-bottom:0.5rem">
-            <div>
-              <div style="color:#3b82f6;font-weight:500">${p.name}</div>
-              <div style="font-size:0.9rem;color:#d1d5db;margin-top:0.25rem">${scenarioCount} scenario(s)</div>
-            </div>
-            <div style="display:flex;gap:0.5rem">
-              <button class="btn btn-success btn-sm" onclick="executePlan('${p.id}')">Run</button>
-              <button class="btn btn-danger btn-sm" onclick="deletePlanQuick('${p.id}')">Delete</button>
-            </div>
-          </div>`;
-        }).join('');
-        document.getElementById('plansList').innerHTML = html || '<p class="text-secondary">No plans yet</p>';
-      } catch (err) {
-        console.error(err);
-      }
-    }
-
-    function showCreatePlanModal() {
-      apiCall('/api/scenarios').then(scenarios => {
-        const checkboxes = scenarios.map(sc => `
-          <label style="display:block;margin-bottom:0.5rem;cursor:pointer">
-            <input type="checkbox" name="scenario" value="${sc.id}"> ${sc.name}
-          </label>
-        `).join('');
-        document.getElementById('planScenarioCheckboxes').innerHTML = checkboxes;
-        document.getElementById('planName').value = '';
-        document.getElementById('planDesc').value = '';
-        document.getElementById('planModal').classList.add('active');
-      });
-    }
-
-    async function savePlan(e) {
-      e.preventDefault();
-      const scenarioIds = Array.from(document.querySelectorAll('input[name="scenario"]:checked')).map(x => x.value);
-      if (scenarioIds.length === 0) {
-        alert('Select at least one scenario');
-        return;
-      }
-      const plan = {
-        name: document.getElementById('planName').value,
-        description: document.getElementById('planDesc').value,
-        scenarioIds
-      };
-      try {
-        await apiCall('/api/plans', 'POST', plan);
-        closeModal('planModal');
-        loadPlans();
-      } catch (err) {
-        alert('Create plan failed: ' + err.message);
-      }
-    }
-
-    async function executePlan(planId) {
-      alert('Plan execution coming soon (Milestone D)');
-    }
-
-    async function deletePlanQuick(id) {
-      if (!confirm('Delete this plan?')) return;
-      try {
-        await apiCall(`/api/plans/${id}`, 'DELETE');
-        loadPlans();
-      } catch (err) {
-        alert('Delete failed: ' + err.message);
-      }
-    }
-
-    // Init
-    if (authToken) {
-      document.getElementById('loginView').classList.remove('active');
-      document.getElementById('nav').style.display = 'flex';
-      apiCall('/api/auth/me').then(user => {
-        document.getElementById('username').textContent = user.username;
-        showView('scenarios');
-        loadScenarios();
-      }).catch(() => logout());
-    }
-  </script>
+  <script src="/app.js"></script>
 </body>
 </html>

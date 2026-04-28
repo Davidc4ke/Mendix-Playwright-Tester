@@ -132,8 +132,19 @@ function auditMiddleware(req, res, next) {
 function buildApp() {
   const app = express();
 
-  // Security headers
-  app.use(helmet());
+  // Security headers — allow inline styles (style= attributes in dynamic HTML)
+  // but keep script-src strict (external files only, no inline JS)
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
+      },
+    },
+  }));
 
   app.use(cors());
   app.use(express.json({ limit: "10mb" }));
