@@ -21,7 +21,10 @@ COPY agents ./agents
 COPY helpers ./helpers
 COPY settings.js ./
 
-# Persistent data (mounted as a Railway Volume in production)
+# Persistent data (mounted as a Railway Volume in production — must be writable
+# by the runtime user; Railway mounts the volume as root at runtime, so we run
+# as root here. Single-tenant container, isolated by Railway, so the trade-off
+# is acceptable. Add a non-root entrypoint in a later hardening pass.
 ENV DATA_DIR=/data
 RUN mkdir -p /data
 
@@ -31,9 +34,5 @@ ENV ZONIQ_HEADED=false
 # Default port (Railway sets PORT automatically)
 ENV PORT=3100
 EXPOSE 3100
-
-# Drop privileges — the playwright base image ships a `pwuser` account
-RUN chown -R pwuser:pwuser /app /data
-USER pwuser
 
 CMD ["node", "src/server/index.js"]
