@@ -47,8 +47,8 @@
     .view { display: none; }
     .view.active { display: block; }
 
-    /* Login */
-    #loginView {
+    /* Login — must use #loginView.active so ID specificity doesn't override .view {display:none} */
+    #loginView.active {
       display: flex;
       align-items: center;
       justify-content: center;
