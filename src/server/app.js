@@ -1,14 +1,24 @@
 /**
  * Express application builder for the standalone (cloud) Zoniq server.
  *
- * Reuses the same lib/ modules as the Electron main process:
- *   - lib/paths        — data directory resolution (DATA_DIR env var)
- *   - lib/db           — JSON file storage
- *   - lib/script-transforms — wrapScript and friends
- *   - lib/playwright-runner — runPlaywright
+ * Milestone B additions over Milestone A:
+ *   - helmet          — security headers (HSTS, CSP, etc.)
+ *   - express-rate-limit — rate limiting (100 req/min general, 10/15 min on /auth/login)
+ *   - JWT auth        — POST /api/auth/login returns a signed JWT; all other
+ *                        endpoints require it (or the legacy ZONIQ_API_KEY)
+ *   - Audit log       — every authenticated request is appended to DATA_DIR/audit.log
+ *   - Credential encryption — scenario credentials are AES-256-GCM encrypted at
+ *                        rest via lib/crypto.js; transparent on read/write
  *
- * Authentication and other web-app concerns are added in later milestones;
- * this initial version mirrors the Electron API surface.
+ * Required env vars (Milestone B):
+ *   JWT_SECRET         — signs/verifies tokens; required for JWT login to work
+ *   ADMIN_USERNAME     — defaults to "admin"
+ *   ADMIN_PASSWORD     — required to bootstrap the first user on startup
+ *
+ * Optional env vars:
+ *   ZONIQ_API_KEY      — legacy static key (still accepted for backwards compat)
+ *   ZONIQ_ENCRYPTION_KEY — base64-encoded 32-byte AES key for at-rest encryption
+ *                          generate: openssl rand -base64 32
  */
 
 const express = require("express");
@@ -16,34 +26,174 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+const jwt = require("jsonwebtoken");
 
 const ScriptUtils = require("../../lib/script-utils");
 const { getPaths } = require("../../lib/paths");
 const DB = require("../../lib/db");
 const { wrapScript } = require("../../lib/script-transforms");
 const Runner = require("../../lib/playwright-runner");
+const { encryptCreds, decryptCreds } = require("../../lib/crypto");
+const Users = require("../../lib/users");
+
+// ── Auth helpers ─────────────────────────────────────────────────────────────
+
+const JWT_SECRET = process.env.JWT_SECRET || null;
+const API_KEY = process.env.ZONIQ_API_KEY || null;
+const JWT_EXPIRY = "8h";
+
+function signToken(user) {
+  return jwt.sign(
+    { sub: user.id, username: user.username, role: user.role },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRY }
+  );
+}
+
+function verifyToken(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch {
+    return null;
+  }
+}
+
+function extractBearer(req) {
+  return (req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim() || null;
+}
+
+// Middleware: require valid API key or JWT (skip /api/health and /api/auth/login).
+function requireAuth(req, res, next) {
+  if (req.path === "/api/health" || req.path === "/api/auth/login") return next();
+
+  const bearer = extractBearer(req);
+  const xKey = (req.headers["x-api-key"] || "").trim();
+
+  // 1) Legacy API key — exact match on either header
+  if (API_KEY) {
+    if (xKey === API_KEY || bearer === API_KEY) {
+      req.user = { username: "api-key", role: "admin" };
+      return next();
+    }
+  }
+
+  // 2) JWT — try the bearer token (it's not the API key if we reach here)
+  if (JWT_SECRET && bearer && bearer !== API_KEY) {
+    const payload = verifyToken(bearer);
+    if (payload) {
+      req.user = payload;
+      return next();
+    }
+  }
+
+  return res.status(401).json({ error: "Unauthorized" });
+}
+
+// ── Audit log ─────────────────────────────────────────────────────────────────
+
+let _auditStream = null;
+
+function getAuditStream() {
+  if (_auditStream) return _auditStream;
+  try {
+    const { DATA_DIR } = getPaths();
+    _auditStream = fs.createWriteStream(path.join(DATA_DIR, "audit.log"), { flags: "a" });
+  } catch {
+    // DATA_DIR may not be set in test environments — silently skip
+  }
+  return _auditStream;
+}
+
+function auditMiddleware(req, res, next) {
+  const start = Date.now();
+  res.on("finish", () => {
+    const stream = getAuditStream();
+    if (!stream) return;
+    const entry = {
+      ts: new Date().toISOString(),
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      ms: Date.now() - start,
+      ip: req.ip,
+      user: req.user?.username || null,
+    };
+    stream.write(JSON.stringify(entry) + "\n");
+  });
+  next();
+}
+
+// ── App factory ───────────────────────────────────────────────────────────────
 
 function buildApp() {
   const app = express();
+
+  // Security headers
+  app.use(helmet());
+
   app.use(cors());
   app.use(express.json({ limit: "10mb" }));
 
-  // Optional API key authentication (set ZONIQ_API_KEY env var to enable)
-  const API_KEY = process.env.ZONIQ_API_KEY || null;
-  if (API_KEY) {
-    app.use((req, res, next) => {
-      if (req.path === "/api/health") return next();
-      const key = req.headers["x-api-key"] || (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-      if (key !== API_KEY) return res.status(401).json({ error: "Unauthorized" });
-      next();
-    });
-  } else {
+  // General rate limit: 100 requests per minute per IP
+  app.use(
+    rateLimit({
+      windowMs: 60 * 1000,
+      max: 100,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { error: "Too many requests, please slow down." },
+    })
+  );
+
+  // Stricter limit on login: 10 attempts per 15 minutes per IP
+  app.use(
+    "/api/auth/login",
+    rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 10,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { error: "Too many login attempts. Try again in 15 minutes." },
+    })
+  );
+
+  // Warn if running without any auth configured
+  if (!API_KEY && !JWT_SECRET) {
     console.warn(
-      "[security] ZONIQ_API_KEY is not set — the API is unauthenticated. " +
-      "This is OK for local testing but UNSAFE for a public Railway deployment. " +
-      "Set ZONIQ_API_KEY before exposing this server."
+      "[security] Neither ZONIQ_API_KEY nor JWT_SECRET is set — " +
+      "the API is unauthenticated. Set at least one before exposing this server."
     );
   }
+
+  // Auth guard
+  app.use(requireAuth);
+
+  // Audit log (runs after auth so req.user is populated)
+  app.use(auditMiddleware);
+
+  // ── Auth endpoints ──────────────────────────────────────────────────────────
+
+  app.post("/api/auth/login", async (req, res) => {
+    if (!JWT_SECRET) {
+      return res.status(501).json({ error: "JWT_SECRET is not configured on this server." });
+    }
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ error: "username and password are required" });
+    }
+    const user = await Users.verifyPassword(username, password);
+    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+    const token = signToken(user);
+    res.json({ token, expiresIn: JWT_EXPIRY, username: user.username, role: user.role });
+  });
+
+  app.get("/api/auth/me", (req, res) => {
+    res.json({ username: req.user.username, role: req.user.role });
+  });
+
+  // ── Health ──────────────────────────────────────────────────────────────────
 
   app.get("/api/health", (req, res) => {
     res.json({
@@ -51,20 +201,23 @@ function buildApp() {
       server: "zoniq-test-runner",
       mode: "standalone",
       platform: process.platform,
+      auth: JWT_SECRET ? "jwt" : API_KEY ? "api-key" : "none",
+      encryption: !!process.env.ZONIQ_ENCRYPTION_KEY,
     });
   });
 
-  // ── Scenarios CRUD ────────────────────────────────────────
+  // ── Scenarios CRUD ──────────────────────────────────────────────────────────
+
   app.get("/api/scenarios", (req, res) => {
     const db = DB.loadDB();
-    res.json(db.scenarios || []);
+    res.json((db.scenarios || []).map(decryptCreds));
   });
 
   app.get("/api/scenarios/:id", (req, res) => {
     const db = DB.loadDB();
     const sc = (db.scenarios || []).find((s) => s.id === req.params.id);
     if (!sc) return res.status(404).json({ error: "Not found" });
-    res.json(sc);
+    res.json(decryptCreds(sc));
   });
 
   app.post("/api/scenarios", (req, res) => {
@@ -75,23 +228,24 @@ function buildApp() {
     const db = DB.loadDB();
     if (!db.scenarios) db.scenarios = [];
     const now = new Date().toISOString();
+    const toStore = encryptCreds(sc);
+    delete toStore.steps; // never persist ephemeral steps
+
     if (sc.id) {
       const idx = db.scenarios.findIndex((s) => s.id === sc.id);
       if (idx >= 0) {
-        const merged = { ...db.scenarios[idx], ...sc, updatedAt: now };
-        delete merged.steps; // never persist ephemeral steps
-        db.scenarios[idx] = merged;
+        db.scenarios[idx] = { ...db.scenarios[idx], ...toStore, updatedAt: now };
       } else {
-        db.scenarios.push({ ...sc, createdAt: now, updatedAt: now });
+        db.scenarios.push({ ...toStore, createdAt: now, updatedAt: now });
       }
     } else {
-      const newSc = { ...sc, id: uuidv4(), createdAt: now, updatedAt: now };
-      delete newSc.steps;
+      const newSc = { ...toStore, id: uuidv4(), createdAt: now, updatedAt: now };
       db.scenarios.push(newSc);
     }
     DB.addSavedUrl(db, sc.targetUrl);
     DB.saveDB(db);
-    res.json(db.scenarios.find((s) => s.id === sc.id) || db.scenarios[db.scenarios.length - 1]);
+    const saved = db.scenarios.find((s) => s.id === sc.id) || db.scenarios[db.scenarios.length - 1];
+    res.json(decryptCreds(saved));
   });
 
   app.delete("/api/scenarios/:id", (req, res) => {
@@ -101,7 +255,8 @@ function buildApp() {
     res.json({ ok: true });
   });
 
-  // ── Plans CRUD ────────────────────────────────────────────
+  // ── Plans CRUD ──────────────────────────────────────────────────────────────
+
   app.get("/api/plans", (req, res) => {
     const db = DB.loadDB();
     res.json(db.plans || []);
@@ -136,7 +291,8 @@ function buildApp() {
     res.json({ ok: true });
   });
 
-  // ── Execution ─────────────────────────────────────────────
+  // ── Execution ───────────────────────────────────────────────────────────────
+
   app.post("/api/execute", async (req, res) => {
     const { testRunId, testName, targetUrl, script, credentials, callbackUrl } = req.body;
     if (!targetUrl || !script) return res.status(400).json({ error: "targetUrl and script required" });
@@ -158,7 +314,6 @@ function buildApp() {
       width: settings.testExecution.viewportWidth || 1920,
       height: settings.testExecution.viewportHeight || 1080,
     };
-    // Cloud runs are always headless — no display server.
     const results = await Runner.runPlaywright(scriptPath, runId, null, false, viewport, settings);
     if (results.reportStepList) {
       results.stepList = results.reportStepList;
@@ -194,7 +349,7 @@ function buildApp() {
 
   app.post("/api/execute-scenario/:id", async (req, res) => {
     const db = DB.loadDB();
-    const sc = (db.scenarios || []).find((s) => s.id === req.params.id);
+    const sc = decryptCreds((db.scenarios || []).find((s) => s.id === req.params.id));
     if (!sc) return res.status(404).json({ error: "Scenario not found" });
 
     const runId = uuidv4();
@@ -233,7 +388,8 @@ function buildApp() {
     try { fs.unlinkSync(scriptPath); } catch {}
   });
 
-  // ── Runs ──────────────────────────────────────────────────
+  // ── Runs ────────────────────────────────────────────────────────────────────
+
   app.get("/api/runs", (req, res) => {
     const db = DB.loadDB();
     res.json((db.runs || []).slice(-50).reverse());

@@ -86,8 +86,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@playwright/test": "^1.52.0",
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "express": "^4.21.0",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
     "openai": "^4.73.0",
     "playwright": "^1.52.0",
     "uuid": "^10.0.0"

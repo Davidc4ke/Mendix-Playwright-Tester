@@ -33,10 +33,14 @@ docker build -t zoniq .    # Build Docker image for cloud deploy
 ```
 
 ### Cloud server env vars
-- `DATA_DIR` (required) — directory for scenarios.json, scripts/, results/
+- `DATA_DIR` (required) — directory for scenarios.json, users.json, scripts/, results/
 - `PORT` (default 3100) — HTTP port
-- `ZONIQ_API_KEY` (recommended) — if set, all endpoints except `/api/health`
-  require this key in the `x-api-key` header or `Authorization: Bearer ...`
+- `JWT_SECRET` (recommended) — signs/verifies JWT tokens; required for `/api/auth/login`
+- `ADMIN_USERNAME` (default `admin`) — username for the bootstrapped admin account
+- `ADMIN_PASSWORD` (recommended) — password to create the first admin user on startup
+- `ZONIQ_API_KEY` (optional, legacy) — static key accepted alongside JWT for backwards compat
+- `ZONIQ_ENCRYPTION_KEY` (recommended) — base64-encoded 32-byte AES-256-GCM key for
+  encrypting scenario credentials at rest. Generate: `openssl rand -base64 32`
 
 ## Architecture
 
@@ -98,16 +102,24 @@ either mode.
 
 ### Standalone Server (`src/server/`)
 - `src/server/index.js` — entry point. Reads `DATA_DIR`, calls
-  `Paths.ensureDirs()`, runs `Runner.ensurePlaywrightConfig()`, starts Express.
+  `Paths.ensureDirs()`, `Runner.ensurePlaywrightConfig()`, `Users.ensureAdminUser()`, starts Express.
 - `src/server/app.js` — `buildApp()` returns the Express app. Endpoints:
-  - `/api/health` — unauthenticated
+  - `/api/health` — unauthenticated; reports `auth` mode and `encryption` flag
+  - Auth: `POST /api/auth/login` (username+password → JWT), `GET /api/auth/me`
   - CRUD: `/api/scenarios`, `/api/plans`
   - Execution: `/api/execute` (raw script), `/api/execute-scenario/:id`
-  - Runs: `/api/runs`, `/api/runs/:runId`,
-    `/api/runs/:runId/artifacts/:filename`
-  - Optional API key auth via `ZONIQ_API_KEY` env var
+  - Runs: `/api/runs`, `/api/runs/:runId`, `/api/runs/:runId/artifacts/:filename`
+  - Auth: JWT (`Authorization: Bearer <token>`) or legacy `ZONIQ_API_KEY`
+  - Security: `helmet` headers, 100 req/min rate limit, 10/15 min on login endpoint
+  - Audit: every authenticated request appended to `DATA_DIR/audit.log` (JSONL)
+  - Credentials encrypted at rest (AES-256-GCM) via `lib/crypto.js` when
+    `ZONIQ_ENCRYPTION_KEY` is set
+- `lib/crypto.js` — `encrypt(plaintext)` / `decrypt(value)` / `encryptCreds(sc)` /
+  `decryptCreds(sc)`. No-op when `ZONIQ_ENCRYPTION_KEY` is unset (transparent migration).
+- `lib/users.js` — `ensureAdminUser()`, `verifyPassword(username, password)`,
+  `findById(id)`. Users stored in `DATA_DIR/users.json`.
 - `Dockerfile` — based on `mcr.microsoft.com/playwright:v1.52.0-jammy`,
-  exposes port 3100, `DATA_DIR=/data`, runs as non-root `pwuser`
+  exposes port 3100, `DATA_DIR=/data`, runs as root (Railway volume compat)
 - `railway.json` — Railway build/deploy config with healthcheck on `/api/health`
 
 ### Shared Utilities (`lib/script-utils.js`)
@@ -173,15 +185,23 @@ Utility functions for Mendix-specific testing:
 - `assertWidgetText`, `assertWidgetVisible`, `assertWidgetEnabled`, `assertWidgetDisabled` — Assertion helpers
 
 ### REST API Endpoints (port 3100)
+All endpoints except `/api/health` and `POST /api/auth/login` require authentication
+(`Authorization: Bearer <jwt>` or `x-api-key: <ZONIQ_API_KEY>`).
+
+- `GET /api/health` — Health check (public)
+- `POST /api/auth/login` — `{ username, password }` → `{ token, expiresIn, username, role }` (public)
+- `GET /api/auth/me` — Returns current user info
 - `POST /api/execute` — Run raw Playwright script
-- `POST /api/execute-steps` — Run structured step definitions (builds a script from steps internally)
-- `GET /api/runs/:runId` — Get specific run result
+- `POST /api/execute-scenario/:id` — Run stored scenario by ID
 - `GET /api/runs` — List recent runs
+- `GET /api/runs/:runId` — Get specific run result
 - `GET /api/runs/:runId/artifacts/:filename` — Download test artifact
-- `GET /api/health` — Health check
-- `POST /api/agent/heal` — Run AI healer on a failed test
-- `GET /api/agent/status` — Check if an agent is running
-- `POST /api/agent/cancel` — Cancel running agent
+- `GET /api/scenarios` — List scenarios (credentials decrypted in response)
+- `POST /api/scenarios` — Create or update scenario (credentials encrypted on save)
+- `DELETE /api/scenarios/:id` — Delete scenario
+- `GET /api/plans` — List plans
+- `POST /api/plans` — Create or update plan
+- `DELETE /api/plans/:id` — Delete plan
 
 ## Data Storage
 
@@ -192,6 +212,8 @@ User data stored in platform-specific directories:
 
 Files:
 - `scenarios.json` — Test scenarios, plans, run history, and AI analysis history (steps are NOT stored, only scripts)
+- `users.json` — Admin user accounts (cloud server only; passwords are bcrypt-hashed)
+- `audit.log` — JSONL audit trail of all authenticated API requests (cloud server only)
 - `scripts/` — Recorded/imported script files
 - `results/` — Test artifacts (screenshots, videos, traces, debug logs)
 

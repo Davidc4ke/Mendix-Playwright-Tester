@@ -6,14 +6,17 @@
  *   DATA_DIR         — Directory for scenarios.json, results/, scripts/, etc.
  *
  * Optional env vars:
- *   PORT             — HTTP port (default 3100)
- *   ZONIQ_API_KEY    — If set, all endpoints (except /api/health) require this
- *                      key in the `x-api-key` header or `Authorization: Bearer`.
- *   ZONIQ_HEADED     — If "true", launches a headed browser (requires X server).
- *                      Default false in standalone mode.
+ *   PORT                  — HTTP port (default 3100)
+ *   ZONIQ_API_KEY         — Legacy static key (still accepted alongside JWT).
+ *   ZONIQ_HEADED          — "true" to launch headed browser (requires X server).
+ *   JWT_SECRET            — Signs/verifies JWT tokens; required for /api/auth/login.
+ *   ADMIN_USERNAME        — Admin account username (default "admin").
+ *   ADMIN_PASSWORD        — Admin account password; required to bootstrap first user.
+ *   ZONIQ_ENCRYPTION_KEY  — base64-encoded 32-byte AES key for credential encryption.
+ *                           Generate: openssl rand -base64 32
  *
  * Run:
- *   DATA_DIR=/data ZONIQ_API_KEY=changeme node src/server/index.js
+ *   DATA_DIR=/data JWT_SECRET=... ADMIN_PASSWORD=... node src/server/index.js
  */
 
 const Paths = require("../../lib/paths");
@@ -22,7 +25,12 @@ Paths.ensureDirs(); // creates SCRIPTS_DIR, RESULTS_DIR, TEMP_DIR, APPS_DIR if m
 const Runner = require("../../lib/playwright-runner");
 Runner.ensurePlaywrightConfig();
 
+const Users = require("../../lib/users");
+
 const { buildApp } = require("./app");
+
+// Bootstrap admin user (no-op if users already exist)
+Users.ensureAdminUser().catch((err) => console.error("[auth] ensureAdminUser failed:", err));
 
 const PORT = parseInt(process.env.PORT || "3100", 10);
 const app = buildApp();
