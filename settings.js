@@ -36,6 +36,13 @@ const DEFAULT_SETTINGS = {
     viewportWidth: 1920,          // Browser viewport width (used when viewportAuto is false)
     viewportHeight: 1080,         // Browser viewport height (used when viewportAuto is false)
   },
+  cloud: {
+    serverUrl: "",                // Cloud server URL (e.g., https://server-production-25a0.up.railway.app)
+    apiKey: "",                   // API key or JWT token for authentication
+    username: "",                 // Username for JWT login (if no static API key)
+    password: "",                 // Password for JWT login
+    syncEnabled: false,           // Enable cloud sync
+  },
 };
 
 function loadSettings() {
@@ -43,7 +50,7 @@ function loadSettings() {
   try {
     if (fs.existsSync(getSettingsPath())) {
       const data = JSON.parse(fs.readFileSync(getSettingsPath(), "utf-8"));
-      _settingsCache = { ...DEFAULT_SETTINGS, ...data, llm: { ...DEFAULT_SETTINGS.llm, ...data.llm }, agent: { ...DEFAULT_SETTINGS.agent, ...data.agent }, recorder: { ...DEFAULT_SETTINGS.recorder, ...data.recorder }, testExecution: { ...DEFAULT_SETTINGS.testExecution, ...data.testExecution } };
+      _settingsCache = { ...DEFAULT_SETTINGS, ...data, llm: { ...DEFAULT_SETTINGS.llm, ...data.llm }, agent: { ...DEFAULT_SETTINGS.agent, ...data.agent }, recorder: { ...DEFAULT_SETTINGS.recorder, ...data.recorder }, testExecution: { ...DEFAULT_SETTINGS.testExecution, ...data.testExecution }, cloud: { ...DEFAULT_SETTINGS.cloud, ...data.cloud } };
       return _settingsCache;
     }
   } catch {}
@@ -57,6 +64,7 @@ function saveSettings(settings) {
     agent: { ...DEFAULT_SETTINGS.agent, ...settings.agent },
     recorder: { ...DEFAULT_SETTINGS.recorder, ...settings.recorder },
     testExecution: { ...DEFAULT_SETTINGS.testExecution, ...settings.testExecution },
+    cloud: { ...DEFAULT_SETTINGS.cloud, ...settings.cloud },
   };
   fs.writeFileSync(getSettingsPath(), JSON.stringify(merged, null, 2));
   _settingsCache = merged;

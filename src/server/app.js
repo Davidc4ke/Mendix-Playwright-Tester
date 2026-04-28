@@ -26,6 +26,8 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
+
+const PUBLIC_DIR = path.join(__dirname, "public");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const jwt = require("jsonwebtoken");
@@ -167,6 +169,16 @@ function buildApp() {
     );
   }
 
+  // Static web UI (public before auth guard — browser loads index.html unauthenticated,
+  // then the JS does POST /api/auth/login itself)
+  if (fs.existsSync(PUBLIC_DIR)) {
+    app.use(express.static(PUBLIC_DIR));
+    // SPA fallback: any non-API GET returns index.html
+    app.get(/^\/(?!api\/).*$/, (req, res) => {
+      res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+    });
+  }
+
   // Auth guard
   app.use(requireAuth);
 
@@ -293,6 +305,31 @@ function buildApp() {
 
   // ── Execution ───────────────────────────────────────────────────────────────
 
+  // Helpers used by both execute endpoints
+  function pendingRun(runId, fields) {
+    const db = DB.loadDB();
+    if (!db.runs) db.runs = [];
+    db.runs.push({ runId, status: "running", startedAt: new Date().toISOString(), ...fields });
+    DB.saveDB(db);
+  }
+
+  function finaliseRun(runId, results) {
+    const db = DB.loadDB();
+    if (!db.runs) db.runs = [];
+    const idx = db.runs.findIndex((r) => r.runId === runId);
+    const completedAt = new Date().toISOString();
+    if (results.reportStepList) {
+      results.stepList = results.reportStepList;
+      results.stepResults = results.reportStepResults;
+      delete results.reportStepList;
+      delete results.reportStepResults;
+    }
+    const entry = { ...( idx >= 0 ? db.runs[idx] : { runId }), status: results.status, completedAt, results };
+    if (idx >= 0) db.runs[idx] = entry; else db.runs.push(entry);
+    DB.saveDB(db);
+    return entry;
+  }
+
   app.post("/api/execute", async (req, res) => {
     const { testRunId, testName, targetUrl, script, credentials, callbackUrl } = req.body;
     if (!targetUrl || !script) return res.status(400).json({ error: "targetUrl and script required" });
@@ -307,6 +344,7 @@ function buildApp() {
     const scriptPath = path.join(TEMP_DIR, `run-${runId}.spec.js`);
     fs.writeFileSync(scriptPath, wrapScript(script, targetUrl, credentials));
 
+    pendingRun(runId, { testName: testName || "API Test", targetUrl });
     res.json({ runId, status: "running" });
 
     const settings = require("../../settings").loadSettings();
@@ -315,31 +353,14 @@ function buildApp() {
       height: settings.testExecution.viewportHeight || 1080,
     };
     const results = await Runner.runPlaywright(scriptPath, runId, null, false, viewport, settings);
-    if (results.reportStepList) {
-      results.stepList = results.reportStepList;
-      results.stepResults = results.reportStepResults;
-      delete results.reportStepList;
-      delete results.reportStepResults;
-    }
-
-    const db = DB.loadDB();
-    db.runs.push({
-      runId,
-      testName: testName || "API Test",
-      targetUrl,
-      status: results.status,
-      startedAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
-      results,
-    });
-    DB.saveDB(db);
+    const entry = finaliseRun(runId, results);
 
     if (callbackUrl) {
       try {
         await fetch(callbackUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ runId, ...results, completedAt: new Date().toISOString() }),
+          body: JSON.stringify({ runId, ...entry, completedAt: entry.completedAt }),
         });
       } catch {}
     }
@@ -357,6 +378,7 @@ function buildApp() {
     const scriptPath = path.join(TEMP_DIR, `run-${runId}.spec.js`);
     fs.writeFileSync(scriptPath, wrapScript(sc.script, sc.targetUrl, sc.credentials));
 
+    pendingRun(runId, { scenarioId: sc.id, testName: sc.name, targetUrl: sc.targetUrl });
     res.json({ runId, status: "running" });
 
     const settings = require("../../settings").loadSettings();
@@ -365,25 +387,7 @@ function buildApp() {
       height: settings.testExecution.viewportHeight || 1080,
     };
     const results = await Runner.runPlaywright(scriptPath, runId, null, false, viewport, settings);
-    if (results.reportStepList) {
-      results.stepList = results.reportStepList;
-      results.stepResults = results.reportStepResults;
-      delete results.reportStepList;
-      delete results.reportStepResults;
-    }
-
-    const db2 = DB.loadDB();
-    db2.runs.push({
-      runId,
-      scenarioId: sc.id,
-      testName: sc.name,
-      targetUrl: sc.targetUrl,
-      status: results.status,
-      startedAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
-      results,
-    });
-    DB.saveDB(db2);
+    finaliseRun(runId, results);
 
     try { fs.unlinkSync(scriptPath); } catch {}
   });

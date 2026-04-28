@@ -2181,6 +2181,95 @@ ipcMain.handle("cleanup-script-ai", async (event, scenarioId) => {
   }
 });
 
+// ── Cloud Sync ───────────────────────────────────────────
+ipcMain.handle("cloud-connect", async (event, { serverUrl, apiKey, username, password }) => {
+  try {
+    const authHeader = apiKey
+      ? { "x-api-key": apiKey }
+      : {};
+    const res = await fetch(`${serverUrl}/api/health`, { headers: authHeader });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+    return { ok: true, auth: data.auth, encryption: data.encryption };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle("cloud-push-scenario", async (event, { serverUrl, apiKey, scenarioId }) => {
+  try {
+    const db = DB.loadDB();
+    const scenario = db.scenarios.find((s) => s.id === scenarioId);
+    if (!scenario) throw new Error("Scenario not found");
+    const res = await fetch(`${serverUrl}/api/scenarios`, {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify(scenario)
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle("cloud-pull-scenarios", async (event, { serverUrl, apiKey }) => {
+  try {
+    const res = await fetch(`${serverUrl}/api/scenarios`, {
+      headers: { "x-api-key": apiKey }
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const cloudScenarios = await res.json();
+
+    const db = DB.loadDB();
+    let mergedCount = 0;
+    for (const cloudSc of cloudScenarios) {
+      const localIdx = db.scenarios.findIndex((s) => s.id === cloudSc.id);
+      if (localIdx < 0) {
+        db.scenarios.push(cloudSc);
+        mergedCount++;
+      }
+    }
+    DB.saveDB(db);
+    return { ok: true, mergedCount };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle("cloud-run-scenario", async (event, { serverUrl, apiKey, scenarioId }) => {
+  try {
+    const res = await fetch(`${serverUrl}/api/execute-scenario/${scenarioId}`, {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const { runId } = await res.json();
+
+    // Poll for result
+    return new Promise((resolve) => {
+      const pollInterval = setInterval(async () => {
+        try {
+          const runRes = await fetch(`${serverUrl}/api/runs/${runId}`, {
+            headers: { "x-api-key": apiKey }
+          });
+          if (runRes.ok) {
+            const run = await runRes.json();
+            if (run.status !== "running") {
+              clearInterval(pollInterval);
+              resolve({ ok: true, run });
+            }
+          }
+        } catch {}
+      }, 2000);
+      setTimeout(() => { clearInterval(pollInterval); resolve({ ok: false, error: "Timeout" }); }, 600000);
+    });
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 // ── Window ───────────────────────────────────────────────
 let mainWindow;
 
