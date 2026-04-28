@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zoniq Test Runner</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="app">
+    <nav id="nav" style="display:none">
+      <div class="logo">Zoniq Test Runner</div>
+      <a data-view="scenarios">Scenarios</a>
+      <a data-view="plans">Plans</a>
+      <a data-view="runs">Runs</a>
+      <div class="spacer"></div>
+      <div class="user-menu">
+        <span id="username"></span>
+        <button id="logoutBtn">Logout</button>
+      </div>
+    </nav>
+
+    <main>
+      <!-- Login -->
+      <div id="loginView" class="view active">
+        <div class="login-form">
+          <h1>Zoniq Test Runner</h1>
+          <form id="loginForm">
+            <div class="form-group">
+              <label>Username</label>
+              <input type="text" id="loginUsername" placeholder="admin" required>
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input type="password" id="loginPassword" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%">Sign In</button>
+            <div id="loginError" class="error" style="display:none"></div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Scenarios -->
+      <div id="scenariosView" class="view">
+        <div class="scenarios-header">
+          <h2>Scenarios</h2>
+          <button id="newScenarioBtn" class="btn btn-primary">+ New Scenario</button>
+        </div>
+        <div id="scenariosList"></div>
+      </div>
+
+      <!-- Scenario Detail -->
+      <div id="scenarioDetailView" class="view">
+        <button id="backToScenariosBtn" style="margin-bottom:1rem">← Back</button>
+        <div class="detail-panel">
+          <div class="detail-header">
+            <h2 id="detailName"></h2>
+            <div>
+              <button id="runBtn" class="btn btn-success">Run</button>
+              <button id="editBtn" class="btn btn-primary" style="margin-left:0.5rem">Edit</button>
+              <button id="deleteBtn" class="btn btn-danger" style="margin-left:0.5rem">Delete</button>
+            </div>
+          </div>
+          <div class="detail-meta">
+            <div class="meta-item">
+              <span class="meta-label">Target URL</span>
+              <span class="meta-value" id="detailUrl"></span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Last Run</span>
+              <span class="meta-value" id="detailLastRun"></span>
+            </div>
+          </div>
+          <h3 style="margin-bottom:0.5rem">Script</h3>
+          <div class="code-block" id="detailScript"></div>
+          <h3 style="margin-bottom:0.5rem">Run History</h3>
+          <div id="detailRunHistory" class="runs-list"></div>
+        </div>
+      </div>
+
+      <!-- Runs -->
+      <div id="runsView" class="view">
+        <h2 style="margin-bottom:2rem">Recent Runs</h2>
+        <div id="runsList" class="runs-list"></div>
+      </div>
+
+      <!-- Run Detail -->
+      <div id="runDetailView" class="view">
+        <button id="backToRunsBtn" style="margin-bottom:1rem">← Back</button>
+        <div class="detail-panel">
+          <div class="detail-header">
+            <h2>Run <span id="runDetailId"></span></h2>
+            <div id="runDetailStatus"></div>
+          </div>
+          <div class="detail-meta">
+            <div class="meta-item">
+              <span class="meta-label">Scenario</span>
+              <span class="meta-value" id="runDetailScenario"></span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Started</span>
+              <span class="meta-value" id="runDetailStarted"></span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Status</span>
+              <span class="meta-value" id="runDetailStatusText"></span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Duration</span>
+              <span class="meta-value" id="runDetailDuration"></span>
+            </div>
+          </div>
+          <h3 style="margin-bottom:0.5rem">Steps</h3>
+          <div id="runDetailSteps" class="steps-list"></div>
+        </div>
+      </div>
+
+      <!-- Plans -->
+      <div id="plansView" class="view">
+        <div class="scenarios-header">
+          <h2>Plans</h2>
+          <button id="newPlanBtn" class="btn btn-primary">+ New Plan</button>
+        </div>
+        <div id="plansList"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Scenario Modal -->
+  <div id="scenarioModal" class="modal">
+    <div class="modal-content">
+      <button class="modal-close" data-close="scenarioModal">×</button>
+      <h2 style="margin-bottom:1.5rem" id="scenarioModalTitle">New Scenario</h2>
+      <form id="scenarioForm">
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="formName" required>
+        </div>
+        <div class="form-group">
+          <label>Target URL</label>
+          <input type="url" id="formUrl" required>
+        </div>
+        <div class="form-group">
+          <label>Username (optional)</label>
+          <input type="text" id="formUsername">
+        </div>
+        <div class="form-group">
+          <label>Password (optional)</label>
+          <input type="password" id="formPassword">
+        </div>
+        <div class="form-group">
+          <label>Script</label>
+          <textarea id="formScript" rows="10" required></textarea>
+        </div>
+        <div style="display:flex;gap:1rem">
+          <button type="submit" class="btn btn-primary">Save</button>
+          <button type="button" class="btn" data-close="scenarioModal" style="background:#555">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Plan Modal -->
+  <div id="planModal" class="modal">
+    <div class="modal-content">
+      <button class="modal-close" data-close="planModal">×</button>
+      <h2 style="margin-bottom:1.5rem">New Plan</h2>
+      <form id="planForm">
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="planName" required>
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <input type="text" id="planDesc">
+        </div>
+        <div class="form-group">
+          <label>Scenarios</label>
+          <div id="planScenarioCheckboxes" style="max-height:200px;overflow-y:auto"></div>
+        </div>
+        <div style="display:flex;gap:1rem">
+          <button type="submit" class="btn btn-primary">Create</button>
+          <button type="button" class="btn" data-close="planModal" style="background:#555">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Progress Modal -->
+  <div id="progressModal" class="modal">
+    <div class="modal-content" style="text-align:center">
+      <h2 style="margin-bottom:2rem">Running Test</h2>
+      <div class="spinner" style="margin:2rem auto;width:40px;height:40px;border-width:4px"></div>
+      <p id="progressText" style="margin-top:2rem">Starting test...</p>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

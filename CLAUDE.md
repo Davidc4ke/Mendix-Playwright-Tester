@@ -8,19 +8,39 @@ After completing any task that changes the project's architecture, APIs, data mo
 
 ## Project Overview
 
-Zoniq Test Runner is an Electron desktop application for recording and running Playwright UAT tests against Mendix applications. It provides a GUI for test management and an embedded REST API for remote test execution.
+Zoniq Test Runner runs in two modes from the same codebase:
+
+1. **Electron desktop app** — recording, editing, local execution. Single-user.
+2. **Standalone server (`src/server/`)** — Express API + Playwright execution, no UI.
+   Designed to be deployed to Railway (Docker) for cloud-based test runs. Single-tenant.
+
+The Electron app and the standalone server share the same core logic (`lib/`).
+The Electron mode is the source of truth for recording (codegen needs a visible
+browser); the cloud mode handles execution at scale.
 
 ## Commands
 
 ```bash
-npm install               # Install dependencies
-npm run install-browsers  # Install Playwright Chromium browser
-npm start                 # Launch the Electron app
-npm run build:win         # Build Windows NSIS installer (.exe)
+npm install                # Install dependencies
+npm run install-browsers   # Install Playwright Chromium browser
+npm start                  # Launch the Electron app
+npm run start:server       # Launch standalone server (cloud mode)
+npm run build:win          # Build Windows NSIS installer (.exe)
 npm run build:win:portable # Build Windows portable .exe (legacy, slower startup)
-npm run build:mac         # Build macOS .dmg
-npm run build:linux       # Build Linux AppImage
+npm run build:mac          # Build macOS .dmg
+npm run build:linux        # Build Linux AppImage
+docker build -t zoniq .    # Build Docker image for cloud deploy
 ```
+
+### Cloud server env vars
+- `DATA_DIR` (required) — directory for scenarios.json, users.json, scripts/, results/
+- `PORT` (default 3100) — HTTP port
+- `JWT_SECRET` (recommended) — signs/verifies JWT tokens; required for `/api/auth/login`
+- `ADMIN_USERNAME` (default `admin`) — username for the bootstrapped admin account
+- `ADMIN_PASSWORD` (recommended) — password to create the first admin user on startup
+- `ZONIQ_API_KEY` (optional, legacy) — static key accepted alongside JWT for backwards compat
+- `ZONIQ_ENCRYPTION_KEY` (recommended) — base64-encoded 32-byte AES-256-GCM key for
+  encrypting scenario credentials at rest. Generate: `openssl rand -base64 32`
 
 ## Architecture
 
@@ -45,14 +65,62 @@ Record/Import → Script (stored, always executed)
 - Adding/removing/reordering steps is done by re-recording or editing the script directly
 - "Record from here" allows users to select a step and re-record from that point — replays prefix steps on a live browser, then enables codegen
 
+### Shared Core (`lib/`)
+Used by **both** the Electron main process and the standalone server. All
+filesystem paths are resolved through `lib/paths.js` so the same code works in
+either mode.
+
+- `lib/paths.js` — Data directory abstraction. Call `initFromElectron(app)` in
+  Electron mode; in Node mode reads `DATA_DIR` env var. Exports `getPaths()`
+  returning all derived paths (DATA_DIR, SCRIPTS_DIR, RESULTS_DIR, TEMP_DIR,
+  DB_PATH, APPS_DIR, LOG_PATH, PLAYWRIGHT_CONFIG_PATH, UNPACKED_BASE,
+  HELPERS_DIR, UNPACKED_NODE_MODULES, PLAYWRIGHT_CLI_JS, PLAYWRIGHT_CORE_PATH).
+- `lib/db.js` — JSON file storage: `loadDB`, `saveDB`, `addSavedUrl`,
+  `loadApps`, `saveApps`, `loadElementDBForApp`, `saveElementDBForApp`,
+  `findOrCreateApp`, `migrateScenarioApps`. The last two take an
+  `getElementDBHelper` callback to avoid circular deps.
+- `lib/script-transforms.js` — Pure script transformation: `wrapScript`,
+  `injectStepMarkers`, `cleanMendixSelectors`, `transformSelectOptionCalls`,
+  `transformDatePickerClicks`, `disambiguateSelectors`,
+  `transformListViewRowClicks`, `transformDataGridRowClicks`, `extractSpecs`,
+  `extractStepsFromReport`.
+- `lib/playwright-runner.js` — Playwright execution: `runPlaywright`,
+  `ensurePlaywrightConfig`, `getBrowserChannel`, `getPlaywrightEnv`,
+  `validateRunId`. Auto-detects Electron vs Node and sets
+  `ELECTRON_RUN_AS_NODE=1` only when needed. `runPlaywright` takes injected
+  `viewport` and `settings` (so it doesn't need Electron's `screen` API).
+
 ### Electron Main Process (`main.js`)
-- Runs embedded Express server on port 3100
+- Bootstraps `lib/paths.js` with `initFromElectron(app)` before any other code
+  reads paths
+- Re-exports core functions for backward compatibility with existing IPC handlers
 - Handles IPC communication with renderer (UI)
-- Manages Playwright test execution via `spawn` (not `exec`)
-- `wrapScript()` — strips imports, cleans fragile Mendix selectors, wraps bare code in a `test()` block, injects per-statement progress markers via `injectStepMarkers()`
-- `injectStepMarkers()` — parses the test body into statements, wraps each with `[ZONIQ_STEP:START/DONE/FAIL]` console.log markers for real-time progress tracking
-- `runPlaywright()` — spawns `playwright test` with JSON reporter, streams step progress via stdout parsing
-- Stores data in JSON files at user data directory
+- Runs embedded Express server on port 3100 (legacy — duplicated by `src/server/`)
+- Manages Playwright recording (codegen) and execution
+- `runPlaywright(scriptPath, runId, onStepProgress, headed)` is a thin wrapper
+  around `Runner.runPlaywright(...)` that injects viewport + settings
+
+### Standalone Server (`src/server/`)
+- `src/server/index.js` — entry point. Reads `DATA_DIR`, calls
+  `Paths.ensureDirs()`, `Runner.ensurePlaywrightConfig()`, `Users.ensureAdminUser()`, starts Express.
+- `src/server/app.js` — `buildApp()` returns the Express app. Endpoints:
+  - `/api/health` — unauthenticated; reports `auth` mode and `encryption` flag
+  - Auth: `POST /api/auth/login` (username+password → JWT), `GET /api/auth/me`
+  - CRUD: `/api/scenarios`, `/api/plans`
+  - Execution: `/api/execute` (raw script), `/api/execute-scenario/:id`
+  - Runs: `/api/runs`, `/api/runs/:runId`, `/api/runs/:runId/artifacts/:filename`
+  - Auth: JWT (`Authorization: Bearer <token>`) or legacy `ZONIQ_API_KEY`
+  - Security: `helmet` headers, 100 req/min rate limit, 10/15 min on login endpoint
+  - Audit: every authenticated request appended to `DATA_DIR/audit.log` (JSONL)
+  - Credentials encrypted at rest (AES-256-GCM) via `lib/crypto.js` when
+    `ZONIQ_ENCRYPTION_KEY` is set
+- `lib/crypto.js` — `encrypt(plaintext)` / `decrypt(value)` / `encryptCreds(sc)` /
+  `decryptCreds(sc)`. No-op when `ZONIQ_ENCRYPTION_KEY` is unset (transparent migration).
+- `lib/users.js` — `ensureAdminUser()`, `verifyPassword(username, password)`,
+  `findById(id)`. Users stored in `DATA_DIR/users.json`.
+- `Dockerfile` — based on `mcr.microsoft.com/playwright:v1.52.0-jammy`,
+  exposes port 3100, `DATA_DIR=/data`, runs as root (Railway volume compat)
+- `railway.json` — Railway build/deploy config with healthcheck on `/api/health`
 
 ### Shared Utilities (`lib/script-utils.js`)
 UMD module used by both main process (`require()`) and renderer (`<script>` tag, exposes `window.ScriptUtils`).
@@ -117,15 +185,23 @@ Utility functions for Mendix-specific testing:
 - `assertWidgetText`, `assertWidgetVisible`, `assertWidgetEnabled`, `assertWidgetDisabled` — Assertion helpers
 
 ### REST API Endpoints (port 3100)
+All endpoints except `/api/health` and `POST /api/auth/login` require authentication
+(`Authorization: Bearer <jwt>` or `x-api-key: <ZONIQ_API_KEY>`).
+
+- `GET /api/health` — Health check (public)
+- `POST /api/auth/login` — `{ username, password }` → `{ token, expiresIn, username, role }` (public)
+- `GET /api/auth/me` — Returns current user info
 - `POST /api/execute` — Run raw Playwright script
-- `POST /api/execute-steps` — Run structured step definitions (builds a script from steps internally)
-- `GET /api/runs/:runId` — Get specific run result
+- `POST /api/execute-scenario/:id` — Run stored scenario by ID
 - `GET /api/runs` — List recent runs
+- `GET /api/runs/:runId` — Get specific run result
 - `GET /api/runs/:runId/artifacts/:filename` — Download test artifact
-- `GET /api/health` — Health check
-- `POST /api/agent/heal` — Run AI healer on a failed test
-- `GET /api/agent/status` — Check if an agent is running
-- `POST /api/agent/cancel` — Cancel running agent
+- `GET /api/scenarios` — List scenarios (credentials decrypted in response)
+- `POST /api/scenarios` — Create or update scenario (credentials encrypted on save)
+- `DELETE /api/scenarios/:id` — Delete scenario
+- `GET /api/plans` — List plans
+- `POST /api/plans` — Create or update plan
+- `DELETE /api/plans/:id` — Delete plan
 
 ## Data Storage
 
@@ -136,6 +212,8 @@ User data stored in platform-specific directories:
 
 Files:
 - `scenarios.json` — Test scenarios, plans, run history, and AI analysis history (steps are NOT stored, only scripts)
+- `users.json` — Admin user accounts (cloud server only; passwords are bcrypt-hashed)
+- `audit.log` — JSONL audit trail of all authenticated API requests (cloud server only)
 - `scripts/` — Recorded/imported script files
 - `results/` — Test artifacts (screenshots, videos, traces, debug logs)
 
